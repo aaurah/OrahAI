@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { ChevronRight, ChevronDown, File, Folder, FolderOpen, Plus, Trash2, RefreshCw, FilePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -10,10 +10,15 @@ interface Props {
   projectId: string;
   activeFilePath?: string;
   onFileSelect: (file: ProjectFile) => void;
+  refreshKey?: number;
 }
 
-export function WorkspaceSidebar({ projectId, activeFilePath, onFileSelect }: Props) {
+export function WorkspaceSidebar({ projectId, activeFilePath, onFileSelect, refreshKey }: Props) {
   const { tree, flat, isLoading, mutate } = useFiles(projectId);
+
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) mutate();
+  }, [refreshKey, mutate]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<string | null>(null);
   const [newName, setNewName] = useState("");

@@ -23,6 +23,7 @@ export default function WorkspacePage() {
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
+  const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -47,6 +48,19 @@ export default function WorkspacePage() {
     } catch {
       toast({ title: "Failed to save file", variant: "destructive" });
       setActiveFile(activeFile);
+    }
+  }, [activeFile, project]);
+
+  const handleFileChange = useCallback(async (path: string, action: "write" | "delete") => {
+    setFileRefreshKey((k) => k + 1);
+    if (action === "write" && activeFile?.path === path && project) {
+      try {
+        const res = await api.get<{ data: ProjectFile }>(`/api/files/${project.id}/read?path=${encodeURIComponent(path)}`);
+        if (res.data) setActiveFile(res.data);
+      } catch { /* ignore */ }
+    }
+    if (action === "delete" && activeFile?.path === path) {
+      setActiveFile(null);
     }
   }, [activeFile, project]);
 
@@ -111,6 +125,7 @@ export default function WorkspacePage() {
           projectId={project.id}
           activeFilePath={activeFile?.path}
           onFileSelect={handleFileSelect}
+          refreshKey={fileRefreshKey}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -142,6 +157,7 @@ export default function WorkspacePage() {
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
+              onFileChange={handleFileChange}
             />
           </div>
         )}
@@ -164,6 +180,7 @@ export default function WorkspacePage() {
               projectId={project.id}
               activeFilePath={activeFile?.path}
               onFileSelect={handleFileSelect}
+              refreshKey={fileRefreshKey}
             />
           </div>
         )}
@@ -205,6 +222,7 @@ export default function WorkspacePage() {
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
+              onFileChange={handleFileChange}
             />
           </div>
         )}

@@ -29,12 +29,11 @@ async function assertProjectAccess(projectId: string, userId: string) {
   return p;
 }
 
-// Extract $ command lines the AI wants to auto-run
+// ── Extract $ command lines the AI wants to auto-run ──────────────────────────
 function extractAutoRunCommands(content: string): { command: string; idx: number }[] {
   const results: { command: string; idx: number }[] = [];
-  const lines = content.split("\n");
   let idx = 0;
-  for (const line of lines) {
+  for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.startsWith("$ ")) {
       const cmd = trimmed.slice(2).trim();
@@ -44,6 +43,99 @@ function extractAutoRunCommands(content: string): { command: string; idx: number
   return results;
 }
 
+// ── Parse <<<WRITE:path>>> ... <<<END>>> and <<<DELETE:path>>> blocks ─────────
+interface FileOp {
+  action: "write" | "delete";
+  path: string;
+  content?: string;
+}
+
+function extractFileOps(content: string): FileOp[] {
+  const ops: FileOp[] = [];
+
+  // WRITE blocks: <<<WRITE:path>>>\ncontent\n<<<END>>>
+  const writeRe = /<<<WRITE:([^\n>]+)>>>\n([\s\S]*?)<<<END>>>/g;
+  let m: RegExpExecArray | null;
+  while ((m = writeRe.exec(content)) !== null) {
+    const path = m[1].trim();
+    const fileContent = m[2];
+    if (path && !path.includes("..") && !path.startsWith("/")) {
+      ops.push({ action: "write", path, content: fileContent });
+    }
+  }
+
+  // DELETE blocks: <<<DELETE:path>>>
+  const deleteRe = /<<<DELETE:([^\n>]+)>>>/g;
+  while ((m = deleteRe.exec(content)) !== null) {
+    const path = m[1].trim();
+    if (path && !path.includes("..") && !path.startsWith("/")) {
+      ops.push({ action: "delete", path });
+    }
+  }
+
+  return ops;
+}
+
+function mimeFromPath(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    js: "application/javascript", ts: "text/typescript", tsx: "text/typescript",
+    jsx: "text/javascript", py: "text/x-python", html: "text/html", css: "text/css",
+    json: "application/json", md: "text/markdown", sh: "text/x-shellscript",
+    yaml: "text/yaml", yml: "text/yaml", go: "text/x-go", rs: "text/x-rust",
+    java: "text/x-java", sql: "text/x-sql", toml: "text/plain", env: "text/plain",
+  };
+  return map[ext] ?? "text/plain";
+}
+
+// Write or update a file in the DB
+async function upsertFile(projectId: string, filePath: string, content: string) {
+  const name = filePath.split("/").pop() ?? filePath;
+  const mime = mimeFromPath(filePath);
+  const size = Buffer.byteLength(content, "utf8");
+
+  // Ensure parent directories exist
+  const parts = filePath.split("/");
+  for (let i = 1; i < parts.length; i++) {
+    const dirPath = parts.slice(0, i).join("/");
+    const dirName = parts[i - 1];
+    const [existingDir] = await db.select({ id: files.id })
+      .from(files).where(and(eq(files.projectId, projectId), eq(files.path, dirPath))).limit(1);
+    if (!existingDir) {
+      await db.insert(files).values({
+        id: cuid(), projectId, path: dirPath, name: dirName,
+        content: "", mimeType: "inode/directory", size: 0, isDir: true,
+      }).onConflictDoNothing();
+    }
+  }
+
+  const [existing] = await db.select({ id: files.id })
+    .from(files).where(and(eq(files.projectId, projectId), eq(files.path, filePath))).limit(1);
+
+  let file;
+  if (existing) {
+    [file] = await db.update(files)
+      .set({ content, size, mimeType: mime, deletedAt: null, updatedAt: new Date() })
+      .where(eq(files.id, existing.id)).returning();
+  } else {
+    [file] = await db.insert(files).values({
+      id: cuid(), projectId, path: filePath, name, content, mimeType: mime, size, isDir: false,
+    }).returning();
+  }
+
+  await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, projectId));
+  return file;
+}
+
+// Soft-delete a file in the DB
+async function deleteFile(projectId: string, filePath: string) {
+  const [existing] = await db.select({ id: files.id })
+    .from(files).where(and(eq(files.projectId, projectId), eq(files.path, filePath), isNull(files.deletedAt))).limit(1);
+  if (!existing) return false;
+  await db.update(files).set({ deletedAt: new Date() }).where(eq(files.id, existing.id));
+  return true;
+}
+
 router.post("/chat/:projectId", requireAuth, aiRateLimiter,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -51,8 +143,8 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         message: z.string().min(1).max(32000),
         fileContext: z.string().optional(),
         filePath: z.string().optional(),
-        imageData: z.string().optional(),     // base64
-        imageMimeType: z.string().optional(), // e.g. "image/png"
+        imageData: z.string().optional(),
+        imageMimeType: z.string().optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
@@ -86,7 +178,6 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext);
 
-      // Build user message — include image if provided
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [
         { type: "text", text: userContent },
       ];
@@ -126,11 +217,31 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         send({ type: "delta", content: fullContent });
       }
 
-      // Auto-run any $ commands the AI included
+      // ── Execute file operations ────────────────────────────────────────────
+      const fileOps = extractFileOps(fullContent);
+      if (fileOps.length > 0) {
+        send({ type: "file_ops_start", count: fileOps.length });
+        for (const op of fileOps) {
+          try {
+            if (op.action === "write" && op.content !== undefined) {
+              const saved = await upsertFile(project.id, op.path, op.content);
+              send({ type: "file_write", path: op.path, size: saved.size });
+            } else if (op.action === "delete") {
+              const deleted = await deleteFile(project.id, op.path);
+              send({ type: "file_delete", path: op.path, found: deleted });
+            }
+          } catch (e) {
+            logger.warn({ err: e, op }, "File op failed");
+            send({ type: "file_op_error", path: op.path, action: op.action, error: (e as Error).message });
+          }
+        }
+        send({ type: "file_ops_done" });
+      }
+
+      // ── Auto-run any $ commands ────────────────────────────────────────────
       const autoRunCmds = extractAutoRunCommands(fullContent);
       if (autoRunCmds.length > 0) {
         send({ type: "runs_start", count: autoRunCmds.length });
-
         for (const { command, idx } of autoRunCmds) {
           send({ type: "run_start", idx, command });
           try {
@@ -140,7 +251,6 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             send({ type: "run_result", idx, command, status: "error", output: (e as Error).message, exitCode: 1 });
           }
         }
-
         send({ type: "runs_done" });
       }
 
@@ -173,7 +283,7 @@ router.delete("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest,
   } catch (err) { next(err); }
 });
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── System prompt ──────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
   projectName: string,
@@ -185,21 +295,32 @@ function buildSystemPrompt(
   const lines: string[] = [
     `You are OrahAI, an expert ${language} developer and autonomous coding agent embedded in a cloud IDE.`,
     `The user is working on a project called "${projectName}" (language: ${language}).`,
-    `Give concise, correct answers. Use ${language} idioms and best practices.`,
-    `Format all code with fenced code blocks including the language name.`,
-    `When asked to fix or edit code, show the full updated file or the changed sections with clear explanation.`,
+    `You have FULL ability to read, create, edit, and delete any file in the project.`,
+    `Always be proactive: when asked to make changes, ACTUALLY make them using the file operation syntax below.`,
+    ``,
+    `## File Operations (ALWAYS use these when modifying files)`,
+    ``,
+    `### Writing / creating a file:`,
+    `<<<WRITE:path/to/file.ts>>>`,
+    `full file content goes here`,
+    `<<<END>>>`,
+    ``,
+    `### Deleting a file:`,
+    `<<<DELETE:path/to/file.ts>>>`,
+    ``,
+    `Rules:`,
+    `- Use WRITE for creating new files OR editing existing ones — always output the COMPLETE file content.`,
+    `- You can write multiple files in one response by using multiple WRITE blocks.`,
+    `- Paths must be relative (no leading slash, no ".." traversal).`,
+    `- After writing files, explain what you changed and why.`,
+    `- NEVER just show code and ask the user to paste it themselves — always use <<<WRITE>>> to apply it directly.`,
     ``,
     `## Auto-executing Commands`,
-    `You can run shell commands automatically. When you need to install packages, build, test, or run anything,`,
-    `include the command on its own line starting with "$ ":`,
-    ``,
+    `You can also run shell commands by putting them on their own line starting with "$ ":`,
     `$ npm install`,
     `$ npm run build`,
-    `$ python -m pytest`,
-    ``,
-    `These lines are AUTOMATICALLY EXECUTED in the project directory and results shown to the user.`,
-    `Use $ commands whenever you would tell the user to run something — run it yourself instead.`,
-    `Only use $ for commands you are confident should run (not just examples).`,
+    `$ python main.py`,
+    `These lines run automatically in the project sandbox.`,
     ``,
   ];
 
@@ -213,12 +334,12 @@ function buildSystemPrompt(
 
   const otherFiles = projectFiles.filter(f => f.path !== activeFilePath);
   if (otherFiles.length > 0) {
-    lines.push("## Project files:");
+    lines.push("## All project files:");
     let totalChars = 0;
     const MAX_TOTAL = 40000;
     for (const f of otherFiles) {
       if (totalChars >= MAX_TOTAL) {
-        lines.push(`\n_(${otherFiles.length} more files omitted)_`);
+        lines.push(`\n_(more files omitted due to length)_`);
         break;
       }
       const excerpt = f.content.slice(0, 4000);
@@ -228,6 +349,8 @@ function buildSystemPrompt(
       lines.push("```");
       totalChars += excerpt.length;
     }
+  } else if (!activeFilePath) {
+    lines.push("## Project files: (none yet — you can create files using <<<WRITE:filename>>>)");
   }
 
   return lines.join("\n");
