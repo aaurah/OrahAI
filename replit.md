@@ -8,7 +8,12 @@ An AI-powered browser IDE where users write, run, debug, and deploy code with a 
 - `pnpm --filter @workspace/api-server run dev` — run the Express API server (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env:
+  - `DATABASE_URL` — Postgres connection string (auto-provisioned by Replit)
+  - `JWT_SECRET` — secret for signing auth tokens (set in Replit Secrets)
+  - `SANDBOX_INTERNAL_KEY` — shared secret for sandbox→API callback auth (set in Replit Secrets; required in production)
+  - Optional: `AI_SERVICE_URL` + `AI_SERVICE_INTERNAL_KEY` — self-hosted AI service endpoint; omit to use built-in fallback
+  - Optional: `SANDBOX_URL` — sandbox execution service URL; omit if not running a code execution backend
 
 ## Stack
 
