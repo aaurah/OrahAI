@@ -111,6 +111,53 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response, n
   } catch (err) { next(err); }
 });
 
+router.post("/import/files", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      workspaceId: z.string(),
+      name: z.string().min(1).max(100),
+      language: z.string().optional().default("nodejs"),
+      files: z.array(z.object({ path: z.string(), content: z.string() })).max(200),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
+
+    await assertWorkspaceMember(parsed.data.workspaceId, req.user!.id);
+    const slug = await uniqueProjectSlug(parsed.data.workspaceId, slugify(parsed.data.name));
+    const projectId = cuid();
+
+    const [project] = await db.insert(projects).values({
+      id: projectId, name: parsed.data.name, slug,
+      language: parsed.data.language, isPublic: false,
+      workspaceId: parsed.data.workspaceId, ownerId: req.user!.id,
+    }).returning();
+
+    const mimeForPath = (path: string) => {
+      const ext = path.split(".").pop()?.toLowerCase() ?? "";
+      const map: Record<string, string> = {
+        js: "application/javascript", jsx: "application/javascript",
+        ts: "text/typescript", tsx: "text/typescript",
+        py: "text/x-python", html: "text/html", css: "text/css",
+        json: "application/json", md: "text/markdown",
+      };
+      return map[ext] ?? "text/plain";
+    };
+
+    const fileValues = parsed.data.files.map((f) => ({
+      id: cuid(), projectId, path: f.path,
+      name: f.path.split("/").pop() ?? f.path,
+      content: f.content, mimeType: mimeForPath(f.path),
+      isDir: false, size: Buffer.byteLength(f.content, "utf-8"),
+    }));
+    if (fileValues.length) await db.insert(files).values(fileValues);
+
+    res.status(201).json({
+      data: { ...project, _count: { files: fileValues.length, runs: 0, chats: 0 } },
+      message: `Imported ${fileValues.length} files`,
+    });
+  } catch (err) { next(err); }
+});
+
 router.get("/:id", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const id = String(req.params.id);

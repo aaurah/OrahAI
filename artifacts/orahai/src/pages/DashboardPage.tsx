@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { Plus, Search, Code2, Globe, Clock, ArrowRight, FolderOpen } from "lucide-react";
+import { Plus, Search, Code2, Globe, Clock, ArrowRight, FolderOpen, Download } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Navbar } from "@/components/layout/Navbar";
 import { CreateProjectDialog } from "@/components/editor/CreateProjectDialog";
+import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow } from "@/lib/utils";
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const { projects, isLoading, mutate } = useProjects({ search });
 
   return (
@@ -36,10 +38,16 @@ export default function DashboardPage() {
                 Build, run, and deploy your projects with AI assistance
               </p>
             </div>
-            <Button onClick={() => setCreateOpen(true)} className="gap-2">
-              <Plus className="w-4 h-4" />
-              New project
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:block">Import</span>
+              </Button>
+              <Button onClick={() => setCreateOpen(true)} className="gap-2">
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:block">New project</span>
+              </Button>
+            </div>
           </div>
 
           <div className="relative mb-6 max-w-md">
@@ -55,7 +63,7 @@ export default function DashboardPage() {
           {isLoading ? (
             <ProjectsSkeleton />
           ) : projects.length === 0 ? (
-            <EmptyState onCreateClick={() => setCreateOpen(true)} search={search} />
+            <EmptyState onCreateClick={() => setCreateOpen(true)} onImportClick={() => setImportOpen(true)} search={search} />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {projects.map((project) => (
@@ -69,6 +77,12 @@ export default function DashboardPage() {
             onOpenChange={setCreateOpen}
             onCreated={() => mutate()}
           />
+          {importOpen && (
+            <ImportProjectDialog
+              onOpenChange={setImportOpen}
+              onImported={() => mutate()}
+            />
+          )}
         </div>
       </main>
     </div>
@@ -119,7 +133,9 @@ function ProjectCard({ project }: { project: ProjectWithCounts }) {
   );
 }
 
-function EmptyState({ onCreateClick, search }: { onCreateClick: () => void; search: string }) {
+function EmptyState({
+  onCreateClick, onImportClick, search,
+}: { onCreateClick: () => void; onImportClick: () => void; search: string }) {
   if (search) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -137,12 +153,18 @@ function EmptyState({ onCreateClick, search }: { onCreateClick: () => void; sear
       </div>
       <h3 className="text-xl font-semibold mb-2">Create your first project</h3>
       <p className="text-muted-foreground mb-6 max-w-sm">
-        Start with a template or a blank project. OrahAI will help you build it.
+        Start with a template, import from GitHub, or upload local files.
       </p>
-      <Button onClick={onCreateClick} size="lg" className="gap-2">
-        <Plus className="w-5 h-5" />
-        New project
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button onClick={onCreateClick} size="lg" className="gap-2">
+          <Plus className="w-5 h-5" />
+          New project
+        </Button>
+        <Button onClick={onImportClick} size="lg" variant="outline" className="gap-2">
+          <Download className="w-5 h-5" />
+          Import
+        </Button>
+      </div>
     </div>
   );
 }

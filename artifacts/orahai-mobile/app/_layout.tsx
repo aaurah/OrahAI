@@ -15,6 +15,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -58,6 +59,17 @@ function RootLayoutNav() {
           }}
         />
         <Stack.Screen
+          name="import"
+          options={{
+            presentation: "modal",
+            headerShown: true,
+            title: "Import Project",
+            headerStyle: { backgroundColor: "#090b18" },
+            headerTintColor: "#f8fafc",
+            headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 16 },
+          }}
+        />
+        <Stack.Screen
           name="github-import"
           options={{
             presentation: "modal",
@@ -92,15 +104,17 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <AuthProvider>
-                <RootLayoutNav />
-              </AuthProvider>
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </QueryClientProvider>
+        <ThemeProvider>
+          <QueryClientProvider client={queryClient}>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <AuthProvider>
+                  <RootLayoutNav />
+                </AuthProvider>
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </QueryClientProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

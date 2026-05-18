@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, Pressable, TextInput,
   StyleSheet, ActivityIndicator, Alert, Platform,
@@ -7,12 +7,21 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
+import { useTheme, type Theme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
+import type { ApiResponse } from "@/lib/types";
+
+const THEMES: { value: Theme; label: string; icon: string; desc: string }[] = [
+  { value: "light",  label: "Light",  icon: "sun",    desc: "White background" },
+  { value: "dark",   label: "Dark",   icon: "moon",   desc: "Dark navy background" },
+  { value: "amoled", label: "AMOLED", icon: "circle", desc: "Pure black — saves battery" },
+];
 
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { theme, setTheme } = useTheme();
   const { user, logout, refreshUser } = useAuth();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user?.name ?? "");
@@ -21,6 +30,17 @@ export default function SettingsScreen() {
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [changingPwd, setChangingPwd] = useState(false);
+
+  const [ghLogin, setGhLogin] = useState<string | null>(null);
+  const [ghToken, setGhToken] = useState("");
+  const [showGhInput, setShowGhInput] = useState(false);
+  const [isSavingGh, setIsSavingGh] = useState(false);
+
+  useEffect(() => {
+    api.get<ApiResponse<{ hasToken: boolean; login?: string }>>("/api/github/token")
+      .then((r) => { if (r.data.hasToken && r.data.login) setGhLogin(r.data.login); })
+      .catch(() => {});
+  }, []);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 + 84 : insets.bottom + 83;
@@ -45,6 +65,33 @@ export default function SettingsScreen() {
     } catch (e: unknown) {
       Alert.alert("Error", (e as Error).message ?? "Failed to change password");
     } finally { setChangingPwd(false); }
+  };
+
+  const handleSaveGhToken = async () => {
+    if (!ghToken.trim()) return;
+    setIsSavingGh(true);
+    try {
+      const r = await api.post<ApiResponse<{ login: string }>>("/api/github/token", { token: ghToken.trim() });
+      setGhLogin(r.data.login);
+      setGhToken(""); setShowGhInput(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: unknown) {
+      Alert.alert("Error", (e as Error).message ?? "Invalid token");
+    } finally { setIsSavingGh(false); }
+  };
+
+  const handleRemoveGhToken = () => {
+    Alert.alert("Remove GitHub token", "This will disconnect your GitHub account.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove", style: "destructive", onPress: async () => {
+          try {
+            await api.delete("/api/github/token");
+            setGhLogin(null);
+          } catch { /* ignore */ }
+        },
+      },
+    ]);
   };
 
   const handleLogout = () => {
@@ -122,6 +169,70 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
+      {/* ── Theme ──────────────────────────────────────────────────────── */}
+      <View style={s.card}>
+        <Text style={s.sectionTitle}>Theme</Text>
+        {THEMES.map((t) => (
+          <Pressable key={t.value} style={s.themeRow} onPress={() => setTheme(t.value)}>
+            <View style={[s.themeIcon, theme === t.value && { backgroundColor: colors.primary + "20", borderColor: colors.primary }]}>
+              <Feather name={t.icon as any} size={16} color={theme === t.value ? colors.primary : colors.mutedForeground} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.themeLabel, theme === t.value && { color: colors.primary }]}>{t.label}</Text>
+              <Text style={s.themeDesc}>{t.desc}</Text>
+            </View>
+            {theme === t.value && <Feather name="check" size={16} color={colors.primary} />}
+          </Pressable>
+        ))}
+      </View>
+
+      {/* ── GitHub ─────────────────────────────────────────────────────── */}
+      <View style={s.card}>
+        <Text style={s.sectionTitle}>GitHub</Text>
+        {ghLogin ? (
+          <View style={s.ghConnectedRow}>
+            <Feather name="github" size={18} color={colors.foreground} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.ghLogin}>@{ghLogin}</Text>
+              <Text style={s.ghDesc}>GitHub token connected</Text>
+            </View>
+            <Pressable onPress={handleRemoveGhToken}>
+              <Feather name="trash-2" size={16} color={colors.destructive} />
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <Text style={s.ghDesc}>Connect your GitHub account to pull and push code.</Text>
+            {!showGhInput ? (
+              <Pressable style={s.outlineBtn} onPress={() => setShowGhInput(true)}>
+                <Text style={s.outlineBtnText}>Add GitHub token</Text>
+              </Pressable>
+            ) : (
+              <>
+                <TextInput
+                  style={s.field}
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={ghToken}
+                  onChangeText={setGhToken}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable style={[s.saveBtn, { flex: 1 }, (!ghToken.trim() || isSavingGh) && { opacity: 0.5 }]} onPress={handleSaveGhToken} disabled={!ghToken.trim() || isSavingGh}>
+                    {isSavingGh ? <ActivityIndicator color={colors.primaryForeground} size="small" /> : <Text style={s.saveBtnText}>Save token</Text>}
+                  </Pressable>
+                  <Pressable style={[s.outlineBtn, { flex: 1 }]} onPress={() => { setShowGhInput(false); setGhToken(""); }}>
+                    <Text style={s.outlineBtnText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </>
+        )}
+      </View>
+
       <View style={s.card}>
         <Text style={s.sectionTitle}>App</Text>
         <View style={s.metaRow}>
@@ -162,8 +273,7 @@ const styles = (colors) => StyleSheet.create({
   usernameText: { fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_500Medium" },
   card: {
     marginHorizontal: 16, marginBottom: 16, backgroundColor: colors.card,
-    borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    padding: 16,
+    borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16,
   },
   sectionTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: colors.mutedForeground, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 },
   infoRow: {
@@ -193,6 +303,20 @@ const styles = (colors) => StyleSheet.create({
     paddingVertical: 10, alignItems: "center",
   },
   outlineBtnText: { color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  themeRow: {
+    flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  themeIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  themeLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.foreground, marginBottom: 1 },
+  themeDesc: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.mutedForeground },
+  ghConnectedRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  ghLogin: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: colors.foreground },
+  ghDesc: { fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_400Regular", marginBottom: 10 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   metaText: { fontSize: 14, color: colors.foreground, fontFamily: "Inter_400Regular", flex: 1 },
   metaVersion: { fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_400Regular" },

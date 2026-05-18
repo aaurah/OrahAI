@@ -12,24 +12,24 @@ import { useColors } from "@/hooks/useColors";
 import { api } from "@/lib/api";
 import type { ApiResponse } from "@/lib/types";
 
-interface GitHubRepo {
+interface RepoPreview {
   name: string;
-  full_name: string;
+  fullName: string;
   description: string | null;
   language: string | null;
-  stargazers_count: number;
-  forks_count: number;
+  stars: number;
+  forks: number;
   private: boolean;
-  html_url: string;
+  defaultBranch: string;
+  importableFiles: number;
+  mappedLanguage: string;
 }
 
-const LANGUAGE_MAP: Record<string, string> = {
-  JavaScript: "nodejs",
-  TypeScript: "typescript",
-  Python: "python",
-  HTML: "html",
-  CSS: "html",
-};
+interface ImportedProject {
+  id: string;
+  name: string;
+  _count: { files: number };
+}
 
 export default function GitHubImportScreen() {
   const colors = useColors();
@@ -37,75 +37,62 @@ export default function GitHubImportScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const [repoUrl, setRepoUrl] = useState("");
-  const [preview, setPreview] = useState<GitHubRepo | null>(null);
-  const [fetching, setFetching] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [fetchError, setFetchError] = useState("");
+  const [branch, setBranch] = useState("");
+  const [pat, setPat] = useState("");
+  const [showPat, setShowPat] = useState(false);
+  const [preview, setPreview] = useState<RepoPreview | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [error, setError] = useState("");
 
-  const parseGitHubUrl = (url: string) => {
-    const clean = url.trim().replace(/\/$/, "").replace(/\.git$/, "");
-    const match = clean.match(/github\.com\/([^/]+)\/([^/]+)$/);
-    return match ? { owner: match[1], repo: match[2] } : null;
-  };
-
-  const handleFetchPreview = async () => {
-    const parsed = parseGitHubUrl(repoUrl);
-    if (!parsed) {
-      setFetchError("Please enter a valid GitHub repository URL (e.g. github.com/owner/repo)");
-      return;
-    }
-    setFetching(true); setFetchError(""); setPreview(null);
+  const handlePreview = async () => {
+    if (!repoUrl.trim()) return;
+    setError(""); setPreview(null); setIsPreviewing(true);
     try {
-      const res = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`);
-      if (!res.ok) {
-        if (res.status === 404) throw new Error("Repository not found. Make sure it's public.");
-        throw new Error("Failed to fetch repository info.");
-      }
-      const data = await res.json() as GitHubRepo;
-      setPreview(data);
+      const res = await api.post<ApiResponse<RepoPreview>>("/api/github/preview", {
+        repoUrl: repoUrl.trim(),
+        ...(pat ? { token: pat } : {}),
+      });
+      setPreview(res.data);
+      if (!branch) setBranch(res.data.defaultBranch);
     } catch (e: unknown) {
-      setFetchError((e as Error).message ?? "Failed to fetch repository");
-    } finally {
-      setFetching(false);
-    }
+      setError((e as Error).message ?? "Failed to fetch repository info");
+    } finally { setIsPreviewing(false); }
   };
 
   const handleImport = async () => {
     if (!preview) return;
-    setImporting(true);
+    setIsImporting(true);
     try {
       const wsRes = await api.get<ApiResponse<{ id: string }[]>>("/api/workspaces");
-      // @ts-ignore
       const workspaces = wsRes.data as { id: string }[];
       if (!workspaces?.length) {
-        Alert.alert("Error", "No workspace found. Please set up a workspace first.");
+        Alert.alert("Error", "No workspace found. Please create one first.");
         return;
       }
-      const workspaceId = workspaces[0].id;
-      const language = LANGUAGE_MAP[preview.language ?? ""] ?? "nodejs";
-      await api.post("/api/projects", {
-        name: preview.name,
-        description: preview.description ?? undefined,
-        language,
-        isPublic: !preview.private,
-        workspaceId,
+      const res = await api.post<ApiResponse<ImportedProject>>("/api/github/import", {
+        repoUrl: repoUrl.trim(),
+        workspaceId: workspaces[0].id,
+        branch: branch || preview.defaultBranch,
+        ...(pat ? { token: pat } : {}),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       qc.invalidateQueries({ queryKey: ["projects"] });
-      router.back();
+      Alert.alert(
+        "Imported!",
+        `${preview.name} imported with ${res.data._count.files} files.`,
+        [{ text: "OK", onPress: () => router.back() }],
+      );
     } catch (e: unknown) {
-      Alert.alert("Import failed", (e as Error).message ?? "Could not create project");
-    } finally {
-      setImporting(false);
-    }
+      Alert.alert("Import failed", (e as Error).message ?? "Could not import project");
+    } finally { setIsImporting(false); }
   };
 
   const s = styles(colors);
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   return (
     <ScrollView
-      style={[s.container]}
+      style={s.container}
       contentContainerStyle={{ paddingBottom: insets.bottom + 32, paddingTop: 24 }}
       keyboardShouldPersistTaps="handled"
     >
@@ -114,40 +101,58 @@ export default function GitHubImportScreen() {
           <Feather name="github" size={28} color={colors.foreground} />
         </View>
         <Text style={s.title}>Import from GitHub</Text>
-        <Text style={s.subtitle}>Paste a public GitHub repository URL to create a new project</Text>
+        <Text style={s.subtitle}>
+          Paste a GitHub repo URL — files will be imported into a new project
+        </Text>
       </View>
 
       <View style={s.card}>
         <Text style={s.label}>Repository URL</Text>
-        <View style={s.inputRow}>
+        <TextInput
+          style={s.input}
+          placeholder="https://github.com/owner/repo"
+          placeholderTextColor={colors.mutedForeground}
+          value={repoUrl}
+          onChangeText={(v) => { setRepoUrl(v); setPreview(null); setError(""); }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+
+        <Pressable style={s.patToggle} onPress={() => setShowPat((v) => !v)}>
+          <Feather name={showPat ? "chevron-down" : "chevron-right"} size={14} color={colors.mutedForeground} />
+          <Text style={s.patToggleText}>Use a GitHub token for private repos</Text>
+        </Pressable>
+
+        {showPat && (
           <TextInput
-            style={s.input}
-            placeholder="https://github.com/owner/repo"
+            style={[s.input, { marginTop: 8 }]}
+            placeholder="ghp_xxxxxxxxxxxx"
             placeholderTextColor={colors.mutedForeground}
-            value={repoUrl}
-            onChangeText={(v) => { setRepoUrl(v); setPreview(null); setFetchError(""); }}
+            value={pat}
+            onChangeText={setPat}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="url"
+            secureTextEntry
           />
-        </View>
-        {!!fetchError && (
+        )}
+
+        {!!error && (
           <View style={s.errorRow}>
             <Feather name="alert-circle" size={13} color={colors.destructive} />
-            <Text style={s.errorText}>{fetchError}</Text>
+            <Text style={s.errorText}>{error}</Text>
           </View>
         )}
+
         <Pressable
-          style={[s.previewBtn, (!repoUrl.trim() || fetching) && { opacity: 0.5 }]}
-          onPress={handleFetchPreview}
-          disabled={!repoUrl.trim() || fetching}
+          style={[s.previewBtn, (!repoUrl.trim() || isPreviewing) && { opacity: 0.5 }]}
+          onPress={handlePreview}
+          disabled={!repoUrl.trim() || isPreviewing}
         >
-          {fetching
+          {isPreviewing
             ? <ActivityIndicator color={colors.primary} size="small" />
-            : <>
-                <Feather name="search" size={16} color={colors.primary} />
-                <Text style={s.previewBtnText}>Fetch repository info</Text>
-              </>}
+            : <><Feather name="search" size={16} color={colors.primary} /><Text style={s.previewBtnText}>Preview repository</Text></>
+          }
         </Pressable>
       </View>
 
@@ -155,7 +160,7 @@ export default function GitHubImportScreen() {
         <View style={s.previewCard}>
           <View style={s.previewHeader}>
             <Feather name="book" size={18} color={colors.primary} />
-            <Text style={s.previewName} numberOfLines={1}>{preview.full_name}</Text>
+            <Text style={s.previewName} numberOfLines={1}>{preview.fullName}</Text>
             {preview.private && (
               <View style={s.privateBadge}>
                 <Feather name="lock" size={10} color={colors.mutedForeground} />
@@ -177,36 +182,34 @@ export default function GitHubImportScreen() {
             )}
             <View style={s.metaItem}>
               <Feather name="star" size={13} color={colors.mutedForeground} />
-              <Text style={s.metaText}>{preview.stargazers_count.toLocaleString()}</Text>
+              <Text style={s.metaText}>{preview.stars.toLocaleString()}</Text>
             </View>
             <View style={s.metaItem}>
-              <Feather name="git-branch" size={13} color={colors.mutedForeground} />
-              <Text style={s.metaText}>{preview.forks_count.toLocaleString()}</Text>
+              <Feather name="file-text" size={13} color={colors.mutedForeground} />
+              <Text style={s.metaText}>{preview.importableFiles} files</Text>
             </View>
           </View>
 
-          <View style={s.importInfo}>
-            <Feather name="info" size={13} color={colors.mutedForeground} />
-            <Text style={s.importInfoText}>
-              This will create a new {LANGUAGE_MAP[preview.language ?? ""] ?? "nodejs"} project named "{preview.name}" in your workspace.
-            </Text>
+          <View style={s.branchRow}>
+            <Text style={s.label}>Branch</Text>
+            <TextInput
+              style={s.branchInput}
+              placeholder={preview.defaultBranch}
+              placeholderTextColor={colors.mutedForeground}
+              value={branch}
+              onChangeText={setBranch}
+              autoCapitalize="none"
+            />
           </View>
 
-          <Pressable style={[s.importBtn, importing && { opacity: 0.7 }]} onPress={handleImport} disabled={importing}>
-            {importing
+          <Pressable style={[s.importBtn, isImporting && { opacity: 0.7 }]} onPress={handleImport} disabled={isImporting}>
+            {isImporting
               ? <ActivityIndicator color={colors.primaryForeground} />
-              : <>
-                  <Feather name="download" size={18} color={colors.primaryForeground} />
-                  <Text style={s.importBtnText}>Import Project</Text>
-                </>}
+              : <><Feather name="download" size={18} color={colors.primaryForeground} /><Text style={s.importBtnText}>Import {preview.importableFiles} files</Text></>
+            }
           </Pressable>
         </View>
       )}
-
-      <View style={s.note}>
-        <Feather name="alert-circle" size={14} color={colors.mutedForeground} />
-        <Text style={s.noteText}>Only public repositories can be imported without authentication. The project metadata will be imported — files are not downloaded.</Text>
-      </View>
     </ScrollView>
   );
 }
@@ -222,18 +225,16 @@ const styles = (colors) => StyleSheet.create({
   },
   title: { fontSize: 20, fontFamily: "Inter_700Bold", color: colors.foreground, marginBottom: 6 },
   subtitle: { fontSize: 14, color: colors.mutedForeground, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
-  card: {
-    marginHorizontal: 16, backgroundColor: colors.card,
-    borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16, marginBottom: 16,
-  },
+  card: { marginHorizontal: 16, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16, marginBottom: 16 },
   label: { fontSize: 13, fontFamily: "Inter_500Medium", color: colors.foreground, marginBottom: 8 },
-  inputRow: { marginBottom: 12 },
   input: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 11,
+    paddingHorizontal: 14, paddingVertical: 11, marginBottom: 12,
     fontSize: 14, color: colors.foreground, fontFamily: "Inter_400Regular",
     backgroundColor: colors.background,
   },
+  patToggle: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  patToggleText: { fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_400Regular" },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
   errorText: { color: colors.destructive, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
   previewBtn: {
@@ -241,30 +242,23 @@ const styles = (colors) => StyleSheet.create({
     borderWidth: 1, borderColor: colors.primary, borderRadius: 10, paddingVertical: 10,
   },
   previewBtnText: { color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  previewCard: {
-    marginHorizontal: 16, backgroundColor: colors.card,
-    borderRadius: 14, borderWidth: 1, borderColor: colors.primary + "50", padding: 16, marginBottom: 16,
-  },
+  previewCard: { marginHorizontal: 16, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.primary + "50", padding: 16, marginBottom: 16 },
   previewHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   previewName: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: colors.foreground, flex: 1 },
   privateBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.secondary, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   privateBadgeText: { fontSize: 11, color: colors.mutedForeground, fontFamily: "Inter_500Medium" },
   previewDesc: { fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_400Regular", lineHeight: 18, marginBottom: 12 },
-  previewMeta: { flexDirection: "row", gap: 16, marginBottom: 14 },
+  previewMeta: { flexDirection: "row", gap: 16, marginBottom: 14, flexWrap: "wrap" },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   metaText: { fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_400Regular" },
   langDot: { width: 10, height: 10, borderRadius: 5 },
-  importInfo: { flexDirection: "row", gap: 8, alignItems: "flex-start", backgroundColor: colors.accent, borderRadius: 8, padding: 10, marginBottom: 14 },
-  importInfoText: { fontSize: 12, color: colors.accentForeground, fontFamily: "Inter_400Regular", flex: 1, lineHeight: 17 },
-  importBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 13,
+  branchRow: { marginBottom: 14 },
+  branchInput: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 9,
+    fontSize: 14, color: colors.foreground, fontFamily: "Inter_400Regular",
+    backgroundColor: colors.background,
   },
+  importBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 13 },
   importBtnText: { color: colors.primaryForeground, fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  note: {
-    flexDirection: "row", alignItems: "flex-start", gap: 8,
-    marginHorizontal: 16, backgroundColor: colors.secondary,
-    borderRadius: 10, padding: 12,
-  },
-  noteText: { fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_400Regular", flex: 1, lineHeight: 17 },
 });

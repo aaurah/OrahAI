@@ -5,6 +5,7 @@ import { CodeEditor } from "@/components/editor/CodeEditor";
 import { Terminal } from "@/components/terminal/Terminal";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
+import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
 import { api } from "@/lib/api";
@@ -13,13 +14,14 @@ import type { ProjectFile, ApiResponse, Run } from "@/types";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
-  const { project, isLoading } = useProject(id ?? null);
+  const { project, isLoading, mutate: mutateProject } = useProject(id ?? null);
   const { runs, mutate: mutateRuns } = useRuns(id ?? null);
   const latestRun = runs[0] ?? null;
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(true);
+  const [githubOpen, setGithubOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
 
   const handleFileSelect = useCallback((file: ProjectFile) => setActiveFile(file), []);
@@ -68,6 +70,8 @@ export default function WorkspacePage() {
         onChatToggle={() => setChatOpen((v) => !v)}
         terminalOpen={terminalOpen}
         onTerminalToggle={() => setTerminalOpen((v) => !v)}
+        githubOpen={githubOpen}
+        onGithubToggle={() => setGithubOpen((v) => !v)}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -106,6 +110,15 @@ export default function WorkspacePage() {
               projectId={project.id}
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
+            />
+          </div>
+        )}
+
+        {githubOpen && (
+          <div className="w-64 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <GitHubPanel
+              projectId={project.id}
+              onSynced={() => mutateProject()}
             />
           </div>
         )}
