@@ -24,6 +24,7 @@ const LANGUAGE_ICONS: Record<string, string> = {
   ruby: "💎", php: "🐘", cpp: "⚙️", c: "🔵", csharp: "🟣",
   scala: "🔺", r: "📊", dart: "🎱", elixir: "💧", haskell: "λ",
   bash: "🖥️", lua: "🌙", perl: "🐪",
+  solidity: "⟠", vyper: "🐍⟠", move: "◎", web3: "🔗",
 };
 
 const SUGGESTIONS = [
@@ -43,6 +44,14 @@ const STOP_WORDS = new Set([
 
 function inferLanguage(text: string): string {
   const n = text.toLowerCase();
+  // ── Blockchain / Web3 — checked first (highest specificity) ──────────────
+  if (/\bvyper\b/.test(n)) return "vyper";
+  if (/\bmove\b.*(aptos|sui|lang)|\b(aptos|sui)\b.*\bmove\b|\bmove\b language/.test(n)) return "move";
+  if (/\bsolidity\b|smart.?contract|erc.?20|erc.?721|erc.?1155|erc.?4626|\bnft.*(contract|mint|deploy)|\bdefi\b|\bdao\b|\btoken.?contract|hardhat|foundry|truffle|openzeppelin|abi\.encode|msg\.sender|\bwei\b|\bgwei\b|\bsolc\b/.test(n)) return "solidity";
+  if (/\bweb3\b|dapp|decentrali[zs]ed.?app|ethers\.js|wagmi|viem\b|metamask|wallet.?connect|rainbow.?kit/.test(n)) return "web3";
+  if (/\bsolana\b|\banchor\b.*(program|rust|framework)|spl.?token|borsh\b/.test(n)) return "rust";
+  if (/\bethereum\b|\bevm\b|\bpolygon\b|\bavalanch|\bbnb.?chain|\barbitrum|\boptimism|\bbase.?chain|\bzksync|\bstarknet|\bblockchain\b|\bdeploy.*(contract|token)|mint\b.*\bnft|\bnft\b|\btoken\b.*(deploy|create|build|launch)|defi|yield.?farm|liquidity|amm\b|uniswap|aave\b|compound\b/.test(n)) return "solidity";
+  // ── Other languages ────────────────────────────────────────────────────────
   if (/\brust\b|cargo\b|actix|axum|tokio/.test(n)) return "rust";
   if (/\bgo\b|golang|gin\b|goroutine|go\.mod/.test(n)) return "go";
   if (/\bjava\b|spring\b|maven|gradle|jvm/.test(n)) return "java";
@@ -63,7 +72,7 @@ function inferLanguage(text: string): string {
   if (/\bc\b(?!#|\+\+)|ansi.?c\b/.test(n)) return "c";
   if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci|jupyter|numpy|scipy/.test(n)) return "python";
   if (/\btypescript\b|\.ts\b/.test(n)) return "typescript";
-  if (/\bapi\b|backend|server|express|node\.?js|rest\b|graphql|socket|websocket|crypto|bitcoin|ethereum|blockchain|database|mongo|postgres|mysql|sqlite|\bauth\b|login|dashboard|tracker|manager|monitor|\bapp\b/.test(n)) return "nodejs";
+  if (/\bapi\b|backend|server|express|node\.?js|rest\b|graphql|socket|websocket|database|mongo|postgres|mysql|sqlite|\bauth\b|login|dashboard|tracker|manager|monitor|\bapp\b/.test(n)) return "nodejs";
   if (/\bhtml\b|\bcss\b|landing.?page|portfolio.?site|portfolio.?web|portfolio.?page|\bwebsite\b|static.?site|\bblog\b/.test(n)) return "html";
   return "nodejs";
 }
