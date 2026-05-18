@@ -1,6 +1,7 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { db, chatMessages, projects, memberships } from "@workspace/db";
+import OpenAI from "openai";
+import { db, chatMessages, projects, memberships, files } from "@workspace/db";
 import { eq, and, or, isNull, asc, desc, sql } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
@@ -9,6 +10,11 @@ import { cuid } from "../lib/cuid";
 import { logger } from "../lib/logger";
 
 const router = Router();
+
+const openai = new OpenAI({
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+});
 
 async function assertProjectAccess(projectId: string, userId: string) {
   const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
@@ -36,6 +42,14 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
       const { message, fileContext, filePath } = parsed.data;
 
+      // Load all project files for context
+      const projectFiles = await db.select({ path: files.path, content: files.content, mimeType: files.mimeType })
+        .from(files)
+        .where(and(eq(files.projectId, project.id), isNull(files.deletedAt), eq(files.isDir, false)))
+        .orderBy(asc(files.path))
+        .limit(60);
+
+      // Load recent chat history
       const history = await db.select({ role: chatMessages.role, content: chatMessages.content })
         .from(chatMessages).where(eq(chatMessages.projectId, project.id))
         .orderBy(desc(chatMessages.createdAt)).limit(20);
@@ -53,54 +67,34 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
 
-      const aiServiceUrl = process.env.AI_SERVICE_URL;
+      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext);
+
+      const chatHistory: OpenAI.ChatCompletionMessageParam[] = [
+        { role: "system", content: systemPrompt },
+        ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user", content: message },
+      ];
+
       let fullContent = "";
 
-      if (aiServiceUrl) {
-        try {
-          const systemPrompt = buildSystemPrompt(project.name, project.language, filePath, fileContext);
-          const aiRes = await fetch(`${aiServiceUrl}/chat`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-internal-key": process.env.AI_SERVICE_INTERNAL_KEY ?? "",
-            },
-            body: JSON.stringify({
-              messages: [
-                ...history.map((m) => ({ role: m.role, content: m.content })),
-                { role: "user", content: message },
-              ],
-              system_prompt: systemPrompt,
-            }),
-          });
+      try {
+        const stream = await openai.chat.completions.create({
+          model: "gpt-5.1",
+          max_completion_tokens: 8192,
+          messages: chatHistory,
+          stream: true,
+        });
 
-          if (!aiRes.ok || !aiRes.body) throw new Error(`AI service error: ${aiRes.status}`);
-
-          const reader = aiRes.body.getReader();
-          const dec = new TextDecoder();
-          let buf = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const lines = buf.split("\n"); buf = lines.pop() ?? "";
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              try {
-                const evt = JSON.parse(line.slice(6)) as { type: string; content?: string };
-                if (evt.type === "delta" && evt.content) { fullContent += evt.content; send(evt); }
-                else if (evt.type === "done") break;
-              } catch { /* skip */ }
-            }
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content;
+          if (content) {
+            fullContent += content;
+            send({ type: "delta", content });
           }
-        } catch (e) {
-          logger.warn({ err: e }, "AI service error");
-          fullContent = "AI service is currently unavailable. Please try again later.";
-          send({ type: "delta", content: fullContent });
         }
-      } else {
-        fullContent = "AI integration is not configured on this server. Set the `AI_SERVICE_URL` environment variable to enable AI chat.";
+      } catch (e) {
+        logger.warn({ err: e }, "OpenAI error");
+        fullContent = "AI service is temporarily unavailable. Please try again.";
         send({ type: "delta", content: fullContent });
       }
 
@@ -133,12 +127,68 @@ router.delete("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest,
   } catch (err) { next(err); }
 });
 
-function buildSystemPrompt(projectName: string, language: string, filePath?: string, fileContext?: string): string {
-  let prompt = `You are OrahAI, an expert ${language} developer assistant embedded in a cloud IDE.\nThe user is working on a project called "${projectName}".\nGive concise, correct answers. When writing code, use ${language} idioms.\nFormat code blocks with the language name.`;
-  if (filePath && fileContext) {
-    prompt += `\n\nThe user currently has this file open:\n\`\`\`${filePath}\n${fileContext.slice(0, 6000)}\n\`\`\``;
+// ── System prompt builder ──────────────────────────────────────────────────────
+
+function buildSystemPrompt(
+  projectName: string,
+  language: string,
+  projectFiles: { path: string; content: string; mimeType: string }[],
+  activeFilePath?: string,
+  activeFileContent?: string,
+): string {
+  const lines: string[] = [
+    `You are OrahAI, an expert ${language} developer assistant embedded in a cloud IDE.`,
+    `The user is working on a project called "${projectName}" (language: ${language}).`,
+    `Give concise, correct answers. When writing code, use ${language} idioms and best practices.`,
+    `Format all code with fenced code blocks including the language name.`,
+    `When asked to fix or edit code, show only the changed parts with brief explanation.`,
+    ``,
+  ];
+
+  // Include active file first with full priority
+  if (activeFilePath && activeFileContent) {
+    lines.push(`## Currently open file: \`${activeFilePath}\``);
+    lines.push(`\`\`\`${langFromPath(activeFilePath)}`);
+    lines.push(activeFileContent.slice(0, 8000));
+    lines.push("```");
+    lines.push("");
   }
-  return prompt;
+
+  // Include all other project files as context
+  const otherFiles = projectFiles.filter(f => f.path !== activeFilePath);
+  if (otherFiles.length > 0) {
+    lines.push("## Project files (full codebase context):");
+    let totalChars = 0;
+    const MAX_TOTAL = 40000;
+
+    for (const f of otherFiles) {
+      if (totalChars >= MAX_TOTAL) {
+        lines.push(`\n_(${projectFiles.length - otherFiles.indexOf(f)} more files omitted due to length)_`);
+        break;
+      }
+      const excerpt = f.content.slice(0, 4000);
+      const truncated = f.content.length > 4000 ? "… (truncated)" : "";
+      lines.push(`\n### \`${f.path}\``);
+      lines.push(`\`\`\`${langFromPath(f.path)}`);
+      lines.push(excerpt + truncated);
+      lines.push("```");
+      totalChars += excerpt.length;
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function langFromPath(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+    py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+    c: "c", cpp: "cpp", cs: "csharp", html: "html", css: "css",
+    scss: "scss", json: "json", yaml: "yaml", yml: "yaml",
+    md: "markdown", sh: "bash", sql: "sql", toml: "toml",
+  };
+  return map[ext] ?? ext;
 }
 
 export default router;
