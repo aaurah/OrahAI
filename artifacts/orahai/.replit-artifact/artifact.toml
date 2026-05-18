@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "OrahAI"
+version = "1.0.0"
+id = "artifacts/orahai"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22835
+
+[services.development]
+run = "pnpm --filter @workspace/orahai run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/orahai", "run", "build" ]
+publicDir = "artifacts/orahai/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22835"
+BASE_PATH = "/"
