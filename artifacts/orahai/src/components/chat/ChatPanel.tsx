@@ -350,10 +350,10 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
                     />
                   ) : null}
                 </div>
-                {/* Copy button — visible on hover, only when there's content */}
+                {/* Copy button — always visible at the bottom of every message */}
                 {hasContent && !isPending && (
                   <div className={cn(
-                    "flex opacity-0 group-hover/msg:opacity-100 transition-opacity",
+                    "flex",
                     msg.role === "user" ? "justify-end" : "justify-start",
                   )}>
                     <button
