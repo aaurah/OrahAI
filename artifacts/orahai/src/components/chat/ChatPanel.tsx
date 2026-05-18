@@ -660,6 +660,10 @@ function CodeBlock({ lang, code, showApply, onApply, activeFilePath, projectId }
 
   const handleApply = () => {
     if (!onApply) return;
+    if (!activeFilePath) {
+      toast({ title: "No file open", description: "Switch to the Editor tab and open a file first, then tap Apply." });
+      return;
+    }
     onApply(code); setApplied(true); setTimeout(() => setApplied(false), 2000);
   };
 
@@ -698,12 +702,10 @@ function CodeBlock({ lang, code, showApply, onApply, activeFilePath, projectId }
             <span>{copied ? "Copied" : "Copy"}</span>
           </button>
           {showApply && !isShell && (
-            <button onClick={handleApply} disabled={!activeFilePath}
+            <button onClick={handleApply}
               className={cn(
                 "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors font-medium",
-                applied ? "bg-green-500/20 text-green-400"
-                  : activeFilePath ? "hover:bg-primary/20 text-primary"
-                  : "opacity-40 cursor-not-allowed text-muted-foreground",
+                applied ? "bg-green-500/20 text-green-400" : "hover:bg-primary/20 text-primary",
               )}>
               <FileCode2 className="w-3 h-3" />
               <span>{applied ? "Applied!" : "Apply"}</span>

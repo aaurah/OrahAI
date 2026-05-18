@@ -1,0 +1,113 @@
+The `http://localhost:8080/api/healthz` link only works if you actually have the API server running on your machine (or in whatever environment you’re using). If you just paste that URL into a browser without a running server, it will fail.
+
+Let’s narrow down what “not working” means and how to fix it.
+
+## 1. What error do you see?
+
+On your machine / environment, when you open `http://localhost:8080/api/healthz`, do you get:
+
+- “This site can’t be reached / connection refused”  
+  → The server is not running or not on port 8080.
+
+- A JSON error from the API (e.g. `{ ok: false, error: "..." }`)  
+  → The server is running, but the health handler is failing.
+
+- Some other browser/network error  
+  → Likely an environment/network issue, not the app.
+
+Since I can’t see your screen, assume the most common one: connection refused.
+
+## 2. Ensure the server is actually running
+
+For `/api/healthz` to work, you must:
+
+1. Be in a real runtime (your local machine, dev container, Codespaces, Replit VM, etc.).
+2. Start the API server with a valid `PORT`. For example, on your machine:
+
+```bash
+# From the repo root
+pnpm install
+PORT=8080 pnpm --filter @workspace/api-server run build
+PORT=8080 pnpm --filter @workspace/api-server run start
+```
+
+Note: `src/index.ts` requires `PORT` env var. If you run without `PORT`, it will throw:
+
+```ts
+if (!rawPort) {
+  throw new Error("PORT environment variable is required but was not provided.");
+}
+```
+
+So make sure `PORT` is set (e.g. `PORT=8080`).
+
+Once that process is running and you see logs like:
+
+- `Server listening` with `port: 8080`
+- `BSV chain monitor starting` (and other service logs)
+
+then open:
+
+- `http://localhost:8080/api/healthz`
+
+You should get JSON like:
+
+```json
+{
+  "ok": true,
+  "/* other health fields */": "..."
+}
+```
+
+If you’re in Replit or another IDE:
+
+- Their UI may auto-set `PORT`; check their logs.
+- Ensure the run command is effectively:
+
+```bash
+PORT=8080 pnpm --filter @workspace/api-server run dev
+```
+
+or similar.
+
+## 3. If the server is running but `/api/healthz` fails
+
+In that case, the endpoint handler might be throwing. The handler is in `artifacts/api-server/src/app.ts`:
+
+```ts
+app.get("/api/healthz", async (_req, res) => {
+  try {
+    const report = await getHealthReport();
+    res.json({ ok: true, ...report });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message ?? "health check failed" });
+  }
+});
+```
+
+If `getHealthReport()` throws, you’ll see JSON like:
+
+```json
+{ "ok": false, "error": "some error message" }
+```
+
+In that case, copy that JSON response or the server logs, and I can adjust the relevant code (likely `selfHealing.ts` or a DB-related call).
+
+## 4. If you’re still in this ChatGPT environment
+
+Here, `http://localhost:8080/api/healthz` will never work, because:
+
+- There is no server process bound to port 8080.
+- Code execution is disabled (no `pnpm` run).
+
+So that link is only meaningful when you run the project in a proper runtime (local dev, Codespaces, Replit VM, etc.).
+
+---
+
+If you can, run the server in a real environment, note exactly:
+
+- The command you used to start it.
+- The console/log output.
+- The exact error (browser or JSON) from `/api/healthz`.
+
+Paste that here, and I’ll pinpoint the problem and adjust the code if needed.
