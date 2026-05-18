@@ -83,6 +83,11 @@ router.get("/:projectId/:runId", requireAuth, async (req: AuthenticatedRequest, 
 
 router.post("/callback/result", async (req, res, next) => {
   try {
+    const internalKey = process.env.SANDBOX_INTERNAL_KEY;
+    if (internalKey) {
+      const provided = req.headers["x-internal-key"];
+      if (provided !== internalKey) return next(createError("Unauthorized", 401));
+    }
     const schema = z.object({
       runId: z.string(), status: z.enum(["success", "error"]),
       output: z.string(), exitCode: z.number().optional(),
