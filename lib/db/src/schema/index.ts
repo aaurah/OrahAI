@@ -1,6 +1,7 @@
 import {
   pgTable, text, boolean, integer, timestamp, uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ export const projects = pgTable("projects", {
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
   deletedAt:      timestamp("deleted_at"),
-}, (t) => [uniqueIndex("projects_workspace_slug_idx").on(t.workspaceId, t.slug)]);
+}, (t) => [uniqueIndex("projects_workspace_slug_idx").on(t.workspaceId, t.slug).where(sql`deleted_at IS NULL`)]);
 
 export type Project = typeof projects.$inferSelect;
 
