@@ -24,6 +24,7 @@ interface ChatPanelProps {
   onApplyCode?: (code: string) => void;
   onFileChange?: (path: string, action: "write" | "delete") => void;
   autoDevEnabled?: boolean;
+  growthCount?: number;
 }
 
 interface AttachedImage {
@@ -54,7 +55,7 @@ type ListItem =
   | (FileOpEvent & { _type: "fileop" });
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
-  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, autoDevEnabled },
+  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, autoDevEnabled, growthCount = 0 },
   ref,
 ) {
   const [items, setItems] = useState<ListItem[]>([]);
@@ -339,7 +340,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {autoDevEnabled && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-b border-emerald-500/20 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-          <span className="text-[11px] text-emerald-400 font-medium">Auto-develop active — AI is growing your project</span>
+          <span className="text-[11px] text-emerald-400 font-medium flex-1">
+            🌱 Grow mode — AI is growing your project
+          </span>
+          {growthCount > 0 && (
+            <span className="text-[11px] text-emerald-300 font-mono shrink-0">🍎 ×{growthCount}</span>
+          )}
         </div>
       )}
 

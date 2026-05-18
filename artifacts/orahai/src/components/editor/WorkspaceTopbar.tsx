@@ -27,6 +27,7 @@ interface Props {
   onDeployToggle: () => void;
   autoDevEnabled: boolean;
   onAutoDevToggle: () => void;
+  growthCount?: number;
 }
 
 const LANG_COLORS: Record<string, string> = {
@@ -48,7 +49,7 @@ export function WorkspaceTopbar({
   previewOpen, onPreviewToggle,
   secretsOpen, onSecretsToggle,
   deployOpen, onDeployToggle,
-  autoDevEnabled, onAutoDevToggle,
+  autoDevEnabled, onAutoDevToggle, growthCount = 0,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -109,7 +110,9 @@ export function WorkspaceTopbar({
         {/* ── Auto-develop button ─────────────────────────────────────── */}
         <button
           onClick={onAutoDevToggle}
-          title={autoDevEnabled ? "Auto-develop ON — click to stop" : "Auto-develop: AI grows your project automatically"}
+          title={autoDevEnabled
+            ? `Auto-develop ON — ${growthCount} growth cycle${growthCount !== 1 ? "s" : ""} run — click to stop`
+            : "Auto-develop: AI grows your project like a tree, continuously"}
           className={cn(
             "relative flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-semibold transition-all shrink-0 ml-1",
             autoDevEnabled
@@ -121,7 +124,11 @@ export function WorkspaceTopbar({
             <span className="absolute inset-0 rounded-lg animate-pulse bg-emerald-500/10 pointer-events-none" />
           )}
           <Sprout className={cn("w-3.5 h-3.5 shrink-0", autoDevEnabled && "animate-bounce")} />
-          <span className="hidden sm:inline text-xs">{autoDevEnabled ? "Growing…" : "Auto"}</span>
+          <span className="hidden sm:inline text-xs">
+            {autoDevEnabled
+              ? growthCount > 0 ? `🍎 ×${growthCount}` : "Growing…"
+              : "Grow"}
+          </span>
         </button>
 
         {/* ── Desktop panel toggles ──────────────────────────────────── */}

@@ -41,6 +41,7 @@ export default function WorkspacePage() {
   const [mobileTab, setMobileTab] = useState<MobileTab>("ai");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [autoDevEnabled, setAutoDevEnabled] = useState(false);
+  const [growthCount, setGrowthCount] = useState(0);
   const [showSetupBanner, setShowSetupBanner] = useState(isSetupMode);
   const moreRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatPanelHandle>(null);
@@ -68,6 +69,7 @@ export default function WorkspacePage() {
     if (!autoDevEnabled) return;
     const trigger = () => {
       setMobileTab("ai");
+      setGrowthCount(c => c + 1);
       chatRef.current?.submit(AUTO_DEV_PROMPT);
     };
     trigger();
@@ -188,7 +190,8 @@ export default function WorkspacePage() {
         deployOpen={deployOpen}
         onDeployToggle={() => setDeployOpen((v) => !v)}
         autoDevEnabled={autoDevEnabled}
-        onAutoDevToggle={() => setAutoDevEnabled((v) => !v)}
+        onAutoDevToggle={() => { setAutoDevEnabled((v) => !v); setGrowthCount(0); }}
+        growthCount={growthCount}
       />
 
       {/* ── Desktop layout ──────────────────────────────────────────── */}
@@ -249,6 +252,7 @@ export default function WorkspacePage() {
               onApplyCode={handleApplyCode}
               onFileChange={handleFileChange}
               autoDevEnabled={autoDevEnabled}
+              growthCount={growthCount}
             />
           </div>
         )}
@@ -336,6 +340,7 @@ export default function WorkspacePage() {
                 onApplyCode={handleApplyCode}
                 onFileChange={handleFileChange}
                 autoDevEnabled={autoDevEnabled}
+                growthCount={growthCount}
               />
             </div>
           )}
