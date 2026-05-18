@@ -135,7 +135,7 @@ function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDel
         <div ref={menuRef} className="absolute top-3 right-3 z-10">
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(v => !v); }}
-            className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted transition-all text-muted-foreground hover:text-foreground"
+            className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             aria-label="Project options"
           >
             <MoreVertical className="w-4 h-4" />
