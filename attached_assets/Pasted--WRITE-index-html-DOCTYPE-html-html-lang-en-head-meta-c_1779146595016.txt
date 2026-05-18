@@ -1,0 +1,939 @@
+<<<WRITE:index.html>>>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Portfolio | Dark Mode</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --bg-alt: #ffffff;
+      --text: #222222;
+      --muted: #555555;
+      --accent: #4f46e5;
+      --border: #dddddd;
+      --card-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+
+    :root.dark {
+      --bg: #050816;
+      --bg-alt: #0b1020;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --accent: #8b5cf6;
+      --border: #1f2933;
+      --card-shadow: 0 16px 40px rgba(0,0,0,0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #e5e7eb 0, var(--bg) 45%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+      transition: background 0.4s ease, color 0.25s ease;
+    }
+
+    :root.dark body {
+      background: radial-gradient(circle at top, #111827 0, var(--bg) 40%);
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.85),
+          rgba(248, 250, 252, 0.92)
+        );
+      border-radius: 24px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 28px 24px 32px;
+      box-shadow: var(--card-shadow);
+      backdrop-filter: blur(18px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    :root.dark .app {
+      background: radial-gradient(
+          circle at top left,
+          rgba(56, 189, 248, 0.06),
+          transparent 55%
+        ),
+        radial-gradient(
+          circle at bottom right,
+          rgba(129, 140, 248, 0.08),
+          transparent 50%
+        ),
+        linear-gradient(135deg, #020617, #020617);
+      border-color: rgba(15, 23, 42, 0.8);
+    }
+
+    .app::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(
+        120deg,
+        rgba(79, 70, 229, 0.06),
+        transparent 40%,
+        rgba(56, 189, 248, 0.08)
+      );
+      mix-blend-mode: soft-light;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    :root.dark .app::before {
+      opacity: 0.35;
+    }
+
+    .app-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 26px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 10% 0, #4f46e5, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #f9fafb;
+      font-weight: 700;
+      font-size: 20px;
+      box-shadow: 0 10px 25px rgba(79, 70, 229, 0.5);
+      border: 2px solid rgba(248, 250, 252, 0.8);
+    }
+
+    .brand-text h1 {
+      font-size: 22px;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+
+    .brand-text p {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      color: var(--muted);
+      backdrop-filter: blur(10px);
+      background-color: rgba(255, 255, 255, 0.55);
+    }
+
+    :root.dark .chip {
+      border-color: rgba(148, 163, 184, 0.4);
+      background-color: rgba(15, 23, 42, 0.85);
+    }
+
+    .chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
+    }
+
+    /* Toggle */
+
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .toggle-wrapper {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      border-radius: 999px;
+      background: linear-gradient(120deg, #e5e7eb, #d1d5db);
+      border: 1px solid rgba(148, 163, 184, 0.9);
+      padding: 2px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      transition: background 0.25s ease, border-color 0.25s ease;
+    }
+
+    :root.dark .toggle-wrapper {
+      background: radial-gradient(circle at 0 0, #0ea5e9, #020617);
+      border-color: rgba(59, 130, 246, 0.9);
+    }
+
+    .toggle-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 0, #ffffff, #d4d4d8);
+      box-shadow: 0 6px 12px rgba(15, 23, 42, 0.28);
+      transform: translateX(0);
+      transition: transform 0.22s ease, background 0.25s ease,
+        box-shadow 0.25s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+    }
+
+    :root.dark .toggle-thumb {
+      transform: translateX(22px);
+      background: radial-gradient(circle at 30% 0, #facc15, #f97316);
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.7);
+    }
+
+    .toggle-icon {
+      line-height: 1;
+    }
+
+    .toggle-label {
+      font-size: 12px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.7fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 880px) {
+      main {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .app {
+        padding: 20px 16px 26px;
+      }
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+    }
+
+    section {
+      background: var(--bg-alt);
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      padding: 18px 18px 20px;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+      position: relative;
+      overflow: hidden;
+    }
+
+    :root.dark section {
+      background: radial-gradient(
+          circle at top,
+          rgba(148, 163, 184, 0.08),
+          transparent 55%
+        ),
+        #020617;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+      border-color: rgba(30, 64, 175, 0.6);
+    }
+
+    section + section {
+      margin-top: 14px;
+    }
+
+    section h2 {
+      font-size: 16px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    section h2 span {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .section-tag {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .headline {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .highlight {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* About */
+
+    .about-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .about-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .bio-list {
+      list-style: none;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .bio-list li + li {
+      margin-top: 6px;
+    }
+
+    .bio-list strong {
+      color: var(--text);
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      color: var(--muted);
+      background-color: rgba(248, 250, 252, 0.9);
+    }
+
+    :root.dark .badge {
+      background-color: rgba(15, 23, 42, 0.9);
+      border-color: rgba(55, 65, 81, 0.9);
+    }
+
+    /* Skills */
+
+    .skills-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 500px) {
+      .skills-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .skill-group-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .skill-tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .skill-tag {
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 999px;
+      background: rgba(248, 250, 252, 0.95);
+      border: 1px solid rgba(209, 213, 219, 0.9);
+    }
+
+    :root.dark .skill-tag {
+      background: rgba(15, 23, 42, 0.9);
+      border-color: rgba(55, 65, 81, 0.9);
+    }
+
+    /* Projects */
+
+    .project-list {
+      list-style: none;
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .project {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 0;
+    }
+
+    .project + .project {
+      border-top: 1px dashed rgba(148, 163, 184, 0.6);
+      margin-top: 6px;
+    }
+
+    .project-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .project-title {
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .project-meta {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .project-stack {
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .project-links {
+      margin-top: 4px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .project-link {
+      font-size: 11px;
+      color: var(--accent);
+      text-decoration: none;
+      position: relative;
+    }
+
+    .project-link::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -1px;
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent), transparent);
+      transform-origin: left;
+      transform: scaleX(0);
+      transition: transform 0.2s ease;
+    }
+
+    .project-link:hover::after {
+      transform: scaleX(1);
+    }
+
+    /* Sidebar */
+
+    .sidebar-section {
+      margin-bottom: 14px;
+    }
+
+    .sidebar-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .stat-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .stat {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(248, 250, 252, 0.95);
+      border: 1px solid rgba(209, 213, 219, 0.9);
+      font-size: 11px;
+    }
+
+    :root.dark .stat {
+      background: rgba(15, 23, 42, 0.9);
+      border-color: rgba(55, 65, 81, 0.9);
+    }
+
+    .stat label {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .timeline {
+      list-style: none;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .timeline li + li {
+      margin-top: 8px;
+    }
+
+    .timeline span {
+      display: block;
+    }
+
+    .timeline strong {
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .contact-list {
+      list-style: none;
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .contact-list li + li {
+      margin-top: 4px;
+    }
+
+    .contact-label {
+      display: inline-block;
+      width: 62px;
+      color: var(--text);
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    .contact-value a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .contact-value a:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 26px;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    @media (max-width: 600px) {
+      footer {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+
+    .footer-note {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .footer-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      font-size: 11px;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="app-inner">
+      <header>
+        <div class="brand">
+          <div class="avatar">JD</div>
+          <div class="brand-text">
+            <h1>Jordan Doe</h1>
+            <p>Front‑end engineer crafting clean, modern experiences</p>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:14px;">
+          <span class="chip">
+            <span class="chip-dot"></span>
+            <span>Available for freelance · 2024</span>
+          </span>
+
+          <div class="theme-toggle" aria-label="Toggle dark mode">
+            <span class="toggle-label">Theme</span>
+            <div class="toggle-wrapper" id="theme-toggle" role="switch" aria-checked="false" tabindex="0">
+              <div class="toggle-thumb">
+                <span class="toggle-icon" id="toggle-icon">☀️</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <!-- Left column -->
+        <div>
+          <section aria-labelledby="about-heading">
+            <div class="section-tag">About</div>
+            <h2 id="about-heading">
+              Product‑minded front‑end engineer
+              <span>5+ years in web & UI engineering</span>
+            </h2>
+            <p class="headline">
+              I help teams ship <span class="highlight">fast, accessible, and reliable</span> web
+              experiences with a focus on developer ergonomics and design systems.
+            </p>
+
+            <div class="about-grid">
+              <div>
+                <ul class="bio-list">
+                  <li><strong>Location:</strong> Remote · EU time zone</li>
+                  <li><strong>Focus:</strong> Design systems, dashboards, data‑heavy UIs</li>
+                  <li><strong>Stack:</strong> TypeScript, React, Tailwind, Node</li>
+                  <li><strong>Currently:</strong> Front‑end @ SaaS startup</li>
+                </ul>
+              </div>
+              <div>
+                <div class="badge-row">
+                  <span class="badge">Dark‑mode design</span>
+                  <span class="badge">Design systems</span>
+                  <span class="badge">Performance</span>
+                  <span class="badge">Accessibility</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="skills-heading">
+            <div class="section-tag">Skills</div>
+            <h2 id="skills-heading">
+              Front‑end & product engineering
+              <span>Focused on shipping real products</span>
+            </h2>
+
+            <div class="skills-grid">
+              <div>
+                <div class="skill-group-title">Core</div>
+                <div class="skill-tag-row">
+                  <span class="skill-tag">HTML5</span>
+                  <span class="skill-tag">CSS / Sass</span>
+                  <span class="skill-tag">JavaScript (ESNext)</span>
+                  <span class="skill-tag">TypeScript</span>
+                  <span class="skill-tag">Accessibility (a11y)</span>
+                </div>
+              </div>
+              <div>
+                <div class="skill-group-title">Frameworks</div>
+                <div class="skill-tag-row">
+                  <span class="skill-tag">React</span>
+                  <span class="skill-tag">Next.js</span>
+                  <span class="skill-tag">Tailwind CSS</span>
+                  <span class="skill-tag">Node / Express</span>
+                </div>
+              </div>
+              <div>
+                <div class="skill-group-title">Workflow</div>
+                <div class="skill-tag-row">
+                  <span class="skill-tag">Git & GitHub</span>
+                  <span class="skill-tag">CI/CD</span>
+                  <span class="skill-tag">Storybook</span>
+                  <span class="skill-tag">Jest / Testing Library</span>
+                </div>
+              </div>
+              <div>
+                <div class="skill-group-title">Soft skills</div>
+                <div class="skill-tag-row">
+                  <span class="skill-tag">Mentoring</span>
+                  <span class="skill-tag">Product thinking</span>
+                  <span class="skill-tag">Documentation</span>
+                  <span class="skill-tag">Cross‑functional collab</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="projects-heading">
+            <div class="section-tag">Selected work</div>
+            <h2 id="projects-heading">
+              Recent projects
+              <span>From dashboards to design systems</span>
+            </h2>
+
+            <ul class="project-list">
+              <li class="project">
+                <div class="project-header">
+                  <span class="project-title">Analytics Control Center</span>
+                  <span class="project-meta">2024 · SaaS dashboard</span>
+                </div>
+                <p>
+                  Data‑dense analytics dashboard with theming, role‑based access,
+                  and real‑time streaming charts.
+                </p>
+                <p class="project-stack">Stack: React, TypeScript, Tailwind, WebSockets</p>
+                <div class="project-links">
+                  <a href="#" class="project-link">Live demo</a>
+                  <a href="#" class="project-link">Case study</a>
+                </div>
+              </li>
+
+              <li class="project">
+                <div class="project-header">
+                  <span class="project-title">Design System Starter</span>
+                  <span class="project-meta">2023 · Component library</span>
+                </div>
+                <p>
+                  Token‑driven design system with light/dark themes, documented in
+                  Storybook and used by multiple teams.
+                </p>
+                <p class="project-stack">Stack: React, Storybook, Tailwind, Figma</p>
+                <div class="project-links">
+                  <a href="#" class="project-link">GitHub repo</a>
+                  <a href="#" class="project-link">Storybook</a>
+                </div>
+              </li>
+
+              <li class="project">
+                <div class="project-header">
+                  <span class="project-title">Personal Portfolio v3</span>
+                  <span class="project-meta">2022 · Marketing site</span>
+                </div>
+                <p>
+                  Fast, accessible personal site with dark mode, MDX‑driven content,
+                  and custom animations.
+                </p>
+                <p class="project-stack">Stack: Next.js, MDX, Framer Motion</p>
+                <div class="project-links">
+                  <a href="#" class="project-link">Visit site</a>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <!-- Right column -->
+        <div>
+          <div class="sidebar-section">
+            <section aria-labelledby="overview-heading">
+              <div class="section-tag">Overview</div>
+              <h2 id="overview-heading">
+                Snapshot
+                <span>Quick view of profile health</span>
+              </h2>
+
+              <div class="stat-row">
+                <div class="stat">
+                  <label>Experience</label>
+                  <strong>5+ yrs</strong>
+                  <span>Front‑end & product</span>
+                </div>
+                <div class="stat">
+                  <label>Shipped</label>
+                  <strong>25+</strong>
+                  <span>Production features</span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="sidebar-section">
+            <section aria-labelledby="timeline-heading">
+              <div class="section-tag">Timeline</div>
+              <h2 id="timeline-heading">
+                Recent roles
+                <span>Where I’ve been building</span>
+              </h2>
+
+              <ul class="timeline">
+                <li>
+                  <span>2021 – Present</span>
+                  <strong>Front‑end Engineer · Acme SaaS</strong>
+                  <span>Lead UI for analytics platform, built design system</span>
+                </li>
+                <li>
+                  <span>2019 – 2021</span>
+                  <strong>UI Engineer · Studio Pixel</strong>
+                  <span>Client‑facing dashboards & marketing sites</span>
+                </li>
+                <li>
+                  <span>2017 – 2019</span>
+                  <strong>Front‑end Developer · Freelance</strong>
+                  <span>Landing pages, prototypes, and MVPs</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <div class="sidebar-section">
+            <section aria-labelledby="contact-heading">
+              <div class="section-tag">Contact</div>
+              <h2 id="contact-heading">
+                Let’s work together
+                <span>Best way to reach me</span>
+              </h2>
+
+              <ul class="contact-list">
+                <li>
+                  <span class="contact-label">Email</span>
+                  <span class="contact-value">
+                    <a href="mailto:jordan.doe@example.com">jordan.doe@example.com</a>
+                  </span>
+                </li>
+                <li>
+                  <span class="contact-label">GitHub</span>
+                  <span class="contact-value">
+                    <a href="https://github.com" target="_blank" rel="noreferrer">github.com/jordandoe</a>
+                  </span>
+                </li>
+                <li>
+                  <span class="contact-label">LinkedIn</span>
+                  <span class="contact-value">
+                    <a href="https://linkedin.com" target="_blank" rel="noreferrer">linkedin.com/in/jordandoe</a>
+                  </span>
+                </li>
+                <li>
+                  <span class="contact-label">Location</span>
+                  <span class="contact-value">Remote · Europe</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <footer>
+        <div class="footer-note">
+          <span class="footer-dot"></span>
+          <span>Built with semantics, accessibility, and dark mode in mind.</span>
+        </div>
+        <div class="footer-links">
+          <a href="#">Download résumé</a>
+          <a href="#">View code</a>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const root = document.documentElement;
+      const toggle = document.getElementById("theme-toggle");
+      const icon = document.getElementById("toggle-icon");
+
+      const applyTheme = (theme) => {
+        const isDark = theme === "dark";
+        root.classList.toggle("dark", isDark);
+        toggle.setAttribute("aria-checked", String(isDark));
+        icon.textContent = isDark ? "🌙" : "☀️";
+      };
+
+      const stored = window.localStorage.getItem("theme");
+      if (stored === "dark" || stored === "light") {
+        applyTheme(stored);
+      } else {
+        const prefersDark = window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        applyTheme(prefersDark ? "dark" : "light");
+      }
+
+      const nextTheme = () =>
+        root.classList.contains("dark") ? "light" : "dark";
+
+      const handleToggle = () => {
+        const theme = nextTheme();
+        applyTheme(theme);
+        try {
+          window.localStorage.setItem("theme", theme);
+        } catch (_) {}
+      };
+
+      toggle.addEventListener("click", handleToggle);
+      toggle.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleToggle();
+        }
+      });
+
+      if (window.matchMedia) {
+        const mq = window.matchMedia("(prefers-color-scheme: dark)");
+        mq.addEventListener("change", (event) => {
+          const storedTheme = window.localStorage.getItem("theme");
+          if (storedTheme === "dark" || storedTheme === "light") return;
+          applyTheme(event.matches ? "dark" : "light");
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
+<<<END>>
+
+You now have a single‑page portfolio with a fully working light/dark mode toggle (persisted in localStorage and respecting system preference). To see it, open the Preview tab in the workspace. You can customize text, links, and skills directly in index.html.
