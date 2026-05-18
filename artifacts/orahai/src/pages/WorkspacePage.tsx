@@ -1,11 +1,12 @@
 import { useState, useCallback } from "react";
 import { useParams } from "wouter";
-import { Files, MessageSquare, Terminal as TerminalIcon, Github, Code2 } from "lucide-react";
+import { Files, MessageSquare, Github, Code2, Globe } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
 import { GitHubPanel } from "@/components/github/GitHubPanel";
+import { PreviewPanel } from "@/components/editor/PreviewPanel";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
 import { api } from "@/lib/api";
@@ -13,7 +14,7 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
-type MobileTab = "files" | "editor" | "chat" | "github";
+type MobileTab = "files" | "editor" | "chat" | "preview" | "github";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -99,10 +100,11 @@ export default function WorkspacePage() {
   }
 
   const mobileTabs: { id: MobileTab; label: string; icon: React.ReactNode }[] = [
-    { id: "files",  label: "Files",  icon: <Files className="w-4 h-4" /> },
-    { id: "editor", label: "Editor", icon: <Code2 className="w-4 h-4" /> },
-    { id: "chat",   label: "AI",     icon: <MessageSquare className="w-4 h-4" /> },
-    { id: "github", label: "GitHub", icon: <Github className={cn("w-4 h-4", project.githubRepo && "text-primary")} /> },
+    { id: "files",   label: "Files",   icon: <Files className="w-4 h-4" /> },
+    { id: "editor",  label: "Editor",  icon: <Code2 className="w-4 h-4" /> },
+    { id: "chat",    label: "AI",      icon: <MessageSquare className="w-4 h-4" /> },
+    { id: "preview", label: "Preview", icon: <Globe className="w-4 h-4" /> },
+    { id: "github",  label: "GitHub",  icon: <Github className={cn("w-4 h-4", project.githubRepo && "text-primary")} /> },
   ];
 
   return (
@@ -132,22 +134,38 @@ export default function WorkspacePage() {
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className={`flex-1 overflow-hidden ${terminalOpen ? "border-b border-border" : ""}`}>
-            {activeFile ? (
-              <CodeEditor
-                projectId={project.id}
-                file={activeFile}
-                onSave={(content) => setActiveFile((f) => f ? { ...f, content } : f)}
-              />
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
-                <p className="text-sm">Select a file to start editing</p>
-                <p className="text-xs opacity-60">or create a new file in the sidebar</p>
+          {/* Editor + Preview split */}
+          <div className="flex-1 flex overflow-hidden">
+            <div className={cn("flex flex-col overflow-hidden", previewOpen ? "flex-1 min-w-0" : "flex-1")}>
+              <div className="flex-1 overflow-hidden">
+                {activeFile ? (
+                  <CodeEditor
+                    projectId={project.id}
+                    file={activeFile}
+                    onSave={(content) => setActiveFile((f) => f ? { ...f, content } : f)}
+                  />
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
+                    <p className="text-sm">Select a file to start editing</p>
+                    <p className="text-xs opacity-60">or create a new file in the sidebar</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {previewOpen && (
+              <div className="flex-1 min-w-0 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
+                <PreviewPanel
+                  projectId={project.id}
+                  githubRepo={project.githubRepo}
+                  refreshKey={fileRefreshKey}
+                />
               </div>
             )}
           </div>
+
           {terminalOpen && (
-            <div className="h-52 flex-shrink-0">
+            <div className="h-52 flex-shrink-0 border-t border-border">
               <RunOutput run={latestRun} />
             </div>
           )}
@@ -166,10 +184,10 @@ export default function WorkspacePage() {
         )}
 
         {githubOpen && (
-          <div className="w-64 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
             <GitHubPanel
               projectId={project.id}
-              onSynced={() => mutateProject()}
+              onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }}
             />
           </div>
         )}
@@ -230,11 +248,21 @@ export default function WorkspacePage() {
           </div>
         )}
 
+        {mobileTab === "preview" && (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <PreviewPanel
+              projectId={project.id}
+              githubRepo={project.githubRepo}
+              refreshKey={fileRefreshKey}
+            />
+          </div>
+        )}
+
         {mobileTab === "github" && (
           <div className="flex-1 overflow-y-auto bg-background">
             <GitHubPanel
               projectId={project.id}
-              onSynced={() => mutateProject()}
+              onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }}
             />
           </div>
         )}
