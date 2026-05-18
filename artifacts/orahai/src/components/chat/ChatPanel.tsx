@@ -4,6 +4,7 @@ import {
   Copy, Check, Play, Terminal as TerminalIcon,
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
+  ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
@@ -54,6 +55,8 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
   const [agentStep, setAgentStep] = useState(0);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Record<string, "good" | "bad">>({});
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -263,6 +266,35 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000);
   };
 
+  const toggleFeedback = (id: string, value: "good" | "bad") => {
+    setFeedback((prev) => ({ ...prev, [id]: prev[id] === value ? undefined as unknown as "good" | "bad" : value }));
+  };
+
+  const toggleSpeak = (id: string, content: string) => {
+    if (!window.speechSynthesis) return;
+    if (speakingId === id) {
+      window.speechSynthesis.cancel();
+      setSpeakingId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const plain = content.replace(/```[\s\S]*?```/g, "code block").replace(/[#*_`~>]/g, "").trim();
+    const utt = new SpeechSynthesisUtterance(plain);
+    utt.onend = () => setSpeakingId(null);
+    utt.onerror = () => setSpeakingId(null);
+    setSpeakingId(id);
+    window.speechSynthesis.speak(utt);
+  };
+
+  const shareMessage = async (content: string) => {
+    const plain = content.replace(/```[\s\S]*?```/g, "").replace(/[#*_`~>]/g, "").trim();
+    if (navigator.share) {
+      try { await navigator.share({ text: plain }); return; } catch { /* fall through */ }
+    }
+    await navigator.clipboard.writeText(plain);
+    toast({ title: "Copied to clipboard" });
+  };
+
   const clearHistory = async () => {
     if (!confirm("Clear chat history?")) return;
     try {
@@ -350,22 +382,78 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
                     />
                   ) : null}
                 </div>
-                {/* Copy button — always visible at the bottom of every message */}
+                {/* Action bar — always visible below every message */}
                 {hasContent && !isPending && (
                   <div className={cn(
-                    "flex",
+                    "flex items-center gap-0.5",
                     msg.role === "user" ? "justify-end" : "justify-start",
                   )}>
+                    {msg.role === "assistant" && (<>
+                      {/* Thumbs up */}
+                      <button
+                        onClick={() => toggleFeedback(msg.id, "good")}
+                        title="Good response"
+                        className={cn(
+                          "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                          feedback[msg.id] === "good"
+                            ? "text-green-500 bg-green-500/10"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                        )}
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                      </button>
+                      {/* Thumbs down */}
+                      <button
+                        onClick={() => toggleFeedback(msg.id, "bad")}
+                        title="Bad response"
+                        className={cn(
+                          "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                          feedback[msg.id] === "bad"
+                            ? "text-red-400 bg-red-500/10"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                        )}
+                      >
+                        <ThumbsDown className="w-3.5 h-3.5" />
+                      </button>
+                    </>)}
+                    {/* Copy */}
                     <button
                       onClick={() => copyMessage(msg.id, msg.content)}
-                      title="Copy message"
-                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+                      title="Copy"
+                      className={cn(
+                        "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                        copiedId === msg.id
+                          ? "text-green-500 bg-green-500/10"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                      )}
                     >
-                      {copiedId === msg.id
-                        ? <><Check className="w-3 h-3 text-green-500" /><span className="text-green-500">Copied</span></>
-                        : <><Copy className="w-3 h-3" /><span>Copy</span></>
-                      }
+                      {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
+                    {msg.role === "assistant" && (<>
+                      {/* Read aloud */}
+                      <button
+                        onClick={() => toggleSpeak(msg.id, msg.content)}
+                        title={speakingId === msg.id ? "Stop reading" : "Read aloud"}
+                        className={cn(
+                          "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                          speakingId === msg.id
+                            ? "text-primary bg-primary/10"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                        )}
+                      >
+                        {speakingId === msg.id
+                          ? <VolumeX className="w-3.5 h-3.5" />
+                          : <Volume2 className="w-3.5 h-3.5" />}
+                      </button>
+                      {/* Share */}
+                      <button
+                        onClick={() => shareMessage(msg.content)}
+                        title="Share"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>)}
                   </div>
                 )}
               </div>
