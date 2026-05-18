@@ -53,6 +53,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentStep, setAgentStep] = useState(0);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -256,6 +257,12 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     }
   };
 
+  const copyMessage = async (id: string, content: string) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000);
+  };
+
   const clearHistory = async () => {
     if (!confirm("Clear chat history?")) return;
     try {
@@ -305,40 +312,62 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
             return <FileOpCard key={item.id} event={item as FileOpEvent & { _type: "fileop" }} />;
           }
           const msg = item as ChatMessage & { pending?: boolean; images?: AttachedImage[] };
+          const isPending = !!(msg as { pending?: boolean }).pending;
+          const hasContent = !!msg.content && msg.content !== "(images)";
           return (
-            <div key={msg.id} className={cn("flex gap-2", msg.role === "user" && "flex-row-reverse")}>
+            <div key={msg.id} className={cn("flex gap-2 group/msg", msg.role === "user" && "flex-row-reverse")}>
               <div className={cn(
                 "w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs",
                 msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
               )}>
                 {msg.role === "user" ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
               </div>
-              <div className={cn(
-                "max-w-[85%] text-sm rounded-xl px-3 py-2 space-y-2",
-                msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
-              )}>
-                {msg.images && msg.images.length > 0 && (
-                  <div className={cn("flex flex-wrap gap-1.5", msg.images.length === 1 ? "" : "")}>
-                    {msg.images.map((img, i) => (
-                      <img key={i} src={img.dataUrl} alt={img.name}
-                        className="max-h-40 max-w-full rounded-lg object-contain" />
-                    ))}
+              <div className="max-w-[85%] flex flex-col gap-1">
+                <div className={cn(
+                  "text-sm rounded-xl px-3 py-2 space-y-2",
+                  msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                )}>
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {msg.images.map((img, i) => (
+                        <img key={i} src={img.dataUrl} alt={img.name}
+                          className="max-h-40 max-w-full rounded-lg object-contain" />
+                      ))}
+                    </div>
+                  )}
+                  {isPending && !msg.content ? (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {agentStep > 1 ? `Working… step ${agentStep}` : "Thinking…"}
+                    </div>
+                  ) : hasContent ? (
+                    <MsgContent
+                      content={msg.content}
+                      isAssistant={msg.role === "assistant"}
+                      onApply={onApplyCode}
+                      activeFilePath={activeFilePath}
+                      projectId={projectId}
+                    />
+                  ) : null}
+                </div>
+                {/* Copy button — visible on hover, only when there's content */}
+                {hasContent && !isPending && (
+                  <div className={cn(
+                    "flex opacity-0 group-hover/msg:opacity-100 transition-opacity",
+                    msg.role === "user" ? "justify-end" : "justify-start",
+                  )}>
+                    <button
+                      onClick={() => copyMessage(msg.id, msg.content)}
+                      title="Copy message"
+                      className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+                    >
+                      {copiedId === msg.id
+                        ? <><Check className="w-3 h-3 text-green-500" /><span className="text-green-500">Copied</span></>
+                        : <><Copy className="w-3 h-3" /><span>Copy</span></>
+                      }
+                    </button>
                   </div>
                 )}
-                {(msg as { pending?: boolean }).pending && !msg.content ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    {agentStep > 1 ? `Working… step ${agentStep}` : "Thinking…"}
-                  </div>
-                ) : msg.content && msg.content !== "(images)" ? (
-                  <MsgContent
-                    content={msg.content}
-                    isAssistant={msg.role === "assistant"}
-                    onApply={onApplyCode}
-                    activeFilePath={activeFilePath}
-                    projectId={projectId}
-                  />
-                ) : null}
               </div>
             </div>
           );
