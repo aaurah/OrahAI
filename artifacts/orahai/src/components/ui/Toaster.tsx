@@ -2,6 +2,9 @@ import { useToast } from "@/hooks/useToast";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+export type ToastProps = { variant?: "default" | "destructive" };
+export type ToastActionElement = React.ReactElement;
+
 export function Toaster() {
   const { toasts, dismiss } = useToast();
   return (
