@@ -16,4 +16,10 @@ export const config = {
   sandboxUrl:          process.env.SANDBOX_URL ?? "",
   aiServiceUrl:        process.env.AI_SERVICE_URL ?? "",
   aiServiceInternalKey: process.env.AI_SERVICE_INTERNAL_KEY ?? "",
+
+  github: {
+    clientId:     process.env.GITHUB_CLIENT_ID ?? "",
+    clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+    callbackUrl:  process.env.GITHUB_CALLBACK_URL ?? "",
+  },
 };

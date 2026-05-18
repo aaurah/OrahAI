@@ -1,10 +1,12 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import jwt from "jsonwebtoken";
 import { db, users, projects, files, memberships } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
+import { config } from "../lib/config";
 import {
   parseGitHubUrl, getRepo, getRepoTree, downloadFiles,
   getBranchSha, createOrUpdateFile, getMimeType, isImportable,
@@ -13,6 +15,158 @@ import {
 } from "../lib/github";
 
 const router = Router();
+
+// ── GitHub OAuth (public routes — no requireAuth) ─────────────────────────────
+
+// GET /api/github/oauth/configured  — lets the frontend know OAuth is set up
+router.get("/oauth/configured", (_req: any, res: Response) => {
+  res.json({ data: { configured: !!config.github.clientId } });
+});
+
+// GET /api/github/oauth/start?token=JWT  — opens in a popup, redirects to GitHub
+router.get("/oauth/start", (req: any, res: Response, next: NextFunction) => {
+  try {
+    const { clientId, callbackUrl } = config.github;
+    if (!clientId) return next(createError("GitHub OAuth is not configured on this server", 501));
+
+    const rawToken = String(req.query.token ?? "");
+    if (!rawToken) return next(createError("Missing token", 401));
+
+    // Verify the token so we know who this is
+    try {
+      jwt.verify(rawToken, config.auth.jwtSecret);
+    } catch {
+      return next(createError("Invalid or expired session — please log in again", 401));
+    }
+
+    // Encode token as state (used in callback to identify user)
+    const state = Buffer.from(rawToken).toString("base64url");
+    const redirectUri = callbackUrl || `${req.protocol}://${req.get("host")}/api/github/oauth/callback`;
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope: "repo workflow read:user",
+      state,
+    });
+
+    res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
+  } catch (err) { next(err); }
+});
+
+// GET /api/github/oauth/callback  — GitHub redirects here after authorization
+router.get("/oauth/callback", async (req: any, res: Response, next: NextFunction) => {
+  try {
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+    const errorParam = String(req.query.error ?? "");
+
+    if (errorParam) {
+      return res.send(oauthCallbackHtml("error", req.query.error_description as string ?? "Authorization was denied"));
+    }
+
+    if (!code || !state) {
+      return res.send(oauthCallbackHtml("error", "Missing code or state parameter"));
+    }
+
+    // Decode state → JWT → userId
+    let userId: string;
+    try {
+      const rawToken = Buffer.from(state, "base64url").toString("utf-8");
+      const payload = jwt.verify(rawToken, config.auth.jwtSecret) as { sub: string };
+      userId = payload.sub;
+    } catch {
+      return res.send(oauthCallbackHtml("error", "Session expired — please close this window and try again"));
+    }
+
+    // Exchange code for access token
+    const callbackUrl = config.github.callbackUrl || `${req.protocol}://${req.get("host")}/api/github/oauth/callback`;
+    const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "OrahAI/1.0",
+      },
+      body: JSON.stringify({
+        client_id: config.github.clientId,
+        client_secret: config.github.clientSecret,
+        code,
+        redirect_uri: callbackUrl,
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      return res.send(oauthCallbackHtml("error", "Failed to exchange authorization code — please try again"));
+    }
+
+    const tokenData = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string };
+
+    if (!tokenData.access_token) {
+      const detail = tokenData.error_description ?? tokenData.error ?? "No access token returned";
+      return res.send(oauthCallbackHtml("error", detail));
+    }
+
+    // Fetch GitHub user info to confirm identity
+    const ghUserRes = await fetch("https://api.github.com/user", {
+      headers: {
+        "Authorization": `Bearer ${tokenData.access_token}`,
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "OrahAI/1.0",
+      },
+    });
+
+    if (!ghUserRes.ok) {
+      return res.send(oauthCallbackHtml("error", "Could not fetch GitHub profile — token may be invalid"));
+    }
+
+    const ghUser = await ghUserRes.json() as { login: string; name: string | null };
+
+    // Save token to DB
+    await db.update(users)
+      .set({ githubToken: tokenData.access_token, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    return res.send(oauthCallbackHtml("success", ghUser.login));
+  } catch (err) { next(err); }
+});
+
+function oauthCallbackHtml(status: "success" | "error", detail: string): string {
+  const safeDetail = detail.replace(/[<>"'&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "&": "&amp;" }[c] ?? c));
+  const message = JSON.stringify({ type: "github-oauth", status, detail: safeDetail });
+  const icon = status === "success" ? "✓" : "✗";
+  const color = status === "success" ? "#22c55e" : "#ef4444";
+  const text = status === "success"
+    ? `Connected as <strong>@${safeDetail}</strong> — you can close this window.`
+    : `Something went wrong: ${safeDetail}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>GitHub ${status === "success" ? "Connected" : "Error"}</title>
+<style>
+  body { margin:0; display:flex; align-items:center; justify-content:center; min-height:100vh;
+         background:#0a0a0a; font-family:system-ui,sans-serif; color:#ccc; text-align:center; padding:24px; }
+  .icon { font-size:2.5rem; color:${color}; margin-bottom:12px; }
+  p { font-size:.9rem; line-height:1.6; max-width:300px; }
+  strong { color:#fff; }
+</style></head>
+<body>
+  <div>
+    <div class="icon">${icon}</div>
+    <p>${text}</p>
+  </div>
+  <script>
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(${message}, '*');
+        if (${status === "success"}) setTimeout(() => window.close(), 800);
+      }
+    } catch(e) { /* cross-origin guard */ }
+  </script>
+</body></html>`;
+}
+
+// ── All routes below require authentication ───────────────────────────────────
 router.use(requireAuth);
 
 // ── Token management ─────────────────────────────────────────────────────────
