@@ -1,7 +1,7 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { db, projects, files, memberships, runs, chatMessages } from "@workspace/db";
-import { eq, and, or, isNull, ilike, sql } from "drizzle-orm";
+import { eq, and, or, isNull, ilike, sql, asc } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
@@ -186,6 +186,138 @@ router.patch("/:id", requireAuth, async (req: AuthenticatedRequest, res: Respons
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
     const [updated] = await db.update(projects).set({ ...parsed.data, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
     res.json({ data: updated });
+  } catch (err) { next(err); }
+});
+
+// ── Project setup detection ────────────────────────────────────────────────
+
+interface SetupInfo {
+  framework: string;
+  language: string;
+  installCmd: string | null;
+  devCmd: string | null;
+  runCmd: string | null;
+  buildCmd: string | null;
+  scripts: Record<string, string>;
+  envVarsNeeded: string[];
+  packageManager: "npm" | "pnpm" | "yarn" | "pip" | "cargo" | "go" | null;
+  hasLockFile: boolean;
+  entryPoints: string[];
+}
+
+function detectSetup(projectFiles: { path: string; content: string | null }[], language: string): SetupInfo {
+  const paths = projectFiles.map(f => f.path.toLowerCase());
+  const getContent = (p: string) => projectFiles.find(f => f.path.toLowerCase() === p.toLowerCase())?.content ?? null;
+
+  const hasPnpmLock  = paths.some(p => p.includes("pnpm-lock"));
+  const hasYarnLock  = paths.some(p => p.includes("yarn.lock"));
+  const hasCargoToml = paths.some(p => p.endsWith("cargo.toml"));
+  const hasGoMod     = paths.some(p => p.endsWith("go.mod"));
+  const hasReqTxt    = paths.some(p => p.includes("requirements.txt"));
+  const hasPyproject = paths.some(p => p.endsWith("pyproject.toml"));
+  const hasPkgJson   = paths.some(p => p.endsWith("package.json") && !p.includes("node_modules"));
+
+  const packageManager =
+    hasPnpmLock  ? "pnpm" :
+    hasYarnLock  ? "yarn" :
+    hasCargoToml ? "cargo" :
+    hasGoMod     ? "go" :
+    (hasReqTxt || hasPyproject) ? "pip" :
+    hasPkgJson   ? "npm" : null;
+
+  let scripts: Record<string, string> = {};
+  let framework = language === "python" ? "Python" : language === "typescript" ? "TypeScript" : "Node.js";
+  let devCmd: string | null = null;
+  let buildCmd: string | null = null;
+  let runCmd: string | null = null;
+
+  const pkgContent = getContent("package.json");
+  if (pkgContent) {
+    try {
+      const pkg = JSON.parse(pkgContent) as {
+        scripts?: Record<string, string>;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      scripts = pkg.scripts ?? {};
+      devCmd   = scripts.dev ?? scripts.develop ?? scripts.start ?? null;
+      buildCmd = scripts.build ?? null;
+      runCmd   = scripts.start ?? scripts.serve ?? null;
+
+      const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+      if (deps["next"])         framework = "Next.js";
+      else if (deps["nuxt"])    framework = "Nuxt.js";
+      else if (deps["vite"])    framework = "Vite";
+      else if (deps["react"])   framework = "React";
+      else if (deps["vue"])     framework = "Vue.js";
+      else if (deps["svelte"])  framework = "Svelte";
+      else if (deps["express"]) framework = "Express.js";
+      else if (deps["fastify"]) framework = "Fastify";
+      else if (deps["hono"])    framework = "Hono";
+      else if (deps["@angular/core"]) framework = "Angular";
+      else if (deps["solid-js"]) framework = "SolidJS";
+      else if (deps["astro"])   framework = "Astro";
+    } catch { /* ignore parse errors */ }
+  }
+
+  if (hasCargoToml) { framework = "Rust / Cargo"; devCmd = "cargo run"; buildCmd = "cargo build"; }
+  if (hasGoMod)     { framework = "Go"; devCmd = "go run ."; buildCmd = "go build ."; }
+  if (hasReqTxt || hasPyproject) { framework = hasPyproject ? "Python (pyproject)" : "Python"; devCmd = "python main.py"; runCmd = "python main.py"; }
+
+  const installCmd =
+    packageManager === "pnpm"  ? "pnpm install" :
+    packageManager === "yarn"  ? "yarn install" :
+    packageManager === "cargo" ? "cargo build" :
+    packageManager === "go"    ? "go mod download" :
+    packageManager === "pip"   ? (hasReqTxt ? "pip install -r requirements.txt" : "pip install .") :
+    packageManager === "npm"   ? "npm install" : null;
+
+  // Extract needed env vars from .env.example or README
+  const envExample = getContent(".env.example") ?? getContent(".env.sample") ?? getContent(".env.template") ?? "";
+  const envVarsNeeded = envExample
+    ? envExample.split("\n")
+        .filter(l => l.trim() && !l.trim().startsWith("#") && l.includes("="))
+        .map(l => l.split("=")[0].trim())
+        .filter(Boolean)
+    : [];
+
+  const entryPoints = projectFiles
+    .map(f => f.path)
+    .filter(p => ["index.js","index.ts","main.py","app.py","main.ts","main.go","src/index.ts","src/main.ts","src/index.js"].includes(p))
+    .slice(0, 5);
+
+  return {
+    framework,
+    language,
+    installCmd,
+    devCmd,
+    runCmd,
+    buildCmd,
+    scripts,
+    envVarsNeeded,
+    packageManager,
+    hasLockFile: hasPnpmLock || hasYarnLock,
+    entryPoints,
+  };
+}
+
+router.get("/:id/setup", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
+      .from(memberships).where(eq(memberships.userId, req.user!.id));
+    const [p] = await db.select().from(projects).where(and(
+      eq(projects.id, id), isNull(projects.deletedAt),
+      or(eq(projects.ownerId, req.user!.id), sql`${projects.workspaceId} IN (${memberSubquery})`),
+    )).limit(1);
+    if (!p) return next(createError("Project not found", 404));
+
+    const projectFiles = await db.select({ path: files.path, content: files.content })
+      .from(files).where(and(eq(files.projectId, id), isNull(files.deletedAt)))
+      .orderBy(asc(files.path)).limit(300);
+
+    const setup = detectSetup(projectFiles, p.language ?? "nodejs");
+    res.json({ data: setup });
   } catch (err) { next(err); }
 });
 

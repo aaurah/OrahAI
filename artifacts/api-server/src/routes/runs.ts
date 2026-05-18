@@ -1,6 +1,6 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { db, runs, projects, memberships } from "@workspace/db";
+import { db, runs, projects, memberships, files } from "@workspace/db";
 import { eq, and, or, isNull, desc, sql } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
@@ -15,6 +15,50 @@ const ENTRY_POINT: Record<string, string> = {
   python:     "python main.py",
   html:       "echo 'Open index.html in a browser'",
 };
+
+async function detectProjectSetup(projectId: string, language: string) {
+  const projectFiles = await db.select({ path: files.path, content: files.content })
+    .from(files).where(and(eq(files.projectId, projectId), isNull(files.deletedAt))).limit(50);
+
+  const paths = projectFiles.map(f => f.path.toLowerCase());
+  const hasPnpmLock = paths.some(p => p.includes("pnpm-lock"));
+  const hasYarnLock = paths.some(p => p.includes("yarn.lock"));
+  const packageManager = hasPnpmLock ? "pnpm" : hasYarnLock ? "yarn" : "npm";
+
+  const pkgFile = projectFiles.find(f => f.path === "package.json");
+  let scripts: Record<string, string> = {};
+  let framework = language === "python" ? "Python" : language === "typescript" ? "TypeScript" : "Node.js";
+  let devCmd: string | null = null;
+
+  if (pkgFile?.content) {
+    try {
+      const pkg = JSON.parse(pkgFile.content) as {
+        scripts?: Record<string, string>;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      scripts = pkg.scripts ?? {};
+      devCmd = scripts.dev ?? scripts.develop ?? scripts.start ?? null;
+      const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+      if (deps["next"]) framework = "Next.js";
+      else if (deps["vite"]) framework = "Vite";
+      else if (deps["react"]) framework = "React";
+      else if (deps["vue"]) framework = "Vue.js";
+      else if (deps["svelte"]) framework = "Svelte";
+      else if (deps["express"]) framework = "Express.js";
+      else if (deps["astro"]) framework = "Astro";
+    } catch { /* ignore */ }
+  }
+
+  const hasReqTxt = paths.some(p => p.includes("requirements.txt"));
+  if (hasReqTxt) { framework = "Python"; devCmd = "python main.py"; }
+  if (paths.some(p => p.endsWith("cargo.toml"))) { framework = "Rust / Cargo"; devCmd = "cargo run"; }
+  if (paths.some(p => p.endsWith("go.mod"))) { framework = "Go"; devCmd = "go run ."; }
+
+  const installCmd = packageManager === "pnpm" ? "pnpm install" : packageManager === "yarn" ? "yarn" : "npm install";
+
+  return { framework, scripts, devCmd, installCmd, packageManager };
+}
 
 async function assertProjectAccess(projectId: string, userId: string) {
   const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
@@ -54,20 +98,30 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
       });
     } else {
       const lang = project.language ?? "nodejs";
-      const langLabel: Record<string, string> = {
-        nodejs: "Node.js", typescript: "TypeScript", python: "Python", html: "HTML",
-      };
-      const noSandboxOutput: Record<string, string> = {
-        html: `✓ HTML project ready.\n\nSwitch to the Preview tab to view your project live in the browser.\nNo server-side execution is needed for HTML/CSS/JS projects.`,
-        nodejs:     `$ ${command}\n\nCode execution is not enabled in this environment.\n\nYour ${langLabel[lang] ?? lang} files are saved and ready.\nTo run this project, deploy it via GitHub or enable a sandbox service.`,
-        typescript: `$ ${command}\n\nCode execution is not enabled in this environment.\n\nYour ${langLabel[lang] ?? lang} files are saved and ready.\nTo run this project, deploy it via GitHub or enable a sandbox service.`,
-        python:     `$ ${command}\n\nCode execution is not enabled in this environment.\n\nYour ${langLabel[lang] ?? lang} files are saved and ready.\nTo run this project, deploy it via GitHub or enable a sandbox service.`,
-      };
-      await db.update(runs).set({
-        status: "success",
-        output: noSandboxOutput[lang] ?? noSandboxOutput.nodejs,
-        completedAt: new Date(),
-      }).where(eq(runs.id, run.id));
+      let output: string;
+      if (lang === "html") {
+        output = `✓ HTML project ready.\n\nSwitch to the Preview tab to view your project live in the browser.\nNo server-side execution is needed for HTML/CSS/JS projects.`;
+      } else {
+        try {
+          const setup = await detectProjectSetup(project.id, lang);
+          const scriptLines = Object.entries(setup.scripts).length > 0
+            ? "\nAvailable scripts:\n" + Object.entries(setup.scripts).map(([k, v]) => `  ${setup.packageManager} run ${k}  →  ${v}`).join("\n")
+            : "";
+          const devLine = setup.devCmd ? `\nDetected run command:  ${setup.devCmd}` : "";
+          const installLine = setup.installCmd ? `Install dependencies:  ${setup.installCmd}` : "";
+          output =
+            `$ ${command}\n\n` +
+            `Detected framework: ${setup.framework}\n` +
+            (installLine ? installLine + "\n" : "") +
+            (devLine ? devLine + "\n" : "") +
+            (scriptLines ? scriptLines + "\n" : "") +
+            `\nCode execution is not available in this environment.\n` +
+            `Your project files are saved — ask the AI to help set up, fix errors, or deploy this project.`;
+        } catch {
+          output = `$ ${command}\n\nCode execution is not enabled in this environment.\n\nYour files are saved and ready.\nAsk the AI assistant to help run, debug, or deploy this project.`;
+        }
+      }
+      await db.update(runs).set({ status: "success", output, completedAt: new Date() }).where(eq(runs.id, run.id));
     }
 
     res.status(202).json({ data: run });

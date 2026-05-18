@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useParams } from "wouter";
+import { useParams, useSearch, useLocation } from "wouter";
 import { Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon, MoreHorizontal, Github, KeyRound, Rocket } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
@@ -9,6 +9,7 @@ import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { PreviewPanel } from "@/components/editor/PreviewPanel";
 import { SecretsPanel } from "@/components/editor/SecretsPanel";
 import { DeployPanel } from "@/components/editor/DeployPanel";
+import { SetupBanner } from "@/components/editor/SetupBanner";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
 import { api } from "@/lib/api";
@@ -20,9 +21,13 @@ type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
+  const search = useSearch();
+  const [, navigate] = useLocation();
   const { project, isLoading, mutate: mutateProject } = useProject(id ?? null);
   const { runs, mutate: mutateRuns } = useRuns(id ?? null);
   const latestRun = runs[0] ?? null;
+
+  const isSetupMode = new URLSearchParams(search).get("setup") === "1";
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
@@ -36,8 +41,21 @@ export default function WorkspacePage() {
   const [mobileTab, setMobileTab] = useState<MobileTab>("ai");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [autoDevEnabled, setAutoDevEnabled] = useState(false);
+  const [showSetupBanner, setShowSetupBanner] = useState(isSetupMode);
   const moreRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatPanelHandle>(null);
+
+  const dismissSetup = () => {
+    setShowSetupBanner(false);
+    if (isSetupMode) navigate(`/workspace/${id}`, { replace: true });
+  };
+
+  const handleAiSetup = (prompt: string) => {
+    dismissSetup();
+    setChatOpen(true);
+    setMobileTab("ai");
+    setTimeout(() => chatRef.current?.submit(prompt), 100);
+  };
 
   const AUTO_DEV_PROMPT =
     "[AUTO-DEVELOP] You are in autonomous growth mode — like a tree that never stops growing. " +
@@ -216,6 +234,13 @@ export default function WorkspacePage() {
 
         {chatOpen && (
           <div className="w-80 xl:w-96 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
+            {showSetupBanner && (
+              <SetupBanner
+                projectId={project.id}
+                onDismiss={dismissSetup}
+                onAiSetup={handleAiSetup}
+              />
+            )}
             <ChatPanel
               ref={chatRef}
               projectId={project.id}
@@ -296,6 +321,13 @@ export default function WorkspacePage() {
 
           {mobileTab === "ai" && (
             <div className="h-full overflow-hidden flex flex-col">
+              {showSetupBanner && (
+                <SetupBanner
+                  projectId={project.id}
+                  onDismiss={dismissSetup}
+                  onAiSetup={handleAiSetup}
+                />
+              )}
               <ChatPanel
                 ref={chatRef}
                 projectId={project.id}

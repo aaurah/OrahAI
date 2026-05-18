@@ -227,7 +227,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
       });
       toast({ title: `Imported ${preview.name}`, description: `${res.data._count.files} files imported` });
       handleClose(); onImported?.();
-      navigate(`/workspace/${res.data.id}`);
+      navigate(`/workspace/${res.data.id}?setup=1`);
     } catch (err: unknown) { setError((err as Error).message); }
     finally { setIsGhImporting(false); }
   };
@@ -330,7 +330,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
       });
       toast({ title: `Imported ${localName}`, description: `${res.data._count.files} files` });
       handleClose(); onImported?.();
-      navigate(`/workspace/${res.data.id}`);
+      navigate(`/workspace/${res.data.id}?setup=1`);
     } catch (err: unknown) { setError((err as Error).message); }
     finally { setIsLocalImporting(false); }
   };
