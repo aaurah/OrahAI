@@ -23,7 +23,13 @@ export default function LoginPage() {
     try {
       const res = await api.post<ApiResponse<AuthResponse>>("/api/auth/login", { email, password });
       localStorage.setItem("orahai_token", res.data.token);
-      navigate("/dashboard");
+      try {
+        const projects = await api.get<{ data: { id: string }[] }>("/api/projects?limit=1");
+        const first = projects.data?.[0];
+        navigate(first ? `/workspace/${first.id}` : "/dashboard");
+      } catch {
+        navigate("/dashboard");
+      }
     } catch {
       setError("Invalid email or password");
     } finally {

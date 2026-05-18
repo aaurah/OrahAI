@@ -22,7 +22,7 @@ export default function RegisterPage() {
     try {
       const res = await api.post<ApiResponse<AuthResponse>>("/api/auth/register", form);
       localStorage.setItem("orahai_token", res.data.token);
-      navigate("/dashboard");
+      navigate("/dashboard"); // new users have no projects yet — go create one
     } catch (err: unknown) {
       const apiErr = err as { response?: { data?: { message?: string } }; message?: string };
       setError(apiErr.response?.data?.message ?? apiErr.message ?? "Registration failed");
