@@ -30,7 +30,8 @@ async function assertProjectAccess(projectId: string, userId: string) {
 
 router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const project = await assertProjectAccess(req.params.projectId, req.user!.id);
+    const projectId = String(req.params.projectId);
+    const project = await assertProjectAccess(projectId, req.user!.id);
     const schema = z.object({ command: z.string().max(500).optional() });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
@@ -49,7 +50,7 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
         body: JSON.stringify({ runId: run.id, projectId: project.id, command, language: project.language }),
       }).catch(() => {
         db.update(runs).set({ status: "error", output: "Sandbox service unavailable", completedAt: new Date() })
-          .where(eq(runs.id, run.id)).catch((e: unknown) => logger.warn("Failed to update run status: " + String(e)));
+          .where(eq(runs.id, run.id)).catch((e: unknown) => logger.warn({ err: e }, "Failed to update run status"));
       });
     } else {
       await db.update(runs).set({ status: "error", output: "No sandbox service configured.", completedAt: new Date() }).where(eq(runs.id, run.id));
@@ -61,17 +62,20 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
 
 router.get("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
-    const rows = await db.select().from(runs).where(eq(runs.projectId, req.params.projectId)).orderBy(desc(runs.createdAt)).limit(50);
+    const projectId = String(req.params.projectId);
+    await assertProjectAccess(projectId, req.user!.id);
+    const rows = await db.select().from(runs).where(eq(runs.projectId, projectId)).orderBy(desc(runs.createdAt)).limit(50);
     res.json({ data: rows });
   } catch (err) { next(err); }
 });
 
 router.get("/:projectId/:runId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    const projectId = String(req.params.projectId);
+    const runId = String(req.params.runId);
+    await assertProjectAccess(projectId, req.user!.id);
     const [run] = await db.select().from(runs)
-      .where(and(eq(runs.id, req.params.runId), eq(runs.projectId, req.params.projectId))).limit(1);
+      .where(and(eq(runs.id, runId), eq(runs.projectId, projectId))).limit(1);
     if (!run) return next(createError("Run not found", 404));
     res.json({ data: run });
   } catch (err) { next(err); }

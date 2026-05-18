@@ -126,7 +126,7 @@ router.get("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest, re
 router.delete("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const [project] = await db.select().from(projects)
-      .where(and(eq(projects.id, req.params.projectId), eq(projects.ownerId, req.user!.id), isNull(projects.deletedAt))).limit(1);
+      .where(and(eq(projects.id, String(req.params.projectId)), eq(projects.ownerId, req.user!.id), isNull(projects.deletedAt))).limit(1);
     if (!project) return next(createError("Project not found", 404));
     await db.delete(chatMessages).where(eq(chatMessages.projectId, project.id));
     res.json({ data: null, message: "Chat history cleared" });

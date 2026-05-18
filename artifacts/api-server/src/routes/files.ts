@@ -55,22 +55,24 @@ function buildTree(fileList: FlatFile[]) {
 
 router.get("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(String(req.params.projectId), req.user!.id);
+    const projectId = String(req.params.projectId);
+    await assertProjectAccess(projectId, req.user!.id);
     const rows = await db
       .select({ id: files.id, path: files.path, name: files.name, mimeType: files.mimeType, size: files.size, isDir: files.isDir })
       .from(files)
-      .where(and(eq(files.projectId, req.params.projectId), isNull(files.deletedAt)));
+      .where(and(eq(files.projectId, projectId), isNull(files.deletedAt)));
     res.json({ data: { flat: rows, tree: buildTree(rows) } });
   } catch (err) { next(err); }
 });
 
 router.get("/:projectId/read", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
+    const projectId = String(req.params.projectId);
     const filePath = req.query.path as string;
     if (!filePath) return next(createError("`path` query param required", 400));
-    await assertProjectAccess(String(req.params.projectId), req.user!.id);
+    await assertProjectAccess(projectId, req.user!.id);
     const [file] = await db.select().from(files)
-      .where(and(eq(files.projectId, req.params.projectId), eq(files.path, filePath), isNull(files.deletedAt))).limit(1);
+      .where(and(eq(files.projectId, projectId), eq(files.path, filePath), isNull(files.deletedAt))).limit(1);
     if (!file) return next(createError("File not found", 404));
     res.json({ data: file });
   } catch (err) { next(err); }
@@ -82,16 +84,17 @@ router.put("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Re
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
+    const projectId = String(req.params.projectId);
     const { path: filePath, content, mimeType } = parsed.data;
     safePath(filePath);
-    await assertProjectAccess(String(req.params.projectId), req.user!.id);
+    await assertProjectAccess(projectId, req.user!.id);
 
     const name = filePath.split("/").pop() ?? filePath;
     const size = Buffer.byteLength(content, "utf8");
     const mime = mimeType ?? mimeFromName(name);
 
     const [existing] = await db.select({ id: files.id }).from(files)
-      .where(and(eq(files.projectId, req.params.projectId), eq(files.path, filePath))).limit(1);
+      .where(and(eq(files.projectId, projectId), eq(files.path, filePath))).limit(1);
 
     let file;
     if (existing) {
@@ -99,22 +102,23 @@ router.put("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Re
         .where(eq(files.id, existing.id)).returning();
     } else {
       [file] = await db.insert(files).values({
-        id: cuid(), projectId: req.params.projectId, path: filePath, name, content, mimeType: mime, size, isDir: false,
+        id: cuid(), projectId, path: filePath, name, content, mimeType: mime, size, isDir: false,
       }).returning();
     }
 
-    await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, req.params.projectId));
+    await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, projectId));
     res.json({ data: file });
   } catch (err) { next(err); }
 });
 
 router.delete("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
+    const projectId = String(req.params.projectId);
     const filePath = req.query.path as string;
     if (!filePath) return next(createError("`path` query param required", 400));
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectAccess(projectId, req.user!.id);
     const [file] = await db.select().from(files)
-      .where(and(eq(files.projectId, req.params.projectId), eq(files.path, filePath), isNull(files.deletedAt))).limit(1);
+      .where(and(eq(files.projectId, projectId), eq(files.path, filePath), isNull(files.deletedAt))).limit(1);
     if (!file) return next(createError("File not found", 404));
     await db.update(files).set({ deletedAt: new Date() }).where(eq(files.id, file.id));
     res.json({ data: null, message: "File deleted" });
@@ -126,10 +130,11 @@ router.post("/:projectId/rename", requireAuth, async (req: AuthenticatedRequest,
     const schema = z.object({ oldPath: z.string(), newPath: z.string() });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
+    const projectId = String(req.params.projectId);
     safePath(parsed.data.newPath);
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectAccess(projectId, req.user!.id);
     const [file] = await db.select().from(files)
-      .where(and(eq(files.projectId, req.params.projectId), eq(files.path, parsed.data.oldPath), isNull(files.deletedAt))).limit(1);
+      .where(and(eq(files.projectId, projectId), eq(files.path, parsed.data.oldPath), isNull(files.deletedAt))).limit(1);
     if (!file) return next(createError("File not found", 404));
     const [updated] = await db.update(files).set({
       path: parsed.data.newPath, name: parsed.data.newPath.split("/").pop() ?? parsed.data.newPath, updatedAt: new Date(),
