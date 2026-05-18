@@ -1,0 +1,166 @@
+// OrahAI — MVP data model
+// Phase 1: Auth, Workspaces, Projects, Files, Runs, AI Chat
+// Phase 2 (future): Deployments, Billing, Audit
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Users
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  username     String   @unique
+  avatarUrl    String?
+  bio          String?
+  passwordHash String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships  Membership[]
+  projects     Project[]     @relation("UserProjects")
+  chats        ChatMessage[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspaces  (org / team boundary)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  avatarUrl   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships Membership[]
+  projects    Project[]
+
+  @@map("workspaces")
+}
+
+model Membership {
+  id          String   @id @default(cuid())
+  role        String   // "owner" | "admin" | "member"
+  userId      String
+  workspaceId String
+
+  createdAt DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@map("memberships")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Projects
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  language    String  @default("nodejs")
+  isPublic    Boolean @default(false)
+
+  workspaceId String
+  ownerId     String
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner     User          @relation("UserProjects", fields: [ownerId], references: [id])
+  files     File[]
+  runs      Run[]
+  chats     ChatMessage[]
+
+  @@unique([workspaceId, slug])
+  @@map("projects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Files
+// ─────────────────────────────────────────────────────────────────────────────
+
+model File {
+  id        String  @id @default(cuid())
+  projectId String
+  path      String  // e.g. "src/index.js"
+  name      String
+  content   String  @default("")
+  mimeType  String  @default("text/plain")
+  isDir     Boolean @default(false)
+  size      Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, path])
+  @@map("files")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runs  (code execution records)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Run {
+  id        String  @id @default(cuid())
+  projectId String
+  command   String
+  status    String  @default("queued") // "queued" | "running" | "success" | "error"
+  output    String?
+  exitCode  Int?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("runs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Chat
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ChatMessage {
+  id        String  @id @default(cuid())
+  projectId String
+  userId    String?
+  role      String  // "user" | "assistant" | "system"
+  content   String
+
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@map("chat_messages")
+}
