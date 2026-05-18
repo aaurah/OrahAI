@@ -51,6 +51,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
   const [items, setItems] = useState<ListItem[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [agentStep, setAgentStep] = useState(0);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -130,6 +131,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     };
     setItems((prev) => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
+    setAgentStep(1);
     abortRef.current = new AbortController();
 
     try {
@@ -172,9 +174,13 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
               idx?: number; command?: string; output?: string;
               status?: string; exitCode?: number;
               path?: string; action?: string; size?: number; error?: string;
+              step?: number; maxSteps?: number;
             };
 
-            if (evt.type === "delta" && evt.content) {
+            if (evt.type === "agent_step" && evt.step) {
+              setAgentStep(evt.step);
+
+            } else if (evt.type === "delta" && evt.content) {
               setItems((prev) =>
                 prev.map((m) => "role" in m && m.id === assistantId
                   ? { ...m, content: m.content + evt.content } : m)
@@ -245,6 +251,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     } finally {
       setItems((prev) => prev.map((m) => "role" in m && m.id === assistantId ? { ...m, pending: false } : m));
       setIsStreaming(false);
+      setAgentStep(0);
       abortRef.current = null;
     }
   };
@@ -319,7 +326,10 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
                   </div>
                 )}
                 {(msg as { pending?: boolean }).pending && !msg.content ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {agentStep > 1 ? `Working… step ${agentStep}` : "Thinking…"}
+                  </div>
                 ) : msg.content && msg.content !== "(images)" ? (
                   <MsgContent
                     content={msg.content}
