@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import {
-  Bot, Play, Loader2, MessageSquare, Terminal as TerminalIcon,
-  ArrowLeft, Circle, Github, Globe, KeyRound, Rocket, Upload,
+  Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
+  ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown,
 } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
 import type { Project, Run } from "@/types";
@@ -28,8 +27,15 @@ interface Props {
   onDeployToggle: () => void;
 }
 
-const LANG_ICONS: Record<string, string> = {
-  nodejs: "🟩", python: "🐍", typescript: "🔷", html: "🌐",
+const LANG_COLORS: Record<string, string> = {
+  nodejs:     "bg-green-500",
+  python:     "bg-yellow-400",
+  typescript: "bg-blue-500",
+  html:       "bg-orange-400",
+};
+
+const LANG_LABELS: Record<string, string> = {
+  nodejs: "Node", python: "Python", typescript: "TypeScript", html: "HTML",
 };
 
 export function WorkspaceTopbar({
@@ -43,117 +49,118 @@ export function WorkspaceTopbar({
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
 
-  const statusColor =
-    latestRun?.status === "success" ? "text-green-500"
-    : latestRun?.status === "error" ? "text-destructive"
-    : latestRun?.status === "running" ? "text-amber-400 animate-pulse"
-    : "text-muted-foreground";
+  const runStatus = latestRun?.status;
+  const dotColor =
+    runStatus === "success" ? "bg-green-500"
+    : runStatus === "error"   ? "bg-red-500"
+    : runStatus === "running" ? "bg-amber-400 animate-pulse"
+    : "bg-muted-foreground/30";
 
   return (
     <>
-      <div className="h-12 border-b border-border flex items-center gap-1.5 px-3 bg-background shrink-0">
-        <Link href="/dashboard" className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors mr-1">
+      <div className="h-11 border-b border-border flex items-center gap-1 px-2 bg-background shrink-0">
+        {/* Back + brand */}
+        <Link href="/dashboard"
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-muted mr-0.5">
           <ArrowLeft className="w-4 h-4" />
-          <Bot className="w-5 h-5 text-primary" />
+          <Bot className="w-4 h-4 text-primary" />
         </Link>
 
-        <span className="text-sm font-semibold truncate max-w-[120px] sm:max-w-[180px]">
-          {LANG_ICONS[project.language] ?? "📁"} {project.name}
-        </span>
+        {/* Project name + language badge */}
+        <div className="flex items-center gap-2 mr-2 min-w-0">
+          <div className={cn("w-2 h-2 rounded-full shrink-0", LANG_COLORS[project.language] ?? "bg-muted-foreground/50")} />
+          <span className="text-sm font-semibold truncate max-w-[110px] sm:max-w-[180px]">{project.name}</span>
+          <span className="hidden sm:flex items-center text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+            {LANG_LABELS[project.language] ?? project.language}
+          </span>
+        </div>
 
-        <span className="text-muted-foreground/40 text-xs hidden sm:block capitalize">
-          · {project.language}
-        </span>
-
-        <div className="flex-1" />
-
+        {/* Run status dot (desktop) */}
         {latestRun && (
-          <div className={cn("flex items-center gap-1 text-xs", statusColor)}>
-            <Circle className="w-2 h-2 fill-current" />
-            <span className="capitalize hidden sm:inline">{latestRun.status}</span>
+          <div className="hidden sm:flex items-center gap-1.5 mr-1">
+            <div className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
+            <span className="text-[11px] text-muted-foreground capitalize">{runStatus}</span>
           </div>
         )}
 
-        <Button
-          size="sm"
-          variant={isRunning ? "outline" : "default"}
+        <div className="flex-1" />
+
+        {/* ── Run button ──────────────────────────────────────────────── */}
+        <button
           onClick={onRun}
           disabled={isRunning}
-          className="gap-1.5 h-8 px-3"
+          className={cn(
+            "flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0",
+            isRunning
+              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed"
+              : "bg-green-600 hover:bg-green-500 text-white shadow-sm",
+          )}
         >
           {isRunning ? (
             <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span className="hidden sm:inline">Running</span></>
           ) : (
-            <><Play className="w-3.5 h-3.5" /><span className="hidden sm:inline">Run</span></>
+            <><Play className="w-3.5 h-3.5 fill-current" /><span className="hidden sm:inline">Run</span></>
           )}
-        </Button>
+        </button>
 
-        {/* Desktop-only panel toggles */}
-        <div className="hidden md:flex items-center gap-0.5">
-          <button
-            onClick={() => setImportOpen(true)}
-            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Import project"
-          >
-            <Upload className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onPreviewToggle}
-            className={cn("p-1.5 rounded hover:bg-muted transition-colors",
-              previewOpen ? "bg-muted text-primary" : "text-muted-foreground")}
-            title="Toggle preview"
-          >
+        {/* ── Desktop panel toggles ──────────────────────────────────── */}
+        <div className="hidden md:flex items-center gap-0.5 ml-1">
+          <TooltipBtn label="Preview" active={previewOpen} onClick={onPreviewToggle}>
             <Globe className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onTerminalToggle}
-            className={cn("p-1.5 rounded hover:bg-muted transition-colors",
-              terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground")}
-            title="Toggle terminal"
-          >
+          </TooltipBtn>
+          <TooltipBtn label="Console" active={terminalOpen} onClick={onTerminalToggle}>
             <TerminalIcon className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onChatToggle}
-            className={cn("p-1.5 rounded hover:bg-muted transition-colors",
-              chatOpen ? "bg-muted text-foreground" : "text-muted-foreground")}
-            title="Toggle AI chat"
-          >
+          </TooltipBtn>
+          <TooltipBtn label="AI Chat" active={chatOpen} onClick={onChatToggle}>
             <MessageSquare className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onSecretsToggle}
-            className={cn("p-1.5 rounded hover:bg-muted transition-colors",
-              secretsOpen ? "bg-muted text-foreground" : "text-muted-foreground")}
-            title="Secrets / env vars"
-          >
-            <KeyRound className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onDeployToggle}
-            className={cn("p-1.5 rounded hover:bg-muted transition-colors",
-              deployOpen ? "bg-muted text-primary" : "text-muted-foreground")}
-            title="Deploy"
-          >
-            <Rocket className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onGithubToggle}
-            className={cn(
-              "p-1.5 rounded hover:bg-muted transition-colors",
-              githubOpen ? "bg-muted text-foreground" : "text-muted-foreground",
-              project.githubRepo && "text-primary",
-            )}
-            title="GitHub sync"
-          >
+          </TooltipBtn>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <TooltipBtn label="Import" onClick={() => setImportOpen(true)}>
+            <Upload className="w-4 h-4" />
+          </TooltipBtn>
+          <TooltipBtn label="GitHub" active={githubOpen} onClick={onGithubToggle} highlight={!!project.githubRepo}>
             <Github className="w-4 h-4" />
-          </button>
+          </TooltipBtn>
+          <TooltipBtn label="Secrets" active={secretsOpen} onClick={onSecretsToggle}>
+            <KeyRound className="w-4 h-4" />
+          </TooltipBtn>
+          <TooltipBtn label="Deploy" active={deployOpen} onClick={onDeployToggle}>
+            <Rocket className="w-4 h-4" />
+          </TooltipBtn>
         </div>
+
+        {/* Mobile: chevron dropdown hint */}
+        <button className="md:hidden ml-1 p-1.5 rounded hover:bg-muted text-muted-foreground">
+          <ChevronDown className="w-4 h-4" />
+        </button>
       </div>
 
-      {importOpen && (
-        <ImportProjectDialog onOpenChange={setImportOpen} />
-      )}
+      {importOpen && <ImportProjectDialog onOpenChange={setImportOpen} />}
     </>
+  );
+}
+
+function TooltipBtn({
+  children, label, active, highlight, onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  active?: boolean;
+  highlight?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      className={cn(
+        "p-1.5 rounded hover:bg-muted transition-colors",
+        active    ? "bg-muted text-foreground"
+        : highlight ? "text-primary"
+        : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }

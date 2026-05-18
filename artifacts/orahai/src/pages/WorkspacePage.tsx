@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams } from "wouter";
-import { Files, MessageSquare, Github, Code2, Globe, KeyRound, Rocket } from "lucide-react";
+import { Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon, MoreHorizontal, Github, KeyRound, Rocket } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -16,7 +16,7 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
-type MobileTab = "files" | "editor" | "chat" | "preview" | "github" | "secrets" | "deploy";
+type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -25,22 +25,31 @@ export default function WorkspacePage() {
   const latestRun = runs[0] ?? null;
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
-  const [chatOpen, setChatOpen] = useState(true);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
   const [githubOpen, setGithubOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [secretsOpen, setSecretsOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("ai");
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
 
-  // Auto-open preview for HTML/web projects
+  const isWebProject = project?.language === "html";
+
   useEffect(() => {
-    if (project && (project.language === "html")) {
-      setPreviewOpen(true);
-    }
-  }, [project?.id, project?.language]);
+    if (project && isWebProject) setPreviewOpen(true);
+  }, [project?.id, isWebProject]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const handleFileSelect = useCallback((file: ProjectFile) => {
     setActiveFile(file);
@@ -53,9 +62,7 @@ export default function WorkspacePage() {
     setActiveFile(updated);
     try {
       await api.put(`/api/files/${project.id}`, {
-        path: activeFile.path,
-        content: code,
-        mimeType: activeFile.mimeType,
+        path: activeFile.path, content: code, mimeType: activeFile.mimeType,
       });
       toast({ title: `Applied to ${activeFile.path}` });
     } catch {
@@ -72,12 +79,9 @@ export default function WorkspacePage() {
         if (res.data) setActiveFile(res.data);
       } catch { /* ignore */ }
     }
-    if (action === "delete" && activeFile?.path === path) {
-      setActiveFile(null);
-    }
+    if (action === "delete" && activeFile?.path === path) setActiveFile(null);
   }, [activeFile, project]);
 
-  // Triggered by CodeEditor Ctrl+S — refreshes live preview
   const handleEditorSave = useCallback((content: string) => {
     setActiveFile((f) => f ? { ...f, content } : f);
     setFileRefreshKey((k) => k + 1);
@@ -87,8 +91,8 @@ export default function WorkspacePage() {
     if (!project || isRunning) return;
     setIsRunning(true);
     setTerminalOpen(true);
-    setMobileTab("editor");
-    if (project.language === "html") setPreviewOpen(true);
+    setMobileTab("console");
+    if (isWebProject) setPreviewOpen(true);
     try {
       await api.post<ApiResponse<Run>>(`/api/runs/${project.id}`);
       await mutateRuns();
@@ -118,17 +122,13 @@ export default function WorkspacePage() {
     );
   }
 
-  const mobileTabs: { id: MobileTab; label: string; icon: React.ReactNode }[] = [
-    { id: "files",   label: "Files",   icon: <Files className="w-4 h-4" /> },
-    { id: "editor",  label: "Editor",  icon: <Code2 className="w-4 h-4" /> },
-    { id: "chat",    label: "AI",      icon: <MessageSquare className="w-4 h-4" /> },
-    { id: "preview", label: "Preview", icon: <Globe className="w-4 h-4" /> },
-    { id: "github",  label: "GitHub",  icon: <Github className={cn("w-4 h-4", project.githubRepo && "text-primary")} /> },
-    { id: "secrets", label: "Secrets", icon: <KeyRound className="w-4 h-4" /> },
-    { id: "deploy",  label: "Deploy",  icon: <Rocket className="w-4 h-4" /> },
+  const mobileTabs = [
+    { id: "files"   as MobileTab, label: "Files",   icon: <Files className="w-[18px] h-[18px]" /> },
+    { id: "editor"  as MobileTab, label: "Editor",  icon: <Code2 className="w-[18px] h-[18px]" /> },
+    { id: "console" as MobileTab, label: "Console", icon: <TerminalIcon className="w-[18px] h-[18px]" /> },
+    { id: "preview" as MobileTab, label: "Preview", icon: <Globe className="w-[18px] h-[18px]" /> },
+    { id: "ai"      as MobileTab, label: "AI",      icon: <MessageSquare className="w-[18px] h-[18px]" /> },
   ];
-
-  const rightPanelOpen = chatOpen || githubOpen || secretsOpen || deployOpen;
 
   return (
     <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
@@ -151,9 +151,8 @@ export default function WorkspacePage() {
         onDeployToggle={() => setDeployOpen((v) => !v)}
       />
 
-      {/* ── Desktop layout (md+) ──────────────────────────────────────── */}
+      {/* ── Desktop layout ──────────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
-        {/* File sidebar */}
         <WorkspaceSidebar
           projectId={project.id}
           activeFilePath={activeFile?.path}
@@ -161,30 +160,25 @@ export default function WorkspacePage() {
           refreshKey={fileRefreshKey}
         />
 
-        {/* Editor + Preview */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <div className="flex-1 flex overflow-hidden">
-            {/* Editor */}
-            <div className={cn("flex flex-col overflow-hidden min-w-0", previewOpen ? "flex-1" : "flex-1")}>
+            <div className="flex-1 flex flex-col overflow-hidden min-w-0">
               <div className="flex-1 overflow-hidden">
                 {activeFile ? (
-                  <CodeEditor
-                    projectId={project.id}
-                    file={activeFile}
-                    onSave={handleEditorSave}
-                  />
+                  <CodeEditor projectId={project.id} file={activeFile} onSave={handleEditorSave} />
                 ) : (
                   <EmptyEditor />
                 )}
               </div>
             </div>
 
-            {/* Live Preview (splits 50/50 with editor) */}
             {previewOpen && (
               <div className="flex-1 min-w-0 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
                 <PreviewPanel
                   projectId={project.id}
+                  language={project.language}
                   githubRepo={project.githubRepo}
+                  latestRun={latestRun}
                   refreshKey={fileRefreshKey}
                 />
               </div>
@@ -193,12 +187,11 @@ export default function WorkspacePage() {
 
           {terminalOpen && (
             <div className="h-52 flex-shrink-0 border-t border-border">
-              <RunOutput run={latestRun} />
+              <ConsolePanel run={latestRun} />
             </div>
           )}
         </div>
 
-        {/* Right panels — only one shown at a time */}
         {chatOpen && (
           <div className="w-80 xl:w-96 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
             <ChatPanel
@@ -212,10 +205,7 @@ export default function WorkspacePage() {
         )}
         {!chatOpen && githubOpen && (
           <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <GitHubPanel
-              projectId={project.id}
-              onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }}
-            />
+            <GitHubPanel projectId={project.id} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
           </div>
         )}
         {!chatOpen && !githubOpen && secretsOpen && (
@@ -230,104 +220,117 @@ export default function WorkspacePage() {
         )}
       </div>
 
-      {/* ── Mobile layout (< md) ─────────────────────────────────────── */}
+      {/* ── Mobile layout ────────────────────────────────────────────── */}
       <div className="flex md:hidden flex-1 overflow-hidden flex-col">
-        {mobileTab === "files" && (
-          <div className="flex-1 overflow-hidden">
+        {/* Main content area */}
+        <div className="flex-1 overflow-hidden">
+          {mobileTab === "files" && (
             <WorkspaceSidebar
               projectId={project.id}
               activeFilePath={activeFile?.path}
               onFileSelect={handleFileSelect}
               refreshKey={fileRefreshKey}
             />
-          </div>
-        )}
+          )}
 
-        {mobileTab === "editor" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-hidden">
-              {activeFile ? (
-                <CodeEditor
-                  projectId={project.id}
-                  file={activeFile}
-                  onSave={handleEditorSave}
-                />
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
-                  <Code2 className="w-10 h-10 opacity-20" />
-                  <p className="text-sm text-center">No file open</p>
-                  <button onClick={() => setMobileTab("files")} className="text-xs text-primary underline underline-offset-2">
-                    Browse files →
-                  </button>
-                </div>
-              )}
-            </div>
-            {terminalOpen && (
-              <div className="h-48 border-t border-border flex-shrink-0">
-                <RunOutput run={latestRun} />
+          {mobileTab === "editor" && (
+            <div className="h-full flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-hidden">
+                {activeFile ? (
+                  <CodeEditor projectId={project.id} file={activeFile} onSave={handleEditorSave} />
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
+                    <Code2 className="w-10 h-10 opacity-20" />
+                    <p className="text-sm text-center">No file open</p>
+                    <button onClick={() => setMobileTab("files")} className="text-xs text-primary underline underline-offset-2">
+                      Browse files →
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {mobileTab === "chat" && (
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <ChatPanel
-              projectId={project.id}
-              activeFilePath={activeFile?.path}
-              activeFileContent={activeFile?.content}
-              onApplyCode={handleApplyCode}
-              onFileChange={handleFileChange}
-            />
-          </div>
-        )}
+          {mobileTab === "console" && (
+            <div className="h-full flex flex-col overflow-hidden">
+              <ConsolePanel run={latestRun} onRun={handleRun} isRunning={isRunning} />
+            </div>
+          )}
 
-        {mobileTab === "preview" && (
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <PreviewPanel
-              projectId={project.id}
-              githubRepo={project.githubRepo}
-              refreshKey={fileRefreshKey}
-            />
-          </div>
-        )}
+          {mobileTab === "preview" && (
+            <div className="h-full flex flex-col overflow-hidden">
+              <PreviewPanel
+                projectId={project.id}
+                language={project.language}
+                githubRepo={project.githubRepo}
+                latestRun={latestRun}
+                refreshKey={fileRefreshKey}
+                onOpenConsole={() => setMobileTab("console")}
+              />
+            </div>
+          )}
 
-        {mobileTab === "github" && (
-          <div className="flex-1 overflow-y-auto bg-background">
-            <GitHubPanel
-              projectId={project.id}
-              onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }}
-            />
-          </div>
-        )}
+          {mobileTab === "ai" && (
+            <div className="h-full overflow-hidden flex flex-col">
+              <ChatPanel
+                projectId={project.id}
+                activeFilePath={activeFile?.path}
+                activeFileContent={activeFile?.content}
+                onApplyCode={handleApplyCode}
+                onFileChange={handleFileChange}
+              />
+            </div>
+          )}
+        </div>
 
-        {mobileTab === "secrets" && (
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <SecretsPanel projectId={project.id} />
-          </div>
-        )}
-
-        {mobileTab === "deploy" && (
-          <div className="flex-1 overflow-y-auto bg-background">
-            <DeployPanel project={project} onProjectUpdate={mutateProject} />
+        {/* More menu overlay */}
+        {moreMenuOpen && (
+          <div ref={moreRef} className="absolute bottom-16 right-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
+            {[
+              { label: "GitHub",  icon: <Github className="w-4 h-4" />,  action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
+              { label: "Secrets", icon: <KeyRound className="w-4 h-4" />, action: () => { setMobileTab("editor"); setSecretsOpen(true); setMoreMenuOpen(false); } },
+              { label: "Deploy",  icon: <Rocket className="w-4 h-4" />,  action: () => { setMobileTab("editor"); setDeployOpen(true); setMoreMenuOpen(false); } },
+            ].map((item) => (
+              <button key={item.label} onClick={item.action}
+                className="flex items-center gap-3 px-4 py-3 text-sm w-full hover:bg-muted transition-colors text-left">
+                {item.icon}{item.label}
+              </button>
+            ))}
           </div>
         )}
 
         {/* Mobile bottom tab bar */}
-        <div className="flex-shrink-0 border-t border-border bg-background flex items-stretch h-14 safe-b overflow-x-auto">
-          {mobileTabs.map((tab) => (
+        <div className="flex-shrink-0 border-t border-border bg-background safe-b">
+          <div className="flex items-stretch h-[54px]">
+            {mobileTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setMobileTab(tab.id)}
+                className={cn(
+                  "flex-1 flex flex-col items-center justify-center gap-[3px] text-[9px] font-medium transition-colors",
+                  mobileTab === tab.id ? "text-primary" : "text-muted-foreground/70",
+                )}
+              >
+                <span className={cn(
+                  "flex items-center justify-center w-7 h-5 rounded-md transition-colors",
+                  mobileTab === tab.id && "text-primary"
+                )}>
+                  {tab.icon}
+                </span>
+                {tab.label}
+              </button>
+            ))}
+            {/* More button */}
             <button
-              key={tab.id}
-              onClick={() => setMobileTab(tab.id)}
-              className={cn(
-                "flex-1 min-w-[48px] flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors",
-                mobileTab === tab.id ? "text-primary" : "text-muted-foreground",
-              )}
+              onClick={() => setMoreMenuOpen((v) => !v)}
+              className="flex-1 flex flex-col items-center justify-center gap-[3px] text-[9px] font-medium text-muted-foreground/70 transition-colors"
             >
-              {tab.icon}
-              {tab.label}
+              <span className="flex items-center justify-center w-7 h-5">
+                <MoreHorizontal className="w-[18px] h-[18px]" />
+              </span>
+              More
             </button>
-          ))}
+          </div>
         </div>
       </div>
     </div>
@@ -343,7 +346,7 @@ function EmptyEditor() {
   );
 }
 
-function RunOutput({ run }: { run: Run | null }) {
+function ConsolePanel({ run, onRun, isRunning }: { run: Run | null; onRun?: () => void; isRunning?: boolean }) {
   const statusColor =
     run?.status === "success" ? "text-green-400"
     : run?.status === "error"   ? "text-red-400"
@@ -352,28 +355,44 @@ function RunOutput({ run }: { run: Run | null }) {
 
   return (
     <div className="flex flex-col h-full bg-[#0d0d0d]">
-      <div className="flex items-center gap-3 px-3 h-8 border-b border-border/40 shrink-0">
+      {/* Console chrome */}
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-white/5 shrink-0">
         <div className="flex gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
-          <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
         </div>
-        <span className="text-xs text-muted-foreground">Output</span>
+        <span className="text-xs text-muted-foreground flex-1">Console</span>
         {run && (
-          <span className={`text-xs ml-auto ${statusColor}`}>
-            {run.status}{run.exitCode != null ? ` (exit ${run.exitCode})` : ""}
+          <span className={`text-xs ${statusColor}`}>
+            {run.status}{run.exitCode != null ? ` · exit ${run.exitCode}` : ""}
           </span>
         )}
       </div>
+
+      {/* Output */}
       <div className="flex-1 overflow-auto p-3 font-mono text-sm text-slate-300">
         {run?.status === "running" && (
-          <span className="text-amber-400 animate-pulse">Running…</span>
+          <span className="text-amber-400 animate-pulse">● Running…</span>
         )}
         {run?.output ? (
-          <pre className="whitespace-pre-wrap">{run.output}</pre>
-        ) : !run ? (
-          <span className="text-muted-foreground/50">Press Run to execute your code</span>
-        ) : null}
+          <pre className="whitespace-pre-wrap leading-5">{run.output}</pre>
+        ) : (
+          <div className="flex flex-col items-start gap-3 pt-2">
+            <span className="text-muted-foreground/40 text-xs">
+              {run ? "No output" : "Press Run ▶ to execute your code"}
+            </span>
+            {onRun && !run && (
+              <button
+                onClick={onRun}
+                disabled={isRunning}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
+              >
+                {isRunning ? "Running…" : "▶  Run project"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
