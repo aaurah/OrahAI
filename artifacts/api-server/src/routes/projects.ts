@@ -61,6 +61,8 @@ router.get("/", requireAuth, async (req: AuthenticatedRequest, res: Response, ne
       description: projects.description, language: projects.language,
       isPublic: projects.isPublic, workspaceId: projects.workspaceId,
       ownerId: projects.ownerId, createdAt: projects.createdAt, updatedAt: projects.updatedAt,
+      githubRepo: projects.githubRepo, githubBranch: projects.githubBranch,
+      githubSha: projects.githubSha, githubSyncedAt: projects.githubSyncedAt,
     }).from(projects).where(and(...conditions));
 
     const withCounts = await Promise.all(rows.map(async (p) => {

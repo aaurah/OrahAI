@@ -49,6 +49,10 @@ export interface Project {
   isPublic: boolean;
   workspaceId: string;
   ownerId: string;
+  githubRepo: string | null;
+  githubBranch: string | null;
+  githubSha: string | null;
+  githubSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -115,6 +119,43 @@ export interface ChatMessage {
 export interface ApiResponse<T = unknown> {
   data: T;
   message?: string;
+}
+
+export interface GitHubTokenStatus {
+  hasToken: boolean;
+}
+
+export interface GitHubRepoPreview {
+  name: string;
+  fullName: string;
+  description: string | null;
+  language: string | null;
+  defaultBranch: string;
+  private: boolean;
+  stars: number;
+  forks: number;
+  importableFiles: number;
+  mappedLanguage: string;
+}
+
+export interface GitHubProjectStatus {
+  id: string;
+  githubRepo: string | null;
+  githubBranch: string | null;
+  githubSha: string | null;
+  githubSyncedAt: string | null;
+  hasToken: boolean;
+}
+
+export interface GitHubSyncResult {
+  updated: number;
+  created: number;
+  sha: string | null;
+}
+
+export interface GitHubPushResult {
+  pushed: number;
+  sha: string | null;
 }
 
 export interface ProjectTemplate {

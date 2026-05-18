@@ -12,6 +12,7 @@ export const users = pgTable("users", {
   avatarUrl:    text("avatar_url"),
   bio:          text("bio"),
   passwordHash: text("password_hash"),
+  githubToken:  text("github_token"),
   createdAt:    timestamp("created_at").notNull().defaultNow(),
   updatedAt:    timestamp("updated_at").notNull().defaultNow(),
   deletedAt:    timestamp("deleted_at"),
@@ -49,17 +50,21 @@ export type Membership = typeof memberships.$inferSelect;
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export const projects = pgTable("projects", {
-  id:          text("id").primaryKey(),
-  name:        text("name").notNull(),
-  slug:        text("slug").notNull(),
-  description: text("description"),
-  language:    text("language").notNull().default("nodejs"),
-  isPublic:    boolean("is_public").notNull().default(false),
-  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
-  ownerId:     text("owner_id").notNull().references(() => users.id),
-  createdAt:   timestamp("created_at").notNull().defaultNow(),
-  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
-  deletedAt:   timestamp("deleted_at"),
+  id:             text("id").primaryKey(),
+  name:           text("name").notNull(),
+  slug:           text("slug").notNull(),
+  description:    text("description"),
+  language:       text("language").notNull().default("nodejs"),
+  isPublic:       boolean("is_public").notNull().default(false),
+  workspaceId:    text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  ownerId:        text("owner_id").notNull().references(() => users.id),
+  githubRepo:     text("github_repo"),
+  githubBranch:   text("github_branch"),
+  githubSha:      text("github_sha"),
+  githubSyncedAt: timestamp("github_synced_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+  deletedAt:      timestamp("deleted_at"),
 }, (t) => [uniqueIndex("projects_workspace_slug_idx").on(t.workspaceId, t.slug)]);
 
 export type Project = typeof projects.$inferSelect;

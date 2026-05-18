@@ -6,6 +6,8 @@ import workspacesRouter from "./workspaces";
 import filesRouter from "./files";
 import runsRouter from "./runs";
 import aiRouter from "./ai";
+import adminRouter from "./admin";
+import githubRouter from "./github";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use("/workspaces", workspacesRouter);
 router.use("/files", filesRouter);
 router.use("/runs", runsRouter);
 router.use("/ai", aiRouter);
+router.use("/admin", adminRouter);
+router.use("/github", githubRouter);
 
 export default router;

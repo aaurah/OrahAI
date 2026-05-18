@@ -11,12 +11,15 @@
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#090b18"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.replit.orahaimobile"
     },
-    "android": {},
+    "android": {
+      "package": "com.replit.orahaimobile"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
