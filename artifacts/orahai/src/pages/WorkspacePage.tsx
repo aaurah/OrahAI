@@ -77,11 +77,9 @@ export default function WorkspacePage() {
     return () => clearInterval(id);
   }, [autoDevEnabled]);
 
-  const isWebProject = project?.language === "html";
-
   useEffect(() => {
-    if (project && isWebProject) setPreviewOpen(true);
-  }, [project?.id, isWebProject]);
+    if (project) setPreviewOpen(true);
+  }, [project?.id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -132,7 +130,7 @@ export default function WorkspacePage() {
     setIsRunning(true);
     setTerminalOpen(true);
     setMobileTab("console");
-    if (isWebProject) setPreviewOpen(true);
+    setPreviewOpen(true);
     try {
       await api.post<ApiResponse<Run>>(`/api/runs/${project.id}`);
       await mutateRuns();
