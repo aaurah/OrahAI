@@ -26,6 +26,23 @@ export default function WorkspacePage() {
 
   const handleFileSelect = useCallback((file: ProjectFile) => setActiveFile(file), []);
 
+  const handleApplyCode = useCallback(async (code: string) => {
+    if (!activeFile || !project) return;
+    const updated = { ...activeFile, content: code };
+    setActiveFile(updated);
+    try {
+      await api.put(`/api/files/${project.id}`, {
+        path: activeFile.path,
+        content: code,
+        mimeType: activeFile.mimeType,
+      });
+      toast({ title: `Applied to ${activeFile.path}` });
+    } catch {
+      toast({ title: "Failed to save file", variant: "destructive" });
+      setActiveFile(activeFile);
+    }
+  }, [activeFile, project]);
+
   const handleRun = async () => {
     if (!project || isRunning) return;
     setIsRunning(true);
@@ -110,6 +127,7 @@ export default function WorkspacePage() {
               projectId={project.id}
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
+              onApplyCode={handleApplyCode}
             />
           </div>
         )}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Bot, User, Loader2, Sparkles, StopCircle, Trash2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Sparkles, StopCircle, Trash2, ClipboardCheck, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
 import { API_BASE } from "@/lib/api";
@@ -12,9 +12,10 @@ interface ChatPanelProps {
   projectId: string;
   activeFilePath?: string;
   activeFileContent?: string;
+  onApplyCode?: (code: string) => void;
 }
 
-export function ChatPanel({ projectId, activeFilePath, activeFileContent }: ChatPanelProps) {
+export function ChatPanel({ projectId, activeFilePath, activeFileContent, onApplyCode }: ChatPanelProps) {
   const [messages, setMessages] = useState<(ChatMessage & { pending?: boolean })[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -157,7 +158,12 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent }: Chat
               {(msg as { pending?: boolean }).pending && !msg.content ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <MsgContent content={msg.content} />
+                <MsgContent
+                  content={msg.content}
+                  isAssistant={msg.role === "assistant"}
+                  onApply={onApplyCode}
+                  activeFilePath={activeFilePath}
+                />
               )}
             </div>
           </div>
@@ -194,7 +200,14 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent }: Chat
   );
 }
 
-function MsgContent({ content }: { content: string }) {
+interface MsgContentProps {
+  content: string;
+  isAssistant: boolean;
+  onApply?: (code: string) => void;
+  activeFilePath?: string;
+}
+
+function MsgContent({ content, isAssistant, onApply, activeFilePath }: MsgContentProps) {
   const parts = content.split(/(```[\s\S]*?```)/g);
   return (
     <div className="space-y-1.5">
@@ -204,14 +217,84 @@ function MsgContent({ content }: { content: string }) {
           const lang = lines[0].slice(3).trim();
           const code = lines.slice(1, -1).join("\n");
           return (
-            <pre key={i} className="mt-1.5 rounded-lg bg-background/60 p-2.5 text-xs overflow-x-auto font-mono">
-              {lang && <div className="text-muted-foreground mb-1 text-[10px]">{lang}</div>}
-              <code>{code}</code>
-            </pre>
+            <CodeBlock
+              key={i}
+              lang={lang}
+              code={code}
+              showApply={isAssistant && !!onApply}
+              onApply={onApply}
+              activeFilePath={activeFilePath}
+            />
           );
         }
         return <p key={i} className="whitespace-pre-wrap leading-relaxed">{p}</p>;
       })}
+    </div>
+  );
+}
+
+interface CodeBlockProps {
+  lang: string;
+  code: string;
+  showApply: boolean;
+  onApply?: (code: string) => void;
+  activeFilePath?: string;
+}
+
+function CodeBlock({ lang, code, showApply, onApply, activeFilePath }: CodeBlockProps) {
+  const [copied, setCopied] = useState(false);
+  const [applied, setApplied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(code).catch(() => undefined);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleApply = () => {
+    if (!onApply) return;
+    onApply(code);
+    setApplied(true);
+    setTimeout(() => setApplied(false), 2000);
+  };
+
+  return (
+    <div className="mt-1.5 rounded-lg bg-background/60 overflow-hidden border border-border/30">
+      <div className="flex items-center justify-between px-2.5 py-1 border-b border-border/20">
+        <span className="text-[10px] text-muted-foreground font-mono">{lang || "code"}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCopy}
+            title="Copy code"
+            className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? "Copied" : "Copy"}</span>
+          </button>
+
+          {showApply && (
+            <button
+              onClick={handleApply}
+              disabled={!activeFilePath}
+              title={activeFilePath ? `Apply to ${activeFilePath}` : "Open a file to apply code"}
+              className={cn(
+                "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors font-medium",
+                applied
+                  ? "bg-green-500/20 text-green-400"
+                  : activeFilePath
+                    ? "hover:bg-primary/20 text-primary hover:text-primary"
+                    : "opacity-40 cursor-not-allowed text-muted-foreground",
+              )}
+            >
+              <ClipboardCheck className="w-3 h-3" />
+              <span>{applied ? "Applied!" : "Apply to file"}</span>
+            </button>
+          )}
+        </div>
+      </div>
+      <pre className="p-2.5 text-xs overflow-x-auto font-mono">
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }
