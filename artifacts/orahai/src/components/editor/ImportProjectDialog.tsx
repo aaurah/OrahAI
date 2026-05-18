@@ -4,7 +4,7 @@ import {
   X, Github, Upload, Loader2, Star, GitFork, Lock, Globe,
   FileCode2, AlertCircle, FolderOpen, ExternalLink, ChevronRight,
 } from "lucide-react";
-import { unzip } from "fflate";
+import { unzip, gunzipSync } from "fflate";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -39,6 +39,54 @@ function detectLanguage(files: LocalFile[]): string {
   if (paths.some(p => p.endsWith(".ts") || p.endsWith(".tsx"))) return "typescript";
   if (paths.some(p => p.endsWith(".html"))) return "html";
   return "nodejs";
+}
+
+// ── TAR parser ────────────────────────────────────────────────────────────────
+
+function readTarString(buf: Uint8Array, offset: number, length: number): string {
+  let end = offset;
+  while (end < offset + length && buf[end] !== 0) end++;
+  return new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(offset, end));
+}
+
+function parseTar(data: Uint8Array): LocalFile[] {
+  const results: LocalFile[] = [];
+  let offset = 0;
+
+  while (offset + 512 <= data.length) {
+    const header = data.slice(offset, offset + 512);
+    // Two consecutive null blocks = end of archive
+    if (header[0] === 0) break;
+
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155); // UStar prefix
+    const fullPath = prefix ? `${prefix}/${name}` : name;
+
+    const sizeOctal = readTarString(header, 124, 12).trim();
+    const size = parseInt(sizeOctal, 8) || 0;
+
+    const typeFlag = String.fromCharCode(header[156]);
+
+    offset += 512;
+
+    if ((typeFlag === "0" || typeFlag === "\0" || typeFlag === "") && size > 0) {
+      // Strip the leading top-level folder (e.g. "project-name/src/index.ts" → "src/index.ts")
+      const strippedPath = fullPath.replace(/^[^/]+\//, "");
+      if (strippedPath && isTextFile(strippedPath)) {
+        try {
+          const content = new TextDecoder("utf-8", { fatal: true }).decode(
+            data.slice(offset, offset + size)
+          );
+          results.push({ path: strippedPath, content });
+        } catch { /* skip binary */ }
+      }
+    }
+
+    // Advance past file content, rounded up to 512-byte block boundary
+    offset += Math.ceil(size / 512) * 512;
+  }
+
+  return results;
 }
 
 export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
@@ -108,23 +156,40 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
 
   // ── Local / Replit tab ────────────────────────────────────────────────────
 
-  const processZip = useCallback((file: File) => {
+  const isArchive = (name: string) =>
+    name.endsWith(".zip") || name.endsWith(".tar.gz") || name.endsWith(".tgz");
+
+  const processArchive = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const buf = e.target!.result as ArrayBuffer;
-      unzip(new Uint8Array(buf), (err, unzipped) => {
-        if (err) { setError("Failed to extract ZIP file"); return; }
-        const extracted: LocalFile[] = [];
-        for (const [rawPath, data] of Object.entries(unzipped)) {
-          if (rawPath.endsWith("/")) continue;
-          const path = rawPath.replace(/^[^/]+\//, "");
-          if (!path || !isTextFile(path)) continue;
-          try { extracted.push({ path, content: new TextDecoder().decode(data) }); }
-          catch { /* skip binary */ }
+      const buf = new Uint8Array(e.target!.result as ArrayBuffer);
+      const isTarGz = file.name.endsWith(".tar.gz") || file.name.endsWith(".tgz");
+
+      if (isTarGz) {
+        try {
+          const tarData = gunzipSync(buf);
+          const extracted = parseTar(tarData);
+          if (extracted.length === 0) { setError("No importable text files found in archive"); return; }
+          setLocalFiles(extracted);
+          if (!localName) setLocalName(file.name.replace(/\.(tar\.gz|tgz)$/i, ""));
+        } catch (err) {
+          setError("Failed to extract .tar.gz — make sure it is a valid gzip archive");
         }
-        setLocalFiles(extracted);
-        if (!localName) setLocalName(file.name.replace(/\.zip$/i, ""));
-      });
+      } else {
+        unzip(buf, (err, unzipped) => {
+          if (err) { setError("Failed to extract ZIP file"); return; }
+          const extracted: LocalFile[] = [];
+          for (const [rawPath, data] of Object.entries(unzipped)) {
+            if (rawPath.endsWith("/")) continue;
+            const path = rawPath.replace(/^[^/]+\//, "");
+            if (!path || !isTextFile(path)) continue;
+            try { extracted.push({ path, content: new TextDecoder().decode(data) }); }
+            catch { /* skip binary */ }
+          }
+          setLocalFiles(extracted);
+          if (!localName) setLocalName(file.name.replace(/\.zip$/i, ""));
+        });
+      }
     };
     reader.readAsArrayBuffer(file);
   }, [localName]);
@@ -133,8 +198,8 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
     const results: LocalFile[] = [];
     let pending = 0;
     Array.from(fileList).forEach((file) => {
-      if (!isTextFile(file.name) && !file.name.endsWith(".zip")) return;
-      if (file.name.endsWith(".zip")) { processZip(file); return; }
+      if (isArchive(file.name)) { processArchive(file); return; }
+      if (!isTextFile(file.name)) return;
       pending++;
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -145,7 +210,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
       };
       reader.readAsText(file);
     });
-  }, [processZip]);
+  }, [processArchive]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -284,20 +349,20 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
                 onClick={() => fileInputRef.current?.click()}
               >
                 <FolderOpen className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-medium mb-1">Drop files or ZIP here</p>
+                <p className="text-sm font-medium mb-1">Drop files, ZIP, or tar.gz here</p>
                 <p className="text-xs text-muted-foreground">Or click to browse files</p>
                 <input ref={fileInputRef} type="file" multiple className="hidden"
-                  accept=".js,.jsx,.ts,.tsx,.py,.html,.css,.json,.md,.txt,.sh,.yaml,.yml,.toml,.go,.rs,.java,.c,.cpp,.h,.zip"
+                  accept=".js,.jsx,.ts,.tsx,.py,.html,.css,.json,.md,.txt,.sh,.yaml,.yml,.toml,.go,.rs,.java,.c,.cpp,.h,.zip,.tar.gz,.tgz"
                   onChange={(e) => e.target.files && processFiles(e.target.files)} />
               </div>
 
               <div className="text-center">
                 <button onClick={() => zipInputRef.current?.click()}
                   className="text-sm text-primary hover:underline">
-                  Upload a ZIP file instead
+                  Upload a ZIP or tar.gz instead
                 </button>
-                <input ref={zipInputRef} type="file" accept=".zip" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && processZip(e.target.files[0])} />
+                <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
+                  onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
               </div>
 
               {localFiles.length > 0 && (
@@ -329,8 +394,8 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
                 <p className="font-medium">How to import from Replit:</p>
                 <ol className="space-y-2 text-muted-foreground list-decimal list-inside">
                   <li>Open your Replit project</li>
-                  <li>Click the three dots (⋯) menu → <strong className="text-foreground">Download as ZIP</strong></li>
-                  <li>Upload that ZIP file below</li>
+                  <li>Click the three dots (⋯) menu → <strong className="text-foreground">Download as ZIP</strong> or <strong className="text-foreground">Download as tar.gz</strong></li>
+                  <li>Upload that file below</li>
                 </ol>
               </div>
 
@@ -342,10 +407,10 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
                 onClick={() => zipInputRef.current?.click()}
               >
                 <Upload className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-medium mb-1">Upload Replit ZIP export</p>
-                <p className="text-xs text-muted-foreground">Drop your ZIP here or click to browse</p>
-                <input ref={zipInputRef} type="file" accept=".zip" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && processZip(e.target.files[0])} />
+                <p className="text-sm font-medium mb-1">Upload Replit export</p>
+                <p className="text-xs text-muted-foreground">Drop your .zip or .tar.gz here, or click to browse</p>
+                <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
+                  onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
               </div>
 
               {localFiles.length > 0 && (

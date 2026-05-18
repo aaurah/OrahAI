@@ -78,9 +78,27 @@ async function ghFetch<T>(url: string, token?: string | null, options?: RequestI
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText })) as { message?: string };
-    const msg = body.message ?? `GitHub API error ${res.status}`;
+    let msg: string;
+    if (res.status === 404) {
+      msg = token
+        ? "Repository not found — check the URL is correct and the token has repo access"
+        : "Repository not found — if this is a private repo, expand 'Use a token for private repos' and add your GitHub Personal Access Token";
+    } else if (res.status === 401) {
+      msg = "GitHub token is invalid or expired — generate a new one at github.com/settings/tokens";
+    } else if (res.status === 403) {
+      const rateLimitRemaining = res.headers.get("x-ratelimit-remaining");
+      if (rateLimitRemaining === "0") {
+        msg = "GitHub API rate limit reached — add a Personal Access Token for higher limits";
+      } else {
+        msg = "Access denied — your token may not have the required 'repo' scope";
+      }
+    } else if (res.status === 429) {
+      msg = "GitHub API rate limit reached — add a Personal Access Token for higher limits";
+    } else {
+      msg = body.message ?? `GitHub API error ${res.status}`;
+    }
     const err = new Error(msg) as Error & { statusCode: number };
-    err.statusCode = res.status;
+    err.statusCode = res.status === 404 ? 404 : res.status;
     throw err;
   }
   return res.json() as Promise<T>;
