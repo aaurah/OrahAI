@@ -25,6 +25,7 @@ const LANGUAGE_ICONS: Record<string, string> = {
   scala: "🔺", r: "📊", dart: "🎱", elixir: "💧", haskell: "λ",
   bash: "🖥️", lua: "🌙", perl: "🐪",
   solidity: "⟠", vyper: "🐍⟠", move: "◎", web3: "🔗",
+  bsv: "₿", scrypt: "🔐₿",
 };
 
 const SUGGESTIONS = [
@@ -47,6 +48,9 @@ function inferLanguage(text: string): string {
   // ── Blockchain / Web3 — checked first (highest specificity) ──────────────
   if (/\bvyper\b/.test(n)) return "vyper";
   if (/\bmove\b.*(aptos|sui|lang)|\b(aptos|sui)\b.*\bmove\b|\bmove\b language/.test(n)) return "move";
+  // ── Bitcoin SV — checked before generic blockchain ──────────────────────
+  if (/\bscrypt\b|scrypt.?ts|@scrypt.?inc|scrypt.?contract/.test(n)) return "scrypt";
+  if (/bitcoin.?sv|\bbsv\b|teranode|whatsonchain|whats.?on.?chain|bsv.?sdk|@bsv\/|op_return|op_push|p2pkh|p2pk|bitcoin.?script|satoshi.?vision|metanet|1sat.?ordinal|bsv.?ordinal|stn\b|bsv.?testnet|bump\b|beef\b.*tx|spv\b.*bitcoin|bitcoin.*spv/.test(n)) return "bsv";
   if (/\bsolidity\b|smart.?contract|erc.?20|erc.?721|erc.?1155|erc.?4626|\bnft.*(contract|mint|deploy)|\bdefi\b|\bdao\b|\btoken.?contract|hardhat|foundry|truffle|openzeppelin|abi\.encode|msg\.sender|\bwei\b|\bgwei\b|\bsolc\b/.test(n)) return "solidity";
   if (/\bweb3\b|dapp|decentrali[zs]ed.?app|ethers\.js|wagmi|viem\b|metamask|wallet.?connect|rainbow.?kit/.test(n)) return "web3";
   if (/\bsolana\b|\banchor\b.*(program|rust|framework)|spl.?token|borsh\b/.test(n)) return "rust";
