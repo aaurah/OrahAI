@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { db } from "@workspace/db";
-import { users } from "@workspace/db";
+import { db, users } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { createError } from "./errorHandler";
