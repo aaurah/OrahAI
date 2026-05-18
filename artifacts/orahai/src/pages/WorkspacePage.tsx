@@ -28,6 +28,7 @@ export default function WorkspacePage() {
   const latestRun = runs[0] ?? null;
 
   const isSetupMode = new URLSearchParams(search).get("setup") === "1";
+  const initialPrompt = new URLSearchParams(search).get("prompt") ?? "";
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
@@ -45,6 +46,18 @@ export default function WorkspacePage() {
   const [showSetupBanner, setShowSetupBanner] = useState(isSetupMode);
   const moreRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatPanelHandle>(null);
+  const promptFiredRef = useRef(false);
+
+  // Auto-fire the initial AI prompt when arriving from "Start building"
+  useEffect(() => {
+    if (!initialPrompt || promptFiredRef.current || !project) return;
+    promptFiredRef.current = true;
+    setChatOpen(true);
+    setMobileTab("ai");
+    // Clear the URL param so refresh doesn't re-fire
+    navigate(`/workspace/${id}`, { replace: true });
+    setTimeout(() => chatRef.current?.submit(initialPrompt), 300);
+  }, [project, initialPrompt]);
 
   const dismissSetup = () => {
     setShowSetupBanner(false);

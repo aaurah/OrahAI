@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, X, Github, Lock, Globe, ChevronDown, ChevronUp, Sparkles } from "lucide-react";
+import { Loader2, X, Github, Lock, Globe, ChevronDown, ChevronUp, Sparkles, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -19,29 +19,58 @@ function slugifyRepoName(name: string) {
   return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 100) || "my-project";
 }
 
-function inferLanguage(name: string): string {
-  const n = name.toLowerCase();
-  if (/python|script|data|ml|machine.?learn|jupyter|pandas|flask|django|fastapi|ai.?model|analysis/.test(n)) return "python";
+function inferLanguage(text: string): string {
+  const n = text.toLowerCase();
+  if (/python|pandas|flask|django|fastapi|jupyter|machine.?learn|data.?sci|\.py\b/.test(n)) return "python";
   if (/typescript|\.ts\b/.test(n)) return "typescript";
   if (/html|css|landing.?page|portfolio|website|static|webpage|blog/.test(n)) return "html";
   if (/node|express|api\b|server|backend|rest/.test(n)) return "nodejs";
-  if (/react|vue|next|nuxt|svelte|dashboard|app\b|frontend|ui\b|spa/.test(n)) return "nodejs";
+  if (/react|vue|next|nuxt|svelte|dashboard|frontend|ui\b|spa/.test(n)) return "nodejs";
   return "nodejs";
 }
 
-function languageLabel(lang: string): string {
-  const map: Record<string, string> = {
-    nodejs: "Node.js", typescript: "TypeScript", python: "Python", html: "HTML/CSS/JS",
-  };
-  return map[lang] ?? "Node.js";
+const STOP_WORDS = new Set([
+  "i", "want", "to", "build", "create", "make", "a", "an", "the",
+  "with", "using", "for", "and", "that", "which", "is", "of", "in",
+  "on", "at", "by", "from", "my", "me", "can", "you", "please",
+  "like", "would", "id", "app", "application",
+]);
+
+function extractProjectName(description: string): string {
+  const cleaned = description
+    .replace(/^(i('d| would)? (want|like) to (build |create |make )?|build |create |make |please |can you )+/i, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = cleaned
+    .split(" ")
+    .filter(w => w.length > 1 && !STOP_WORDS.has(w.toLowerCase()))
+    .slice(0, 4);
+
+  if (words.length === 0) return "New Project";
+  return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
+
+const PLACEHOLDERS = [
+  "A weather app that shows 7-day forecasts…",
+  "A portfolio website with dark mode…",
+  "A REST API for a blog with comments…",
+  "A todo list with drag and drop…",
+  "A real-time chat app…",
+  "A dashboard for sales metrics…",
+];
 
 export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const [, navigate] = useLocation();
   const { workspaces } = useWorkspaces();
-  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [nameEdited, setNameEdited] = useState(false);
   const [workspaceId, setWorkspaceId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [placeholder] = useState(() => PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [showNewWs, setShowNewWs] = useState(false);
   const [newWsName, setNewWsName] = useState("");
@@ -51,12 +80,21 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const [hasGitHubToken, setHasGitHubToken] = useState<boolean | null>(null);
   const [repoName, setRepoName] = useState("");
   const [repoPrivate, setRepoPrivate] = useState(false);
-  const [githubStep, setGithubStep] = useState<"idle" | "creating-repo" | "pushing">("idle");
 
-  const detectedLang = inferLanguage(name);
+  // Auto-generate project name from description (unless user has manually edited it)
+  useEffect(() => {
+    if (!nameEdited && description.trim().length > 3) {
+      setProjectName(extractProjectName(description));
+    }
+    if (!nameEdited && description.trim().length === 0) {
+      setProjectName("");
+    }
+  }, [description, nameEdited]);
 
-  useEffect(() => { setRepoName(slugifyRepoName(name)); }, [name]);
+  // Sync repo name to project name
+  useEffect(() => { setRepoName(slugifyRepoName(projectName || description)); }, [projectName, description]);
 
+  // Check GitHub token when expanded
   useEffect(() => {
     if (!pushToGitHub || hasGitHubToken !== null) return;
     api.get<ApiResponse<{ hasToken: boolean }>>("/api/github/token")
@@ -69,7 +107,20 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     if (!workspaceId && workspaces.length > 0) setWorkspaceId(workspaces[0].id);
   }, [workspaces]);
 
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setDescription(""); setProjectName(""); setNameEdited(false);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  const detectedLang = inferLanguage(description || projectName);
+  const langLabel: Record<string, string> = {
+    nodejs: "Node.js", typescript: "TypeScript", python: "Python", html: "HTML/CSS/JS",
+  };
 
   const handleCreateWorkspace = async () => {
     if (!newWsName.trim() || isCreatingWs) return;
@@ -84,56 +135,42 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !workspaceId) return;
+    const finalName = projectName.trim() || extractProjectName(description) || "New Project";
+    const finalDesc = description.trim();
+    if (!finalDesc || !workspaceId) return;
+
     setIsLoading(true);
-    setGithubStep("idle");
     try {
       const res = await api.post<ApiResponse<Project>>("/api/projects", {
-        name: name.trim(),
+        name: finalName,
         language: detectedLang,
         workspaceId,
       });
       const project = res.data;
 
       if (pushToGitHub && hasGitHubToken) {
-        setGithubStep("creating-repo");
         try {
           await api.post(`/api/github/projects/${project.id}/create-and-push`, {
-            repoName: repoName.trim() || slugifyRepoName(name),
+            repoName: repoName.trim() || slugifyRepoName(finalName),
             private: repoPrivate,
-            description: `Created with OrahAI`,
+            description: finalDesc,
           });
           toast({ title: "Project created & pushed to GitHub!" });
         } catch (ghErr: unknown) {
-          toast({
-            title: "Project created — GitHub push failed",
-            description: (ghErr as Error).message,
-            variant: "destructive",
-          });
+          toast({ title: "Project created — GitHub push failed", description: (ghErr as Error).message, variant: "destructive" });
         }
-        setGithubStep("idle");
-      } else {
-        toast({ title: "Project created!" });
       }
 
       onOpenChange(false);
       onCreated?.();
-      navigate(`/workspace/${project.id}`);
+      // Navigate to workspace with the description as the initial AI prompt
+      navigate(`/workspace/${project.id}?prompt=${encodeURIComponent(finalDesc)}`);
     } catch (err: unknown) {
       toast({ title: (err as Error).message ?? "Failed to create project", variant: "destructive" });
     } finally {
       setIsLoading(false);
-      setGithubStep("idle");
     }
   };
-
-  const stepLabel = githubStep === "creating-repo"
-    ? "Creating repo…"
-    : githubStep === "pushing"
-      ? "Pushing files…"
-      : isLoading
-        ? "Creating…"
-        : "Create project";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -142,34 +179,57 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
           <X className="w-4 h-4" />
         </button>
 
-        <h2 className="text-lg font-semibold mb-1">New project</h2>
-        <p className="text-sm text-muted-foreground mb-5">Name your project — AI will handle the rest.</p>
+        {/* Header */}
+        <div className="flex items-center gap-2.5 mb-5">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <Sparkles className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold leading-tight">What do you want to build?</h2>
+            <p className="text-xs text-muted-foreground">Describe your idea — AI will set everything up.</p>
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Project name */}
-          <div className="space-y-1.5">
-            <Label htmlFor="pname">Project name</Label>
-            <Input
-              id="pname"
-              placeholder="e.g. Weather app, Portfolio site, REST API…"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+          {/* Description textarea */}
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={placeholder}
+              rows={3}
               required
-              autoFocus
+              className="w-full resize-none rounded-lg border border-input bg-muted/30 px-3.5 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring leading-relaxed"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit(e as any);
+              }}
             />
-            {/* AI language hint */}
-            {name.trim().length > 2 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Sparkles className="w-3 h-3 text-primary" />
-                <span>AI will set up a <strong className="text-foreground">{languageLabel(detectedLang)}</strong> project for you</span>
-              </div>
-            )}
           </div>
+
+          {/* Auto-generated project name */}
+          {description.trim().length > 3 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Project name</Label>
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5 text-primary" />
+                  {langLabel[detectedLang]} · auto-detected
+                </span>
+              </div>
+              <Input
+                value={projectName}
+                onChange={(e) => { setProjectName(e.target.value); setNameEdited(true); }}
+                placeholder="Project name…"
+                className="h-8 text-sm"
+              />
+            </div>
+          )}
 
           {/* Workspace */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label htmlFor="workspace">Workspace</Label>
+              <Label htmlFor="workspace" className="text-xs">Workspace</Label>
               <button
                 type="button"
                 onClick={() => { setShowNewWs(v => !v); setNewWsName(""); }}
@@ -189,13 +249,8 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
                   className="h-8 text-sm"
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateWorkspace(); } }}
                 />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 px-3 text-xs shrink-0"
-                  disabled={!newWsName.trim() || isCreatingWs}
-                  onClick={handleCreateWorkspace}
-                >
+                <Button type="button" size="sm" className="h-8 px-3 text-xs shrink-0"
+                  disabled={!newWsName.trim() || isCreatingWs} onClick={handleCreateWorkspace}>
                   {isCreatingWs ? <Loader2 className="w-3 h-3 animate-spin" /> : "Create"}
                 </Button>
               </div>
@@ -203,7 +258,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
             {workspaces.length === 0 && !showNewWs ? (
               <p className="text-sm text-muted-foreground">
-                No workspaces yet — click <span className="text-primary">+ New workspace</span> above to create one.
+                No workspaces yet — click <span className="text-primary">+ New workspace</span> to create one.
               </p>
             ) : (
               <select
@@ -211,7 +266,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
                 value={workspaceId}
                 onChange={(e) => setWorkspaceId(e.target.value)}
                 required
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="w-full h-8 rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">Select workspace…</option>
                 {workspaces.map((w) => (
@@ -223,19 +278,14 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
           {/* GitHub push toggle */}
           <div className="rounded-lg border border-border overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setPushToGitHub(v => !v)}
-              className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-muted/50 transition-colors"
-            >
+            <button type="button" onClick={() => setPushToGitHub(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted/50 transition-colors">
               <div className="flex items-center gap-2">
-                <Github className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium">Push to GitHub</span>
+                <Github className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="font-medium text-sm">Push to GitHub</span>
                 <span className="text-xs text-muted-foreground">optional</span>
               </div>
-              {pushToGitHub
-                ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              {pushToGitHub ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
             </button>
 
             {pushToGitHub && (
@@ -247,35 +297,20 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
                 )}
                 <div className="space-y-1.5">
                   <Label className="text-xs">Repository name</Label>
-                  <Input
-                    value={repoName}
+                  <Input value={repoName}
                     onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, "-"))}
-                    placeholder="my-project"
-                    className="h-8 text-sm font-mono"
-                  />
+                    placeholder="my-project" className="h-8 text-sm font-mono" />
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Visibility</Label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRepoPrivate(false)}
+                <div className="flex gap-2">
+                  {[false, true].map((priv) => (
+                    <button key={String(priv)} type="button" onClick={() => setRepoPrivate(priv)}
                       className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs transition-colors ${
-                        !repoPrivate ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"
-                      }`}
-                    >
-                      <Globe className="w-3.5 h-3.5" />Public
+                        repoPrivate === priv ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"
+                      }`}>
+                      {priv ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                      {priv ? "Private" : "Public"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setRepoPrivate(true)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md border text-xs transition-colors ${
-                        repoPrivate ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted"
-                      }`}
-                    >
-                      <Lock className="w-3.5 h-3.5" />Private
-                    </button>
-                  </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -283,15 +318,19 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
           <Button
             type="submit"
-            className="w-full"
-            disabled={isLoading || !workspaceId || (pushToGitHub && hasGitHubToken === false)}
+            className="w-full gap-2"
+            disabled={isLoading || !description.trim() || !workspaceId || (pushToGitHub && hasGitHubToken === false)}
           >
             {isLoading
-              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{stepLabel}</>
+              ? <><Loader2 className="w-4 h-4 animate-spin" />Creating…</>
               : pushToGitHub && hasGitHubToken
-                ? <><Github className="w-4 h-4 mr-2" />Create & push to GitHub</>
-                : "Create project"}
+                ? <><Github className="w-4 h-4" />Create & push to GitHub</>
+                : <><ArrowRight className="w-4 h-4" />Start building</>}
           </Button>
+
+          <p className="text-center text-[11px] text-muted-foreground">
+            Press <kbd className="bg-muted px-1 py-0.5 rounded text-[10px] font-mono">⌘ Enter</kbd> to create
+          </p>
         </form>
       </div>
     </div>
