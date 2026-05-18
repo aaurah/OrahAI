@@ -43,7 +43,7 @@ interface FileOpEvent {
 }
 
 type ListItem =
-  | (ChatMessage & { pending?: boolean; image?: AttachedImage })
+  | (ChatMessage & { pending?: boolean; images?: AttachedImage[] })
   | (RunEvent & { _type: "run" })
   | (FileOpEvent & { _type: "fileop" });
 
@@ -51,7 +51,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
   const [items, setItems] = useState<ListItem[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,45 +69,59 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
 
   useEffect(scrollBottom, [items, scrollBottom]);
 
-  const handleImageFile = (file: File) => {
+  const addImageFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
       toast({ title: "Only image files are supported", variant: "destructive" });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Image must be under 10 MB", variant: "destructive" });
+      toast({ title: `${file.name} must be under 10 MB`, variant: "destructive" });
       return;
     }
     const reader = new FileReader();
     reader.onload = (e) => {
-      setAttachedImage({ dataUrl: e.target?.result as string, mimeType: file.type, name: file.name });
+      setAttachedImages((prev) => {
+        if (prev.length >= 10) {
+          toast({ title: "Maximum 10 images per message", variant: "destructive" });
+          return prev;
+        }
+        return [...prev, { dataUrl: e.target?.result as string, mimeType: file.type, name: file.name }];
+      });
     };
     reader.readAsDataURL(file);
   };
 
+  const handleImageFiles = (files: FileList | File[]) => {
+    Array.from(files).forEach(addImageFile);
+  };
+
   const handlePaste = (e: React.ClipboardEvent) => {
-    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
-    if (item) { const f = item.getAsFile(); if (f) handleImageFile(f); }
+    const imageItems = Array.from(e.clipboardData.items).filter((i) => i.type.startsWith("image/"));
+    imageItems.forEach((item) => { const f = item.getAsFile(); if (f) addImageFile(f); });
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"));
-    if (file) handleImageFile(file);
+    const imageFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    imageFiles.forEach(addImageFile);
+  };
+
+  const removeImage = (index: number) => {
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = input.trim();
-    if ((!text && !attachedImage) || isStreaming) return;
+    if ((!text && !attachedImages.length) || isStreaming) return;
     setInput("");
-    const img = attachedImage;
-    setAttachedImage(null);
+    const imgs = attachedImages;
+    setAttachedImages([]);
 
-    const userMsg: ChatMessage & { image?: AttachedImage } = {
+    const userMsg: ChatMessage & { images?: AttachedImage[] } = {
       id: `temp-${crypto.randomUUID()}`, projectId, userId: null,
-      role: "user", content: text || "(image)", createdAt: new Date().toISOString(),
-      image: img ?? undefined,
+      role: "user", content: text || "(images)", createdAt: new Date().toISOString(),
+      images: imgs.length ? imgs : undefined,
     };
     const assistantId = `temp-${crypto.randomUUID()}`;
     const assistantMsg: ChatMessage & { pending?: boolean } = {
@@ -121,7 +135,6 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     try {
       const token = localStorage.getItem("orahai_token");
       const baseUrl = API_BASE || "";
-      const imageData = img ? img.dataUrl.split(",")[1] : undefined;
 
       const res = await fetch(`${baseUrl}/api/ai/chat/${projectId}`, {
         method: "POST",
@@ -130,11 +143,10 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          message: text || "Please analyze this image.",
+          message: text || "Please analyze these images.",
           filePath: activeFilePath,
           fileContext: activeFileContent?.slice(0, 8000),
-          imageData,
-          imageMimeType: img?.mimeType,
+          images: imgs.map((img) => ({ data: img.dataUrl.split(",")[1], mimeType: img.mimeType })),
         }),
         signal: abortRef.current.signal,
       });
@@ -285,7 +297,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
           if ("_type" in item && item._type === "fileop") {
             return <FileOpCard key={item.id} event={item as FileOpEvent & { _type: "fileop" }} />;
           }
-          const msg = item as ChatMessage & { pending?: boolean; image?: AttachedImage };
+          const msg = item as ChatMessage & { pending?: boolean; images?: AttachedImage[] };
           return (
             <div key={msg.id} className={cn("flex gap-2", msg.role === "user" && "flex-row-reverse")}>
               <div className={cn(
@@ -298,13 +310,17 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
                 "max-w-[85%] text-sm rounded-xl px-3 py-2 space-y-2",
                 msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
               )}>
-                {msg.image && (
-                  <img src={msg.image.dataUrl} alt={msg.image.name}
-                    className="max-w-full max-h-48 rounded-lg object-contain" />
+                {msg.images && msg.images.length > 0 && (
+                  <div className={cn("flex flex-wrap gap-1.5", msg.images.length === 1 ? "" : "")}>
+                    {msg.images.map((img, i) => (
+                      <img key={i} src={img.dataUrl} alt={img.name}
+                        className="max-h-40 max-w-full rounded-lg object-contain" />
+                    ))}
+                  </div>
                 )}
                 {(msg as { pending?: boolean }).pending && !msg.content ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : msg.content && msg.content !== "(image)" ? (
+                ) : msg.content && msg.content !== "(images)" ? (
                   <MsgContent
                     content={msg.content}
                     isAssistant={msg.role === "assistant"}
@@ -321,17 +337,21 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
       </div>
 
       {/* Image preview strip */}
-      {attachedImage && (
-        <div className="px-2.5 pt-2 flex items-center gap-2">
-          <div className="relative inline-flex">
-            <img src={attachedImage.dataUrl} alt={attachedImage.name}
-              className="h-16 w-16 object-cover rounded-lg border border-border" />
-            <button onClick={() => setAttachedImage(null)}
-              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-background border border-border flex items-center justify-center hover:bg-muted">
-              <X className="w-2.5 h-2.5" />
-            </button>
-          </div>
-          <span className="text-xs text-muted-foreground truncate max-w-[160px]">{attachedImage.name}</span>
+      {attachedImages.length > 0 && (
+        <div className="px-2.5 pt-2 flex flex-wrap gap-2">
+          {attachedImages.map((img, i) => (
+            <div key={i} className="relative inline-flex flex-col items-center gap-0.5">
+              <div className="relative">
+                <img src={img.dataUrl} alt={img.name}
+                  className="h-14 w-14 object-cover rounded-lg border border-border" />
+                <button onClick={() => removeImage(i)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-background border border-border flex items-center justify-center hover:bg-muted">
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+              <span className="text-xs text-muted-foreground truncate max-w-[56px]">{img.name}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -344,7 +364,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
             onPaste={handlePaste}
-            placeholder={attachedImage ? "Describe what you want…" : "Ask me to edit files, fix bugs, add features…"}
+            placeholder={attachedImages.length ? "Describe what you want done with these images…" : "Ask me to edit files, fix bugs, add features…"}
             rows={2}
             className="resize-none pr-16 text-sm"
             disabled={isStreaming}
@@ -360,7 +380,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
                 <StopCircle className="w-3.5 h-3.5 text-destructive" />
               </Button>
             ) : (
-              <Button type="submit" size="sm" className="w-7 h-7 p-0" disabled={!input.trim() && !attachedImage}>
+              <Button type="submit" size="sm" className="w-7 h-7 p-0" disabled={!input.trim() && !attachedImages.length}>
                 <Send className="w-3 h-3" />
               </Button>
             )}
@@ -369,8 +389,8 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
         <p className="text-[10px] text-muted-foreground mt-1">↵ send · ⇧↵ newline · paste image</p>
       </div>
 
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ""; }} />
+      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+        onChange={(e) => { if (e.target.files?.length) handleImageFiles(e.target.files); e.target.value = ""; }} />
     </div>
   );
 }

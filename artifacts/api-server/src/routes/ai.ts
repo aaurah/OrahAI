@@ -143,14 +143,24 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         message: z.string().min(1).max(32000),
         fileContext: z.string().optional(),
         filePath: z.string().optional(),
+        // legacy single-image fields (kept for backward compat)
         imageData: z.string().optional(),
         imageMimeType: z.string().optional(),
+        // new multi-image array
+        images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
-      const { message, fileContext, filePath, imageData, imageMimeType } = parsed.data;
+      const { message, fileContext, filePath, imageData, imageMimeType, images } = parsed.data;
+
+      // Normalise to a unified images array
+      const allImages: { data: string; mimeType: string }[] = images?.length
+        ? images
+        : imageData && imageMimeType
+          ? [{ data: imageData, mimeType: imageMimeType }]
+          : [];
 
       const projectFiles = await db.select({ path: files.path, content: files.content, mimeType: files.mimeType })
         .from(files)
@@ -181,17 +191,17 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [
         { type: "text", text: userContent },
       ];
-      if (imageData && imageMimeType) {
+      for (const img of allImages) {
         userMessageContent.push({
           type: "image_url",
-          image_url: { url: `data:${imageMimeType};base64,${imageData}`, detail: "high" },
+          image_url: { url: `data:${img.mimeType};base64,${img.data}`, detail: "high" },
         });
       }
 
       const chatHistory: OpenAI.ChatCompletionMessageParam[] = [
         { role: "system", content: systemPrompt },
         ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-        { role: "user", content: imageData ? userMessageContent : userContent },
+        { role: "user", content: allImages.length ? userMessageContent : userContent },
       ];
 
       let fullContent = "";
