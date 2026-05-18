@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -66,3 +66,11 @@ externalPort = 3002
 [[ports]]
 localPort = 22835
 externalPort = 80
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+INITIAL_ADMIN_EMAIL = "orahai@proton.me"

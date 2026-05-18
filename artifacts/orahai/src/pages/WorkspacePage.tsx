@@ -26,6 +26,7 @@ export default function WorkspacePage() {
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
 
@@ -117,6 +118,8 @@ export default function WorkspacePage() {
         onTerminalToggle={() => setTerminalOpen((v) => !v)}
         githubOpen={githubOpen}
         onGithubToggle={() => setGithubOpen((v) => !v)}
+        previewOpen={previewOpen}
+        onPreviewToggle={() => setPreviewOpen((v) => !v)}
       />
 
       {/* ── Desktop layout (md+): side-by-side panels ────────────────── */}
