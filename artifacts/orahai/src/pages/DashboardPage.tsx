@@ -40,9 +40,15 @@ const STOP_WORDS = new Set([
 
 function inferLanguage(text: string): string {
   const n = text.toLowerCase();
-  if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci/.test(n)) return "python";
-  if (/typescript|\.ts\b/.test(n)) return "typescript";
-  if (/html|css|landing.?page|portfolio|website|static|blog/.test(n)) return "html";
+  // Python
+  if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci|jupyter|numpy/.test(n)) return "python";
+  // TypeScript
+  if (/\btypescript\b|\.ts\b/.test(n)) return "typescript";
+  // Explicit backend / app signals — checked BEFORE html so "portfolio app" → nodejs not html
+  if (/\bapi\b|backend|server|express|node\.?js|rest\b|graphql|socket|websocket|crypto|bitcoin|ethereum|blockchain|database|mongo|postgres|mysql|sqlite|\bauth\b|login|dashboard|tracker|manager|monitor|\bapp\b/.test(n)) return "nodejs";
+  // Only pure static-site signals → html
+  if (/\bhtml\b|\bcss\b|landing.?page|portfolio.?site|portfolio.?web|portfolio.?page|\bwebsite\b|static.?site|\bblog\b/.test(n)) return "html";
+  // Default to Node.js for everything else
   return "nodejs";
 }
 

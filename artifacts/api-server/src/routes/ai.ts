@@ -363,6 +363,49 @@ router.delete("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest,
   } catch (err) { next(err); }
 });
 
+// ── Language-specific guidance injected at top of system prompt ───────────────
+
+function buildLangGuide(language: string): string[] {
+  switch (language) {
+    case "nodejs":
+    case "typescript":
+      return [
+        `This is a Node.js / Express project. You MUST build a proper backend.`,
+        ``,
+        `✅ Structure: package.json → src/index.js (or index.ts) → src/routes/ → src/middleware/`,
+        `✅ Use Express.js for the HTTP server and REST API routes`,
+        `✅ Serve a frontend (public/index.html + public/style.css + public/app.js) from Express`,
+        `✅ Use fetch() in the browser frontend to call your own API routes (/api/...)`,
+        `✅ Use dotenv for environment variables, cors for cross-origin, and express.json() middleware`,
+        `✅ Include a complete package.json with all dependencies and a "start" script`,
+        ``,
+        `❌ DO NOT create a standalone index.html with no backend`,
+        `❌ DO NOT make a pure static HTML page — this is a Node.js app, build the API`,
+        `❌ DO NOT use CDN-only scripts as your entire app — write real server-side logic`,
+      ];
+    case "python":
+      return [
+        `This is a Python project.`,
+        `✅ Use Flask or FastAPI for web apps/APIs`,
+        `✅ Include a requirements.txt with all dependencies`,
+        `✅ Structure: app.py or main.py as the entry point`,
+        `❌ DO NOT create a Node.js or HTML-only project`,
+      ];
+    case "html":
+      return [
+        `This is a static HTML/CSS/JS project — no backend server needed.`,
+        `✅ Write a complete, styled index.html with inline or linked CSS/JS`,
+        `✅ Use vanilla JavaScript for interactivity; fetch() for public APIs (e.g. crypto prices)`,
+        `✅ Make it visually polished — dark backgrounds, gradients, proper layout`,
+        `❌ DO NOT create a Node.js server or package.json — keep it purely static`,
+      ];
+    default:
+      return [
+        `Build the project in ${language}. Use idiomatic patterns for that language.`,
+      ];
+  }
+}
+
 // ── System prompt ──────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
@@ -374,8 +417,16 @@ function buildSystemPrompt(
 ): string {
   const fileTree = projectFiles.map(f => `  ${f.path}`).join("\n") || "  (no files yet)";
 
+  const langGuide = buildLangGuide(language);
+
   const lines: string[] = [
     `You are OrahAI — an expert autonomous coding agent with COMPLETE ACCESS to the "${projectName}" project (${language}).`,
+    ``,
+    `════════════════════════════════════════════`,
+    `  LANGUAGE / STACK REQUIREMENTS`,
+    `════════════════════════════════════════════`,
+    ``,
+    ...langGuide,
     ``,
     `════════════════════════════════════════════`,
     `  ENVIRONMENT — READ THIS FIRST`,
