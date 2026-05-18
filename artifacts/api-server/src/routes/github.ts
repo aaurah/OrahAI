@@ -8,6 +8,7 @@ import { cuid } from "../lib/cuid";
 import {
   parseGitHubUrl, getRepo, getRepoTree, downloadFiles,
   getBranchSha, createOrUpdateFile, getMimeType, isImportable,
+  createRepo, getAuthenticatedUser,
   LANGUAGE_MAP,
 } from "../lib/github";
 
@@ -351,6 +352,83 @@ router.post("/projects/:id/push", async (req: AuthenticatedRequest, res: Respons
       .where(eq(projects.id, p.id));
 
     res.json({ data: { pushed, sha: newSha }, message: `Pushed ${pushed} file${pushed !== 1 ? "s" : ""} to ${owner}/${repo}` });
+  } catch (err) { next(err); }
+});
+
+// ── Per-project: create new GitHub repo & push all files ─────────────────────
+
+router.post("/projects/:id/create-and-push", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      repoName: z.string().min(1).max(100),
+      private: z.boolean().optional().default(false),
+      description: z.string().max(300).optional().default(""),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
+
+    const [p] = await db.select().from(projects)
+      .where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt), eq(projects.ownerId, req.user!.id)))
+      .limit(1);
+    if (!p) return next(createError("Project not found", 404));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!userRow?.githubToken) return next(createError("No GitHub token — add one in Settings first", 401));
+    const token = userRow.githubToken;
+
+    // Get authenticated user to build the full repo path
+    const ghUser = await getAuthenticatedUser(token);
+    const owner = ghUser.login;
+
+    // Create the repo on GitHub
+    const newRepo = await createRepo(parsed.data.repoName, {
+      description: parsed.data.description,
+      private: parsed.data.private,
+      autoInit: false,
+    }, token);
+
+    // Push all project files to the new repo
+    const projectFiles = await db.select({ path: files.path, content: files.content })
+      .from(files)
+      .where(and(eq(files.projectId, p.id), isNull(files.deletedAt), eq(files.isDir, false)));
+
+    let pushed = 0;
+    const BATCH = 3;
+    for (let i = 0; i < projectFiles.length; i += BATCH) {
+      const batch = projectFiles.slice(i, i + BATCH);
+      await Promise.allSettled(batch.map(async (f) => {
+        await createOrUpdateFile(owner, newRepo.name, f.path, f.content, "Initial commit from OrahAI", token, null, "main");
+        pushed++;
+      }));
+      if (i + BATCH < projectFiles.length) await new Promise(r => setTimeout(r, 150));
+    }
+
+    // Connect the project to the new repo
+    let newSha: string | null = null;
+    try {
+      const { getBranchSha: _getBranchSha } = await import("../lib/github");
+      newSha = await _getBranchSha(owner, newRepo.name, "main", token);
+    } catch { /* ignore */ }
+
+    await db.update(projects)
+      .set({
+        githubRepo: `${owner}/${newRepo.name}`,
+        githubBranch: "main",
+        githubSha: newSha,
+        githubSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, p.id));
+
+    res.json({
+      data: {
+        repo: `${owner}/${newRepo.name}`,
+        url: `https://github.com/${owner}/${newRepo.name}`,
+        pushed,
+        private: newRepo.private,
+      },
+      message: `Created ${owner}/${newRepo.name} and pushed ${pushed} file${pushed !== 1 ? "s" : ""}`,
+    });
   } catch (err) { next(err); }
 });
 

@@ -169,6 +169,42 @@ export async function createOrUpdateFile(
   }
 }
 
+export async function createRepo(
+  name: string,
+  options: { description?: string; private?: boolean; autoInit?: boolean },
+  token: string,
+): Promise<GitHubRepo> {
+  const body: Record<string, unknown> = {
+    name,
+    description: options.description ?? "",
+    private: options.private ?? false,
+    auto_init: options.autoInit ?? false,
+  };
+  const res = await fetch(`${GH_API}/user/repos`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+      "User-Agent": "OrahAI/1.0",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` })) as { message?: string; errors?: { message: string }[] };
+    const detail = err.errors?.[0]?.message ?? err.message ?? `GitHub API error ${res.status}`;
+    if (res.status === 422 && detail.toLowerCase().includes("already exists")) {
+      throw new Error(`A repository named "${name}" already exists on your GitHub account`);
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<GitHubRepo>;
+}
+
+export async function getAuthenticatedUser(token: string): Promise<{ login: string; name: string | null }> {
+  return ghFetch<{ login: string; name: string | null }>(`${GH_API}/user`, token);
+}
+
 export async function downloadFiles(
   owner: string,
   repo: string,
