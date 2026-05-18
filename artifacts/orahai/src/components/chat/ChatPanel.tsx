@@ -400,11 +400,25 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
           <Textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              // Mobile keyboards insert a real newline on Enter — detect and submit
+              if (val.endsWith("\n") && !val.endsWith("\\\n")) {
+                const trimmed = val.trimEnd();
+                if (trimmed || attachedImages.length) {
+                  setInput(trimmed);
+                  // Submit on next tick so state update lands first
+                  setTimeout(() => handleSubmit(), 0);
+                  return;
+                }
+              }
+              setInput(val);
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
             onPaste={handlePaste}
             placeholder={attachedImages.length ? "Describe what you want done with these images…" : "Ask me to edit files, fix bugs, add features…"}
             rows={2}
+            enterKeyHint="send"
             className="resize-none pr-16 text-sm"
             disabled={isStreaming}
           />
