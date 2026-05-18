@@ -2,9 +2,9 @@ import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import {
   X, Github, Upload, Loader2, Star, GitFork, Lock, Globe,
-  FileCode2, AlertCircle, FolderOpen, ExternalLink, ChevronRight,
+  FileCode2, AlertCircle, FolderOpen, ExternalLink, ChevronRight, CheckCircle2,
 } from "lucide-react";
-import { unzip, gunzipSync } from "fflate";
+import { Decompress, unzip } from "fflate";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
@@ -24,6 +24,7 @@ interface Props {
 
 const SKIP_PATHS = ["node_modules/", ".git/", ".next/", "dist/", "build/", "__pycache__/"];
 const TEXT_EXTS = new Set(["js","jsx","ts","tsx","mjs","cjs","py","rb","php","go","rs","java","c","cpp","h","cs","html","css","scss","less","svelte","vue","json","yaml","yml","toml","xml","md","txt","sh","sql","graphql","gitignore","env","dockerfile","makefile"]);
+const MAX_FILE_CONTENT = 500_000; // 500 KB per file
 
 function isTextFile(path: string): boolean {
   if (SKIP_PATHS.some(s => path.includes(s))) return false;
@@ -41,53 +42,127 @@ function detectLanguage(files: LocalFile[]): string {
   return "nodejs";
 }
 
-// ── TAR parser ────────────────────────────────────────────────────────────────
+// ── Streaming tar string reader ───────────────────────────────────────────────
 
-function readTarString(buf: Uint8Array, offset: number, length: number): string {
+function readTarStr(buf: Uint8Array, offset: number, length: number): string {
   let end = offset;
   while (end < offset + length && buf[end] !== 0) end++;
   return new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(offset, end));
 }
 
-function parseTar(data: Uint8Array): LocalFile[] {
-  const results: LocalFile[] = [];
-  let offset = 0;
+// ── Incremental tar parser (processes chunks as they arrive) ──────────────────
 
-  while (offset + 512 <= data.length) {
-    const header = data.slice(offset, offset + 512);
-    // Two consecutive null blocks = end of archive
-    if (header[0] === 0) break;
+type TarState = "header" | "data" | "skip";
 
-    const name = readTarString(header, 0, 100);
-    const prefix = readTarString(header, 345, 155); // UStar prefix
-    const fullPath = prefix ? `${prefix}/${name}` : name;
+class TarStream {
+  private buf: Uint8Array = new Uint8Array(0);
+  private state: TarState = "header";
+  private fileSize = 0;      // actual content size in bytes
+  private blockSize = 0;     // fileSize rounded up to 512-byte boundary
+  private currentPath = "";
+  private wantFile = false;
+  private chunks: Uint8Array[] = [];
+  private chunksLen = 0;
+  fileCount = 0;
 
-    const sizeOctal = readTarString(header, 124, 12).trim();
-    const size = parseInt(sizeOctal, 8) || 0;
+  constructor(private onFile: (f: LocalFile) => void) {}
 
-    const typeFlag = String.fromCharCode(header[156]);
-
-    offset += 512;
-
-    if ((typeFlag === "0" || typeFlag === "\0" || typeFlag === "") && size > 0) {
-      // Strip the leading top-level folder (e.g. "project-name/src/index.ts" → "src/index.ts")
-      const strippedPath = fullPath.replace(/^[^/]+\//, "");
-      if (strippedPath && isTextFile(strippedPath)) {
-        try {
-          const content = new TextDecoder("utf-8", { fatal: true }).decode(
-            data.slice(offset, offset + size)
-          );
-          results.push({ path: strippedPath, content });
-        } catch { /* skip binary */ }
-      }
-    }
-
-    // Advance past file content, rounded up to 512-byte block boundary
-    offset += Math.ceil(size / 512) * 512;
+  push(chunk: Uint8Array) {
+    // Append new data
+    const merged = new Uint8Array(this.buf.length + chunk.length);
+    merged.set(this.buf);
+    merged.set(chunk, this.buf.length);
+    this.buf = merged;
+    this.drain();
   }
 
-  return results;
+  private drain() {
+    while (true) {
+      if (this.state === "header") {
+        if (this.buf.length < 512) return;
+        const hdr = this.buf.slice(0, 512);
+        this.buf = this.buf.slice(512);
+
+        // Two zero blocks = end of archive
+        if (hdr[0] === 0) return;
+
+        const name   = readTarStr(hdr, 0, 100);
+        const prefix = readTarStr(hdr, 345, 155);
+        const full   = prefix ? `${prefix}/${name}` : name;
+        const path   = full.replace(/^[^/]+\//, ""); // strip top-level dir
+
+        const sizeOct = readTarStr(hdr, 124, 12).trim();
+        this.fileSize  = parseInt(sizeOct, 8) || 0;
+        this.blockSize = Math.ceil(this.fileSize / 512) * 512;
+
+        const type = String.fromCharCode(hdr[156]);
+        const isRegular = type === "0" || type === "\0" || type === "";
+
+        this.currentPath = path;
+        this.wantFile    = isRegular && this.fileSize > 0 && !!path && isTextFile(path) && this.fileSize <= MAX_FILE_CONTENT;
+        this.chunks      = [];
+        this.chunksLen   = 0;
+        this.state       = this.fileSize > 0 ? (this.wantFile ? "data" : "skip") : "header";
+
+      } else if (this.state === "data") {
+        if (this.buf.length < this.blockSize) return;
+        const raw = this.buf.slice(0, this.fileSize);
+        this.buf  = this.buf.slice(this.blockSize);
+        try {
+          const content = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+          this.onFile({ path: this.currentPath, content });
+          this.fileCount++;
+        } catch { /* binary — skip */ }
+        this.state = "header";
+
+      } else { // "skip"
+        if (this.buf.length < this.blockSize) return;
+        this.buf   = this.buf.slice(this.blockSize);
+        this.state = "header";
+      }
+    }
+  }
 }
+
+// ── Streaming tar.gz extractor ────────────────────────────────────────────────
+
+async function extractTarGz(
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<LocalFile[]> {
+  const results: LocalFile[] = [];
+  const tar = new TarStream(f => results.push(f));
+
+  return new Promise((resolve, reject) => {
+    let bytesRead = 0;
+    const total = file.size;
+
+    const dc = new Decompress((chunk: Uint8Array) => {
+      tar.push(chunk);
+    });
+
+    const reader = file.stream().getReader();
+
+    const pump = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { dc.push(new Uint8Array(0), true); break; }
+          bytesRead += value.length;
+          onProgress(Math.round((bytesRead / total) * 100));
+          dc.push(value, false);
+        }
+        resolve(results);
+      } catch (e) {
+        reject(e);
+      }
+    };
+
+    pump();
+  });
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
   const [, navigate] = useLocation();
@@ -109,18 +184,21 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
   const [localWorkspace, setLocalWorkspace] = useState("");
   const [isLocalImporting, setIsLocalImporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const zipInputRef = useRef<HTMLInputElement>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractPct, setExtractPct] = useState(0);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const zipInputRef  = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleClose = () => {
     onOpenChange(false);
     setRepoUrl(""); setBranch(""); setPatOverride(""); setPreview(null);
     setLocalFiles([]); setLocalName(""); setError(null);
+    setExtracting(false); setExtractPct(0);
   };
 
-  // ── GitHub tab ────────────────────────────────────────────────────────────
+  // ── GitHub tab ─────────────────────────────────────────────────────────────
 
   const handleGhPreview = async () => {
     if (!repoUrl.trim()) return;
@@ -154,44 +232,66 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
     finally { setIsGhImporting(false); }
   };
 
-  // ── Local / Replit tab ────────────────────────────────────────────────────
+  // ── Local / archive processing ─────────────────────────────────────────────
 
   const isArchive = (name: string) =>
     name.endsWith(".zip") || name.endsWith(".tar.gz") || name.endsWith(".tgz");
 
-  const processArchive = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const buf = new Uint8Array(e.target!.result as ArrayBuffer);
-      const isTarGz = file.name.endsWith(".tar.gz") || file.name.endsWith(".tgz");
+  const processArchive = useCallback(async (file: File) => {
+    setError(null);
+    setLocalFiles([]);
+    const isTarGz = file.name.endsWith(".tar.gz") || file.name.endsWith(".tgz");
 
-      if (isTarGz) {
-        try {
-          const tarData = gunzipSync(buf);
-          const extracted = parseTar(tarData);
-          if (extracted.length === 0) { setError("No importable text files found in archive"); return; }
-          setLocalFiles(extracted);
-          if (!localName) setLocalName(file.name.replace(/\.(tar\.gz|tgz)$/i, ""));
-        } catch (err) {
-          setError("Failed to extract .tar.gz — make sure it is a valid gzip archive");
+    if (isTarGz) {
+      setExtracting(true);
+      setExtractPct(0);
+      try {
+        const extracted = await extractTarGz(file, pct => setExtractPct(pct));
+        if (extracted.length === 0) {
+          setError("No importable text files found in archive. Binary files and common build folders (node_modules, dist, .git) are skipped.");
+          return;
         }
-      } else {
+        setLocalFiles(extracted);
+        if (!localName) setLocalName(file.name.replace(/\.(tar\.gz|tgz)$/i, ""));
+      } catch (err: unknown) {
+        const msg = (err as Error).message ?? "";
+        if (msg.includes("Decompression")) {
+          setError("Could not decompress the file — it may be corrupt or not a valid gzip archive.");
+        } else {
+          setError(`Extraction failed: ${msg}`);
+        }
+      } finally {
+        setExtracting(false);
+      }
+    } else {
+      // ZIP — async via fflate (memory-efficient for typical sizes)
+      setExtracting(true);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const buf = new Uint8Array(e.target!.result as ArrayBuffer);
         unzip(buf, (err, unzipped) => {
-          if (err) { setError("Failed to extract ZIP file"); return; }
+          setExtracting(false);
+          if (err) { setError("Failed to extract ZIP file — it may be corrupt."); return; }
           const extracted: LocalFile[] = [];
           for (const [rawPath, data] of Object.entries(unzipped)) {
             if (rawPath.endsWith("/")) continue;
             const path = rawPath.replace(/^[^/]+\//, "");
             if (!path || !isTextFile(path)) continue;
+            if (data.length > MAX_FILE_CONTENT) continue;
             try { extracted.push({ path, content: new TextDecoder().decode(data) }); }
             catch { /* skip binary */ }
+          }
+          if (extracted.length === 0) {
+            setError("No importable text files found in ZIP.");
+            return;
           }
           setLocalFiles(extracted);
           if (!localName) setLocalName(file.name.replace(/\.zip$/i, ""));
         });
-      }
-    };
-    reader.readAsArrayBuffer(file);
+      };
+      reader.onerror = () => { setExtracting(false); setError("Failed to read file."); };
+      reader.readAsArrayBuffer(file);
+    }
   }, [localName]);
 
   const processFiles = useCallback((fileList: FileList) => {
@@ -249,6 +349,25 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
     </div>
   );
 
+  // ── Archive extraction progress UI ─────────────────────────────────────────
+
+  const ExtractionProgress = () => (
+    <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
+        <span className="text-sm font-medium">Extracting archive…</span>
+        <span className="ml-auto text-xs text-muted-foreground">{extractPct}%</span>
+      </div>
+      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+        <div
+          className="h-full bg-primary rounded-full transition-all duration-200"
+          style={{ width: `${extractPct}%` }}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">Large archives may take a moment — please keep this tab open.</p>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-lg bg-card border rounded-xl shadow-xl flex flex-col max-h-[90vh]">
@@ -261,8 +380,8 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
 
         <div className="flex border-b border-border shrink-0">
           {([
-            { id: "github", label: "GitHub", icon: Github },
-            { id: "local", label: "Local files", icon: Upload },
+            { id: "github", label: "GitHub",      icon: Github },
+            { id: "local",  label: "Local files", icon: Upload },
             { id: "replit", label: "From Replit", icon: ExternalLink },
           ] as const).map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => { setTab(id); setError(null); }}
@@ -281,7 +400,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
             </div>
           )}
 
-          {/* ── GitHub tab ─────────────────────────────────────────────── */}
+          {/* ── GitHub tab ────────────────────────────────────────────── */}
           {tab === "github" && (
             <div className="space-y-4">
               <div className="space-y-1.5">
@@ -338,36 +457,45 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
             </div>
           )}
 
-          {/* ── Local files tab ─────────────────────────────────────────── */}
+          {/* ── Local files tab ──────────────────────────────────────── */}
           {tab === "local" && (
             <div className="space-y-4">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <FolderOpen className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-medium mb-1">Drop files, ZIP, or tar.gz here</p>
-                <p className="text-xs text-muted-foreground">Or click to browse files</p>
-                <input ref={fileInputRef} type="file" multiple className="hidden"
-                  accept=".js,.jsx,.ts,.tsx,.py,.html,.css,.json,.md,.txt,.sh,.yaml,.yml,.toml,.go,.rs,.java,.c,.cpp,.h,.zip,.tar.gz,.tgz"
-                  onChange={(e) => e.target.files && processFiles(e.target.files)} />
-              </div>
+              {extracting ? (
+                <ExtractionProgress />
+              ) : (
+                <>
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <FolderOpen className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
+                    <p className="text-sm font-medium mb-1">Drop files, ZIP, or tar.gz here</p>
+                    <p className="text-xs text-muted-foreground">Or click to browse files</p>
+                    <input ref={fileInputRef} type="file" multiple className="hidden"
+                      accept=".js,.jsx,.ts,.tsx,.py,.html,.css,.json,.md,.txt,.sh,.yaml,.yml,.toml,.go,.rs,.java,.c,.cpp,.h,.zip,.tar.gz,.tgz"
+                      onChange={(e) => e.target.files && processFiles(e.target.files)} />
+                  </div>
 
-              <div className="text-center">
-                <button onClick={() => zipInputRef.current?.click()}
-                  className="text-sm text-primary hover:underline">
-                  Upload a ZIP or tar.gz instead
-                </button>
-                <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
-              </div>
+                  <div className="text-center">
+                    <button onClick={() => zipInputRef.current?.click()}
+                      className="text-sm text-primary hover:underline">
+                      Upload a ZIP or tar.gz instead
+                    </button>
+                    <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
+                      onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
+                  </div>
+                </>
+              )}
 
-              {localFiles.length > 0 && (
+              {!extracting && localFiles.length > 0 && (
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                  <p className="text-sm font-medium">{localFiles.length} files ready to import</p>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                    <p className="text-sm font-medium">{localFiles.length} files ready to import</p>
+                  </div>
                   <div className="max-h-28 overflow-y-auto space-y-0.5">
                     {localFiles.slice(0, 20).map((f) => (
                       <p key={f.path} className="text-xs text-muted-foreground truncate">{f.path}</p>
@@ -387,7 +515,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
             </div>
           )}
 
-          {/* ── Replit tab ──────────────────────────────────────────────── */}
+          {/* ── Replit tab ───────────────────────────────────────────── */}
           {tab === "replit" && (
             <div className="space-y-4">
               <div className="rounded-lg border bg-muted/30 p-4 space-y-3 text-sm">
@@ -399,23 +527,30 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
                 </ol>
               </div>
 
-              <div
-                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
-                onClick={() => zipInputRef.current?.click()}
-              >
-                <Upload className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
-                <p className="text-sm font-medium mb-1">Upload Replit export</p>
-                <p className="text-xs text-muted-foreground">Drop your .zip or .tar.gz here, or click to browse</p>
-                <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
-              </div>
+              {extracting ? (
+                <ExtractionProgress />
+              ) : (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                  onClick={() => zipInputRef.current?.click()}
+                >
+                  <Upload className={`w-8 h-8 mx-auto mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
+                  <p className="text-sm font-medium mb-1">Upload Replit export</p>
+                  <p className="text-xs text-muted-foreground">Drop your .zip or .tar.gz here, or click to browse</p>
+                  <input ref={zipInputRef} type="file" accept=".zip,.tar.gz,.tgz" className="hidden"
+                    onChange={(e) => e.target.files?.[0] && processArchive(e.target.files[0])} />
+                </div>
+              )}
 
-              {localFiles.length > 0 && (
+              {!extracting && localFiles.length > 0 && (
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                  <p className="text-sm font-medium">{localFiles.length} files extracted</p>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                    <p className="text-sm font-medium">{localFiles.length} files extracted</p>
+                  </div>
                   <div className="space-y-1.5">
                     <Label>Project name</Label>
                     <Input placeholder="My Replit project" value={localName} onChange={(e) => setLocalName(e.target.value)} />
