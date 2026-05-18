@@ -1,8 +1,8 @@
 import { useState, useCallback } from "react";
 import { useParams } from "wouter";
+import { Files, MessageSquare, Terminal as TerminalIcon, Github, Code2 } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
-import { Terminal } from "@/components/terminal/Terminal";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
 import { GitHubPanel } from "@/components/github/GitHubPanel";
@@ -10,7 +10,10 @@ import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
 import { api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
+import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
+
+type MobileTab = "files" | "editor" | "chat" | "github";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -20,11 +23,15 @@ export default function WorkspacePage() {
 
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
-  const [terminalOpen, setTerminalOpen] = useState(true);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
 
-  const handleFileSelect = useCallback((file: ProjectFile) => setActiveFile(file), []);
+  const handleFileSelect = useCallback((file: ProjectFile) => {
+    setActiveFile(file);
+    setMobileTab("editor");
+  }, []);
 
   const handleApplyCode = useCallback(async (code: string) => {
     if (!activeFile || !project) return;
@@ -76,8 +83,15 @@ export default function WorkspacePage() {
     );
   }
 
+  const mobileTabs: { id: MobileTab; label: string; icon: React.ReactNode }[] = [
+    { id: "files",  label: "Files",  icon: <Files className="w-4 h-4" /> },
+    { id: "editor", label: "Editor", icon: <Code2 className="w-4 h-4" /> },
+    { id: "chat",   label: "AI",     icon: <MessageSquare className="w-4 h-4" /> },
+    { id: "github", label: "GitHub", icon: <Github className={cn("w-4 h-4", project.githubRepo && "text-primary")} /> },
+  ];
+
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
       <WorkspaceTopbar
         project={project}
         latestRun={latestRun}
@@ -91,7 +105,8 @@ export default function WorkspacePage() {
         onGithubToggle={() => setGithubOpen((v) => !v)}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* ── Desktop layout (md+): side-by-side panels ────────────────── */}
+      <div className="hidden md:flex flex-1 overflow-hidden">
         <WorkspaceSidebar
           projectId={project.id}
           activeFilePath={activeFile?.path}
@@ -113,7 +128,6 @@ export default function WorkspacePage() {
               </div>
             )}
           </div>
-
           {terminalOpen && (
             <div className="h-52 flex-shrink-0">
               <RunOutput run={latestRun} />
@@ -140,6 +154,88 @@ export default function WorkspacePage() {
             />
           </div>
         )}
+      </div>
+
+      {/* ── Mobile layout (< md): single panel + bottom tabs ─────────── */}
+      <div className="flex md:hidden flex-1 overflow-hidden flex-col">
+        {mobileTab === "files" && (
+          <div className="flex-1 overflow-hidden">
+            <WorkspaceSidebar
+              projectId={project.id}
+              activeFilePath={activeFile?.path}
+              onFileSelect={handleFileSelect}
+            />
+          </div>
+        )}
+
+        {mobileTab === "editor" && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              {activeFile ? (
+                <CodeEditor
+                  projectId={project.id}
+                  file={activeFile}
+                  onSave={(content) => setActiveFile((f) => f ? { ...f, content } : f)}
+                />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
+                  <Code2 className="w-10 h-10 opacity-20" />
+                  <p className="text-sm text-center">No file open</p>
+                  <button
+                    onClick={() => setMobileTab("files")}
+                    className="text-xs text-primary underline underline-offset-2"
+                  >
+                    Browse files →
+                  </button>
+                </div>
+              )}
+            </div>
+            {terminalOpen && (
+              <div className="h-48 border-t border-border flex-shrink-0">
+                <RunOutput run={latestRun} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {mobileTab === "chat" && (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <ChatPanel
+              projectId={project.id}
+              activeFilePath={activeFile?.path}
+              activeFileContent={activeFile?.content}
+              onApplyCode={handleApplyCode}
+            />
+          </div>
+        )}
+
+        {mobileTab === "github" && (
+          <div className="flex-1 overflow-y-auto bg-background">
+            <GitHubPanel
+              projectId={project.id}
+              onSynced={() => mutateProject()}
+            />
+          </div>
+        )}
+
+        {/* Mobile bottom tab bar */}
+        <div className="flex-shrink-0 border-t border-border bg-background flex items-stretch h-14 safe-b">
+          {mobileTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMobileTab(tab.id)}
+              className={cn(
+                "flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
+                mobileTab === tab.id
+                  ? "text-primary"
+                  : "text-muted-foreground",
+              )}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

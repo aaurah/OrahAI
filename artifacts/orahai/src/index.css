@@ -160,3 +160,8 @@
 .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* Safe area for mobile bottom bar (iPhone home indicator) */
+.safe-b {
+  padding-bottom: max(env(safe-area-inset-bottom), 4px);
+}
