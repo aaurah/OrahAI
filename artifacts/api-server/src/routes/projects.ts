@@ -82,7 +82,7 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response, n
       name: z.string().min(1).max(100),
       workspaceId: z.string(),
       description: z.string().max(500).optional(),
-      language: z.enum(["nodejs", "python", "typescript", "html"]).default("nodejs"),
+      language: z.string().min(1).max(30).default("nodejs"),
       isPublic: z.boolean().default(false),
     });
     const parsed = schema.safeParse(req.body);
@@ -333,12 +333,13 @@ router.delete("/:id", requireAuth, async (req: AuthenticatedRequest, res: Respon
 });
 
 function starterFiles(language: string, projectName: string) {
+  const slug = projectName.toLowerCase().replace(/\s+/g, "-");
   const starters: Record<string, { path: string; name: string; content: string; mimeType: string; isDir: boolean; size: number }[]> = {
     nodejs: [
       { path: "index.js", name: "index.js", mimeType: "application/javascript", isDir: false,
         content: `// ${projectName}\nconsole.log("Hello from ${projectName}!");\n`, size: 0 },
       { path: "package.json", name: "package.json", mimeType: "application/json", isDir: false,
-        content: JSON.stringify({ name: projectName.toLowerCase().replace(/\s/g, "-"), version: "1.0.0", main: "index.js" }, null, 2) + "\n", size: 0 },
+        content: JSON.stringify({ name: slug, version: "1.0.0", main: "index.js" }, null, 2) + "\n", size: 0 },
     ],
     python: [
       { path: "main.py", name: "main.py", mimeType: "text/x-python", isDir: false,
@@ -347,10 +348,92 @@ function starterFiles(language: string, projectName: string) {
     typescript: [
       { path: "src/index.ts", name: "index.ts", mimeType: "text/typescript", isDir: false,
         content: `// ${projectName}\nconst main = (): void => {\n  console.log("Hello from ${projectName}!");\n};\nmain();\n`, size: 0 },
+      { path: "package.json", name: "package.json", mimeType: "application/json", isDir: false,
+        content: JSON.stringify({ name: slug, version: "1.0.0", scripts: { start: "ts-node src/index.ts", build: "tsc" }, devDependencies: { typescript: "^5.0.0", "ts-node": "^10.0.0" } }, null, 2) + "\n", size: 0 },
     ],
     html: [
       { path: "index.html", name: "index.html", mimeType: "text/html", isDir: false,
         content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <title>${projectName}</title>\n</head>\n<body>\n  <h1>${projectName}</h1>\n</body>\n</html>\n`, size: 0 },
+    ],
+    go: [
+      { path: "main.go", name: "main.go", mimeType: "text/x-go", isDir: false,
+        content: `package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello from ${projectName}!")\n}\n`, size: 0 },
+      { path: "go.mod", name: "go.mod", mimeType: "text/plain", isDir: false,
+        content: `module ${slug}\n\ngo 1.21\n`, size: 0 },
+    ],
+    rust: [
+      { path: "src/main.rs", name: "main.rs", mimeType: "text/x-rust", isDir: false,
+        content: `fn main() {\n    println!("Hello from ${projectName}!");\n}\n`, size: 0 },
+      { path: "Cargo.toml", name: "Cargo.toml", mimeType: "text/plain", isDir: false,
+        content: `[package]\nname = "${slug}"\nversion = "0.1.0"\nedition = "2021"\n`, size: 0 },
+    ],
+    java: [
+      { path: "Main.java", name: "Main.java", mimeType: "text/x-java", isDir: false,
+        content: `public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from ${projectName}!");\n    }\n}\n`, size: 0 },
+    ],
+    kotlin: [
+      { path: "main.kt", name: "main.kt", mimeType: "text/x-kotlin", isDir: false,
+        content: `fun main() {\n    println("Hello from ${projectName}!")\n}\n`, size: 0 },
+    ],
+    swift: [
+      { path: "main.swift", name: "main.swift", mimeType: "text/x-swift", isDir: false,
+        content: `import Foundation\n\nprint("Hello from ${projectName}!")\n`, size: 0 },
+    ],
+    ruby: [
+      { path: "main.rb", name: "main.rb", mimeType: "text/x-ruby", isDir: false,
+        content: `# ${projectName}\nputs "Hello from ${projectName}!"\n`, size: 0 },
+      { path: "Gemfile", name: "Gemfile", mimeType: "text/plain", isDir: false,
+        content: `source "https://rubygems.org"\n\nruby "3.2.0"\n`, size: 0 },
+    ],
+    php: [
+      { path: "index.php", name: "index.php", mimeType: "application/x-php", isDir: false,
+        content: `<?php\n// ${projectName}\n\necho "Hello from ${projectName}!";\n`, size: 0 },
+    ],
+    cpp: [
+      { path: "main.cpp", name: "main.cpp", mimeType: "text/x-c++src", isDir: false,
+        content: `#include <iostream>\n\nint main() {\n    std::cout << "Hello from ${projectName}!" << std::endl;\n    return 0;\n}\n`, size: 0 },
+    ],
+    c: [
+      { path: "main.c", name: "main.c", mimeType: "text/x-csrc", isDir: false,
+        content: `#include <stdio.h>\n\nint main() {\n    printf("Hello from ${projectName}!\\n");\n    return 0;\n}\n`, size: 0 },
+    ],
+    csharp: [
+      { path: "Program.cs", name: "Program.cs", mimeType: "text/x-csharp", isDir: false,
+        content: `// ${projectName}\nConsole.WriteLine("Hello from ${projectName}!");\n`, size: 0 },
+      { path: `${slug}.csproj`, name: `${slug}.csproj`, mimeType: "text/xml", isDir: false,
+        content: `<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n`, size: 0 },
+    ],
+    scala: [
+      { path: "main.scala", name: "main.scala", mimeType: "text/x-scala", isDir: false,
+        content: `@main def run(): Unit =\n  println("Hello from ${projectName}!")\n`, size: 0 },
+    ],
+    r: [
+      { path: "main.R", name: "main.R", mimeType: "text/x-r", isDir: false,
+        content: `# ${projectName}\ncat("Hello from ${projectName}!\\n")\n`, size: 0 },
+    ],
+    dart: [
+      { path: "main.dart", name: "main.dart", mimeType: "text/x-dart", isDir: false,
+        content: `void main() {\n  print('Hello from ${projectName}!');\n}\n`, size: 0 },
+    ],
+    elixir: [
+      { path: "main.exs", name: "main.exs", mimeType: "text/x-elixir", isDir: false,
+        content: `# ${projectName}\nIO.puts("Hello from ${projectName}!")\n`, size: 0 },
+    ],
+    haskell: [
+      { path: "Main.hs", name: "Main.hs", mimeType: "text/x-haskell", isDir: false,
+        content: `module Main where\n\nmain :: IO ()\nmain = putStrLn "Hello from ${projectName}!"\n`, size: 0 },
+    ],
+    bash: [
+      { path: "main.sh", name: "main.sh", mimeType: "text/x-shellscript", isDir: false,
+        content: `#!/bin/bash\n# ${projectName}\necho "Hello from ${projectName}!"\n`, size: 0 },
+    ],
+    lua: [
+      { path: "main.lua", name: "main.lua", mimeType: "text/x-lua", isDir: false,
+        content: `-- ${projectName}\nprint("Hello from ${projectName}!")\n`, size: 0 },
+    ],
+    perl: [
+      { path: "main.pl", name: "main.pl", mimeType: "text/x-perl", isDir: false,
+        content: `#!/usr/bin/perl\nuse strict;\nuse warnings;\n# ${projectName}\nprint "Hello from ${projectName}!\\n";\n`, size: 0 },
     ],
   };
   return (starters[language] ?? starters.nodejs).map((f) => ({

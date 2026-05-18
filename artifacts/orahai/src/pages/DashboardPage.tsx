@@ -19,8 +19,11 @@ import { toast } from "@/hooks/useToast";
 import type { ProjectWithCounts, ApiResponse, Project } from "@/types";
 
 const LANGUAGE_ICONS: Record<string, string> = {
-  python: "🐍", nodejs: "🟩", typescript: "🔷", html: "🌐",
-  go: "🐹", rust: "🦀", java: "☕", ruby: "💎",
+  nodejs: "🟩", typescript: "🔷", python: "🐍", html: "🌐",
+  go: "🐹", rust: "🦀", java: "☕", kotlin: "🎯", swift: "🍎",
+  ruby: "💎", php: "🐘", cpp: "⚙️", c: "🔵", csharp: "🟣",
+  scala: "🔺", r: "📊", dart: "🎱", elixir: "💧", haskell: "λ",
+  bash: "🖥️", lua: "🌙", perl: "🐪",
 };
 
 const SUGGESTIONS = [
@@ -40,15 +43,28 @@ const STOP_WORDS = new Set([
 
 function inferLanguage(text: string): string {
   const n = text.toLowerCase();
-  // Python
-  if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci|jupyter|numpy/.test(n)) return "python";
-  // TypeScript
+  if (/\brust\b|cargo\b|actix|axum|tokio/.test(n)) return "rust";
+  if (/\bgo\b|golang|gin\b|goroutine|go\.mod/.test(n)) return "go";
+  if (/\bjava\b|spring\b|maven|gradle|jvm/.test(n)) return "java";
+  if (/\bkotlin\b|ktor\b/.test(n)) return "kotlin";
+  if (/\bswift\b|vapor\b|swiftui/.test(n)) return "swift";
+  if (/\bruby\b|rails\b|sinatra\b|gemfile/.test(n)) return "ruby";
+  if (/\bphp\b|laravel|symfony|wordpress/.test(n)) return "php";
+  if (/\bc\+\+\b|cpp\b|cmake\b/.test(n)) return "cpp";
+  if (/\bscala\b|akka\b/.test(n)) return "scala";
+  if (/\bflutter\b|\bdart\b/.test(n)) return "dart";
+  if (/\belixir\b|phoenix\b/.test(n)) return "elixir";
+  if (/\bhaskell\b|cabal\b/.test(n)) return "haskell";
+  if (/\blua\b|love2d/.test(n)) return "lua";
+  if (/\bperl\b/.test(n)) return "perl";
+  if (/\bbash\b|shell.?script|\.sh\b/.test(n)) return "bash";
+  if (/\br\b|rstudio|tidyverse|shiny\b|ggplot/.test(n)) return "r";
+  if (/\bc#\b|csharp|\.net\b|asp\.net|dotnet/.test(n)) return "csharp";
+  if (/\bc\b(?!#|\+\+)|ansi.?c\b/.test(n)) return "c";
+  if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci|jupyter|numpy|scipy/.test(n)) return "python";
   if (/\btypescript\b|\.ts\b/.test(n)) return "typescript";
-  // Explicit backend / app signals — checked BEFORE html so "portfolio app" → nodejs not html
   if (/\bapi\b|backend|server|express|node\.?js|rest\b|graphql|socket|websocket|crypto|bitcoin|ethereum|blockchain|database|mongo|postgres|mysql|sqlite|\bauth\b|login|dashboard|tracker|manager|monitor|\bapp\b/.test(n)) return "nodejs";
-  // Only pure static-site signals → html
   if (/\bhtml\b|\bcss\b|landing.?page|portfolio.?site|portfolio.?web|portfolio.?page|\bwebsite\b|static.?site|\bblog\b/.test(n)) return "html";
-  // Default to Node.js for everything else
   return "nodejs";
 }
 

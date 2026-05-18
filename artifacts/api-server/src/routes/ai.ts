@@ -368,40 +368,172 @@ router.delete("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest,
 function buildLangGuide(language: string): string[] {
   switch (language) {
     case "nodejs":
+      return [
+        `This is a Node.js / Express project. You MUST build a full backend, not just an HTML file.`,
+        ``,
+        `✅ package.json with all deps and a "start": "node src/index.js" script`,
+        `✅ src/index.js — Express server, REST API routes (/api/...), serve public/ as static`,
+        `✅ public/index.html + public/style.css + public/app.js — browser frontend calling your API`,
+        `✅ Use express, cors, dotenv. Store data in-memory or in a JSON file if no DB is needed.`,
+        `❌ DO NOT make a standalone index.html with no server — build the Express backend`,
+      ];
     case "typescript":
       return [
-        `This is a Node.js / Express project. You MUST build a proper backend.`,
-        ``,
-        `✅ Structure: package.json → src/index.js (or index.ts) → src/routes/ → src/middleware/`,
-        `✅ Use Express.js for the HTTP server and REST API routes`,
-        `✅ Serve a frontend (public/index.html + public/style.css + public/app.js) from Express`,
-        `✅ Use fetch() in the browser frontend to call your own API routes (/api/...)`,
-        `✅ Use dotenv for environment variables, cors for cross-origin, and express.json() middleware`,
-        `✅ Include a complete package.json with all dependencies and a "start" script`,
-        ``,
-        `❌ DO NOT create a standalone index.html with no backend`,
-        `❌ DO NOT make a pure static HTML page — this is a Node.js app, build the API`,
-        `❌ DO NOT use CDN-only scripts as your entire app — write real server-side logic`,
+        `This is a TypeScript / Node.js project.`,
+        `✅ package.json with ts-node or tsx for running, typescript for type-checking`,
+        `✅ src/index.ts — Express server with typed routes`,
+        `✅ tsconfig.json with strict mode`,
+        `✅ public/ for the browser frontend`,
+        `❌ DO NOT write plain .js files — use .ts throughout`,
       ];
     case "python":
       return [
         `This is a Python project.`,
-        `✅ Use Flask or FastAPI for web apps/APIs`,
-        `✅ Include a requirements.txt with all dependencies`,
-        `✅ Structure: app.py or main.py as the entry point`,
-        `❌ DO NOT create a Node.js or HTML-only project`,
+        `✅ For web apps: use Flask (pip install flask) or FastAPI (pip install fastapi uvicorn)`,
+        `✅ requirements.txt listing all dependencies`,
+        `✅ Entry point: app.py or main.py`,
+        `✅ Serve a templates/ or static/ folder for the frontend if it's a web app`,
+        `❌ DO NOT use Node.js or write JavaScript files`,
       ];
     case "html":
       return [
-        `This is a static HTML/CSS/JS project — no backend server needed.`,
-        `✅ Write a complete, styled index.html with inline or linked CSS/JS`,
-        `✅ Use vanilla JavaScript for interactivity; fetch() for public APIs (e.g. crypto prices)`,
-        `✅ Make it visually polished — dark backgrounds, gradients, proper layout`,
-        `❌ DO NOT create a Node.js server or package.json — keep it purely static`,
+        `This is a static HTML/CSS/JS project — no server needed.`,
+        `✅ Single index.html with embedded or linked CSS/JS`,
+        `✅ Use vanilla JS and fetch() for public APIs (e.g. crypto prices from CoinGecko)`,
+        `✅ Make it visually polished: dark theme, gradients, proper responsive layout`,
+        `❌ DO NOT create a package.json or Node server — keep it purely static`,
+      ];
+    case "go":
+      return [
+        `This is a Go project.`,
+        `✅ go.mod with module name and go version`,
+        `✅ main.go as entry point — use net/http or gin for web apps`,
+        `✅ Idiomatic Go: package main, proper error handling, goroutines where useful`,
+      ];
+    case "rust":
+      return [
+        `This is a Rust project.`,
+        `✅ Cargo.toml with [package] and [dependencies]`,
+        `✅ src/main.rs as entry point`,
+        `✅ For web: use actix-web or axum crate`,
+        `✅ Use proper Result/Option error handling, no unwrap() in production code`,
+      ];
+    case "java":
+      return [
+        `This is a Java project.`,
+        `✅ Main.java with a public static void main entry point`,
+        `✅ For web: use Spring Boot (with pom.xml) or plain HttpServer`,
+        `✅ Proper OOP: classes, interfaces, generics where appropriate`,
+      ];
+    case "kotlin":
+      return [
+        `This is a Kotlin project.`,
+        `✅ main.kt with a fun main() entry point`,
+        `✅ For web: use Ktor framework`,
+        `✅ Use Kotlin idioms: data classes, extension functions, coroutines`,
+      ];
+    case "swift":
+      return [
+        `This is a Swift project.`,
+        `✅ main.swift as entry point`,
+        `✅ Use Swift standard library; for web use Vapor`,
+        `✅ Modern Swift: optionals, protocols, async/await`,
+      ];
+    case "ruby":
+      return [
+        `This is a Ruby project.`,
+        `✅ main.rb as entry point, Gemfile for dependencies`,
+        `✅ For web: use Sinatra (simple) or Rails (full-stack)`,
+        `✅ Idiomatic Ruby: blocks, symbols, modules`,
+      ];
+    case "php":
+      return [
+        `This is a PHP project.`,
+        `✅ index.php as entry point`,
+        `✅ Use modern PHP 8+ features: typed properties, match expressions, named args`,
+        `✅ For APIs: return JSON with header('Content-Type: application/json')`,
+      ];
+    case "cpp":
+      return [
+        `This is a C++ project.`,
+        `✅ main.cpp as entry point, Makefile or CMakeLists.txt for building`,
+        `✅ Use C++17 or C++20 features: structured bindings, ranges, concepts`,
+        `✅ Proper memory management: prefer RAII, smart pointers over raw new/delete`,
+      ];
+    case "c":
+      return [
+        `This is a C project.`,
+        `✅ main.c as entry point, Makefile for building`,
+        `✅ Standard C17, proper header files (.h), clean memory management`,
+      ];
+    case "csharp":
+      return [
+        `This is a C# / .NET project.`,
+        `✅ Program.cs with top-level statements (modern .NET 6+)`,
+        `✅ .csproj file for build config`,
+        `✅ For web: use ASP.NET Core minimal APIs`,
+        `✅ Use C# idioms: LINQ, async/await, records`,
+      ];
+    case "scala":
+      return [
+        `This is a Scala project.`,
+        `✅ main.scala with @main def`,
+        `✅ Functional style: immutable data, pattern matching, for-comprehensions`,
+        `✅ For web: use Akka HTTP or http4s`,
+      ];
+    case "r":
+      return [
+        `This is an R project.`,
+        `✅ main.R as entry point`,
+        `✅ Use tidyverse for data manipulation, ggplot2 for visualisation`,
+        `✅ For web apps: use Shiny`,
+      ];
+    case "dart":
+      return [
+        `This is a Dart project.`,
+        `✅ main.dart as entry point`,
+        `✅ Use async/await and streams idiomatically`,
+        `✅ For Flutter apps: use StatelessWidget / StatefulWidget`,
+      ];
+    case "elixir":
+      return [
+        `This is an Elixir project.`,
+        `✅ main.exs for scripts, or mix project with lib/ for applications`,
+        `✅ Use Phoenix for web, GenServer for stateful processes`,
+        `✅ Functional, pattern-matching, pipe operator |> style`,
+      ];
+    case "haskell":
+      return [
+        `This is a Haskell project.`,
+        `✅ Main.hs as entry point`,
+        `✅ Pure functional: type classes, monads, do-notation`,
+        `✅ Use cabal or stack for dependencies`,
+      ];
+    case "bash":
+      return [
+        `This is a Bash / shell scripting project.`,
+        `✅ main.sh with #!/bin/bash shebang`,
+        `✅ Use shellcheck-clean style: quote variables, handle errors with set -e`,
+        `✅ Functions for reusable logic, getopts for argument parsing`,
+      ];
+    case "lua":
+      return [
+        `This is a Lua project.`,
+        `✅ main.lua as entry point`,
+        `✅ Use Lua 5.4 features; LuaRocks for dependencies`,
+        `✅ For game scripts: use Love2D conventions`,
+      ];
+    case "perl":
+      return [
+        `This is a Perl project.`,
+        `✅ main.pl with use strict; use warnings;`,
+        `✅ CPAN modules via cpan or cpanm`,
       ];
     default:
       return [
-        `Build the project in ${language}. Use idiomatic patterns for that language.`,
+        `This is a ${language} project. Use idiomatic ${language} patterns and best practices.`,
+        `✅ Include all necessary build/dependency files`,
+        `✅ Write clean, well-structured code following ${language} conventions`,
       ];
   }
 }
