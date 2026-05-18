@@ -1,104 +1,50 @@
-import { Server as SocketIOServer, Socket } from "socket.io";
+import type { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "@orahai/db";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
-interface AuthenticatedSocket extends Socket {
-  userId?: string;
-}
+interface JwtPayload { sub: string; email: string }
 
-export function registerSocketHandlers(io: SocketIOServer): void {
-  // Authenticate every socket connection
-  io.use(async (socket: AuthenticatedSocket, next) => {
+export function registerSocketHandlers(io: Server) {
+  io.use(async (socket, next) => {
     try {
-      const token =
-        (socket.handshake.auth.token as string) ??
-        (socket.handshake.headers.authorization as string)?.replace("Bearer ", "");
-
-      if (!token) return next(new Error("Authentication required"));
-
-      const decoded = jwt.verify(token, config.auth.jwtSecret) as {
-        sub: string;
-      };
-
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.sub },
-        select: { id: true, deletedAt: true },
-      });
-
-      if (!user || user.deletedAt) {
-        return next(new Error("User not found"));
-      }
-
-      socket.userId = user.id;
+      const token = socket.handshake.auth?.token as string | undefined;
+      if (!token) { next(new Error("No token")); return; }
+      const payload = jwt.verify(token, config.auth.jwtSecret) as JwtPayload;
+      (socket as Socket & { userId: string }).userId = payload.sub;
       next();
-    } catch {
-      next(new Error("Invalid token"));
-    }
+    } catch { next(new Error("Invalid token")); }
   });
 
-  io.on("connection", (socket: AuthenticatedSocket) => {
-    logger.debug(`Socket connected: ${socket.id} (user: ${socket.userId})`);
+  io.on("connection", (socket) => {
+    const userId = (socket as Socket & { userId: string }).userId;
+    logger.info(`WS connected: ${socket.id} user=${userId}`);
 
-    // Join user-specific room for notifications
-    socket.join(`user:${socket.userId}`);
-
-    // ── Workspace events ────────────────────────────────────────────────────
-
-    socket.on(
-      "workspace:join",
-      async (data: { workspaceId: string }) => {
-        const workspace = await prisma.workspace.findFirst({
-          where: { id: data.workspaceId, userId: socket.userId! },
-        });
-        if (workspace) {
-          socket.join(`workspace:${data.workspaceId}`);
-          logger.debug(`Socket ${socket.id} joined workspace ${data.workspaceId}`);
-        }
+    socket.on("workspace:join", async ({ projectId }: { projectId: string }) => {
+      // Verify user has access via workspace membership or project ownership
+      const project = await prisma.project.findFirst({
+        where: {
+          id: projectId,
+          deletedAt: null,
+          OR: [
+            { ownerId: userId },
+            { workspace: { memberships: { some: { userId } } } },
+          ],
+        },
+      });
+      if (project) {
+        socket.join(`project:${projectId}`);
+        socket.emit("workspace:joined", { projectId });
       }
-    );
+    });
 
-    socket.on(
-      "workspace:leave",
-      (data: { workspaceId: string }) => {
-        socket.leave(`workspace:${data.workspaceId}`);
-      }
-    );
-
-    // ── Terminal input from browser ─────────────────────────────────────────
-
-    socket.on(
-      "terminal:input",
-      async (data: { workspaceId: string; input: string }) => {
-        io.to(`workspace:${data.workspaceId}`).emit("terminal:output", {
-          workspaceId: data.workspaceId,
-          data: data.input,
-          stream: "stdin",
-        });
-      }
-    );
-
-    // ── AI conversation events ──────────────────────────────────────────────
-
-    socket.on(
-      "conversation:join",
-      (data: { conversationId: string }) => {
-        socket.join(`conversation:${data.conversationId}`);
-      }
-    );
-
-    socket.on(
-      "conversation:leave",
-      (data: { conversationId: string }) => {
-        socket.leave(`conversation:${data.conversationId}`);
-      }
-    );
-
-    // ── Disconnect ──────────────────────────────────────────────────────────
+    socket.on("workspace:leave", ({ projectId }: { projectId: string }) => {
+      socket.leave(`project:${projectId}`);
+    });
 
     socket.on("disconnect", () => {
-      logger.debug(`Socket disconnected: ${socket.id}`);
+      logger.info(`WS disconnected: ${socket.id}`);
     });
   });
 }

@@ -87,7 +87,7 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
   async function saveFile(content: string) {
     setIsSaving(true);
     try {
-      await api.put(`/files/${projectId}`, {
+      await api.put(`/api/files/${projectId}`, {
         path: file.path,
         content,
         mimeType: file.mimeType,

@@ -1,150 +1,64 @@
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
-interface ChatMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
-}
-
 interface StreamChatOptions {
-  messages: ChatMessage[];
-  model?: string;
-  systemPrompt?: string;
+  messages: { role: "user" | "assistant"; content: string }[];
+  systemPrompt: string;
   onDelta: (delta: string) => void;
-  onDone: (usage: { totalTokens: number }) => void;
-}
-
-interface AgentTaskOptions {
-  taskId: string;
-  task: string;
-  projectId: string;
-  userId: string;
-  conversationId: string;
+  onDone: () => void;
 }
 
 export class AIService {
-  /**
-   * Stream a chat completion from the configured AI provider.
-   * Supports OpenAI-compatible APIs.
-   */
-  async streamChat(options: StreamChatOptions): Promise<void> {
-    const { messages, model, systemPrompt, onDelta, onDone } = options;
-    const resolvedModel = model ?? config.ai.model;
+  private baseUrl: string;
+  private internalKey: string;
 
-    const systemMessages: ChatMessage[] = systemPrompt
-      ? [{ role: "system", content: systemPrompt }]
-      : [];
+  constructor() {
+    this.baseUrl = config.aiServiceUrl ?? "http://localhost:8000";
+    this.internalKey = config.aiServiceInternalKey ?? "";
+  }
 
-    const payload = {
-      model: resolvedModel,
-      messages: [...systemMessages, ...messages],
-      stream: true,
-      max_tokens: 4096,
-      temperature: 0.7,
-    };
+  async streamChat(opts: StreamChatOptions): Promise<void> {
+    const { messages, systemPrompt, onDelta, onDone } = opts;
 
-    const isAnthropic = resolvedModel.startsWith("claude");
-    const apiKey = isAnthropic ? config.ai.anthropicKey : config.ai.openaiKey;
-
-    if (!apiKey) {
-      throw new Error(`AI API key not configured for model: ${resolvedModel}`);
-    }
-
-    const endpoint = isAnthropic
-      ? "https://api.anthropic.com/v1/messages"
-      : "https://api.openai.com/v1/chat/completions";
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(isAnthropic
-        ? {
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": "messages-2023-12-15",
-          }
-        : { Authorization: `Bearer ${apiKey}` }),
-    };
-
-    const response = await fetch(endpoint, {
+    const res = await fetch(`${this.baseUrl}/chat`, {
       method: "POST",
-      headers,
-      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": this.internalKey,
+      },
+      body: JSON.stringify({ messages, system_prompt: systemPrompt }),
     });
 
-    if (!response.ok || !response.body) {
-      const errText = await response.text().catch(() => "unknown");
-      throw new Error(`AI API error ${response.status}: ${errText}`);
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(`AI service error ${res.status}: ${text}`);
     }
 
-    const reader = response.body.getReader();
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
-    let totalTokens = 0;
+    let buf = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
-
-        const dataStr = trimmed.startsWith("data: ")
-          ? trimmed.slice(6)
-          : trimmed;
-
+        if (!trimmed.startsWith("data: ")) continue;
         try {
-          const chunk = JSON.parse(dataStr) as {
-            choices?: { delta?: { content?: string } }[];
-            usage?: { total_tokens?: number };
-          };
-
-          const delta = chunk.choices?.[0]?.delta?.content ?? "";
-          if (delta) {
-            onDelta(delta);
-          }
-
-          if (chunk.usage?.total_tokens) {
-            totalTokens = chunk.usage.total_tokens;
-          }
-        } catch {
-          // Skip malformed chunks
+          const evt = JSON.parse(trimmed.slice(6)) as { type: string; content?: string };
+          if (evt.type === "delta" && evt.content) onDelta(evt.content);
+          else if (evt.type === "done") { onDone(); return; }
+          else if (evt.type === "error") throw new Error(trimmed);
+        } catch (e) {
+          logger.warn("Malformed SSE event:", e);
         }
       }
     }
-
-    onDone({ totalTokens });
-  }
-
-  /**
-   * Run an agentic task by delegating to the Python AI service.
-   * The AI service handles the full plan → edit → run → fix loop.
-   */
-  async runAgentTask(options: AgentTaskOptions): Promise<void> {
-    const url = `${config.aiServiceUrl}/agent/run`;
-
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Internal-Key": config.ai.serviceApiKey,
-        },
-        body: JSON.stringify(options),
-      });
-
-      if (!response.ok) {
-        const err = await response.text().catch(() => "unknown");
-        throw new Error(`AI service error ${response.status}: ${err}`);
-      }
-    } catch (err) {
-      logger.error("Failed to dispatch agent task:", err);
-      throw err;
-    }
+    onDone();
   }
 }
