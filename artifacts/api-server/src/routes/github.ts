@@ -354,4 +354,63 @@ router.post("/projects/:id/push", async (req: AuthenticatedRequest, res: Respons
   } catch (err) { next(err); }
 });
 
+// ── Per-project: deploy to GitHub Pages ──────────────────────────────────────
+
+router.post("/projects/:id/deploy", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({ message: z.string().max(500).optional().default("Deploy from OrahAI") });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400));
+
+    const [p] = await db.select().from(projects)
+      .where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt), eq(projects.ownerId, req.user!.id)))
+      .limit(1);
+    if (!p) return next(createError("Project not found", 404));
+    if (!p.githubRepo) return next(createError("Connect a GitHub repository first", 400));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!userRow?.githubToken) return next(createError("No GitHub token set", 401));
+    const token = userRow.githubToken;
+
+    const [owner, repo] = p.githubRepo.split("/");
+    const deployBranch = "gh-pages";
+
+    // Get all project files
+    const projectFiles = await db.select({ path: files.path, content: files.content })
+      .from(files)
+      .where(and(eq(files.projectId, p.id), isNull(files.deletedAt), eq(files.isDir, false)));
+
+    if (projectFiles.length === 0) return next(createError("No files to deploy", 400));
+
+    // Get existing tree on gh-pages (to find existing file SHAs for updates)
+    const ghTreeMap = new Map<string, string>();
+    try {
+      const sha = await getBranchSha(owner, repo, deployBranch, token);
+      const tree = await getRepoTree(owner, repo, sha, token);
+      for (const item of tree.tree) {
+        if (item.type === "blob") ghTreeMap.set(item.path, item.sha);
+      }
+    } catch { /* branch doesn't exist yet — that's fine */ }
+
+    const BATCH = 3;
+    let pushed = 0;
+    for (let i = 0; i < projectFiles.length; i += BATCH) {
+      const batch = projectFiles.slice(i, i + BATCH);
+      await Promise.allSettled(batch.map(async (f) => {
+        await createOrUpdateFile(owner, repo, f.path, f.content, parsed.data.message!, token, ghTreeMap.get(f.path) ?? null, deployBranch);
+        pushed++;
+      }));
+      if (i + BATCH < projectFiles.length) await new Promise(r => setTimeout(r, 150));
+    }
+
+    const pagesUrl = `https://${owner.toLowerCase()}.github.io/${repo}/`;
+
+    res.json({
+      data: { pushed, url: pagesUrl, branch: deployBranch },
+      message: `Deployed ${pushed} file${pushed !== 1 ? "s" : ""} to GitHub Pages`,
+    });
+  } catch (err) { next(err); }
+});
+
 export default router;
+

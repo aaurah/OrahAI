@@ -1,12 +1,14 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams } from "wouter";
-import { Files, MessageSquare, Github, Code2, Globe } from "lucide-react";
+import { Files, MessageSquare, Github, Code2, Globe, KeyRound, Rocket } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
 import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { PreviewPanel } from "@/components/editor/PreviewPanel";
+import { SecretsPanel } from "@/components/editor/SecretsPanel";
+import { DeployPanel } from "@/components/editor/DeployPanel";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
 import { api } from "@/lib/api";
@@ -14,7 +16,7 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
-type MobileTab = "files" | "editor" | "chat" | "preview" | "github";
+type MobileTab = "files" | "editor" | "chat" | "preview" | "github" | "secrets" | "deploy";
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -28,8 +30,17 @@ export default function WorkspacePage() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [secretsOpen, setSecretsOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
+
+  // Auto-open preview for HTML/web projects
+  useEffect(() => {
+    if (project && (project.language === "html")) {
+      setPreviewOpen(true);
+    }
+  }, [project?.id, project?.language]);
 
   const handleFileSelect = useCallback((file: ProjectFile) => {
     setActiveFile(file);
@@ -66,10 +77,18 @@ export default function WorkspacePage() {
     }
   }, [activeFile, project]);
 
+  // Triggered by CodeEditor Ctrl+S — refreshes live preview
+  const handleEditorSave = useCallback((content: string) => {
+    setActiveFile((f) => f ? { ...f, content } : f);
+    setFileRefreshKey((k) => k + 1);
+  }, []);
+
   const handleRun = async () => {
     if (!project || isRunning) return;
     setIsRunning(true);
     setTerminalOpen(true);
+    setMobileTab("editor");
+    if (project.language === "html") setPreviewOpen(true);
     try {
       await api.post<ApiResponse<Run>>(`/api/runs/${project.id}`);
       await mutateRuns();
@@ -105,7 +124,11 @@ export default function WorkspacePage() {
     { id: "chat",    label: "AI",      icon: <MessageSquare className="w-4 h-4" /> },
     { id: "preview", label: "Preview", icon: <Globe className="w-4 h-4" /> },
     { id: "github",  label: "GitHub",  icon: <Github className={cn("w-4 h-4", project.githubRepo && "text-primary")} /> },
+    { id: "secrets", label: "Secrets", icon: <KeyRound className="w-4 h-4" /> },
+    { id: "deploy",  label: "Deploy",  icon: <Rocket className="w-4 h-4" /> },
   ];
+
+  const rightPanelOpen = chatOpen || githubOpen || secretsOpen || deployOpen;
 
   return (
     <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
@@ -122,10 +145,15 @@ export default function WorkspacePage() {
         onGithubToggle={() => setGithubOpen((v) => !v)}
         previewOpen={previewOpen}
         onPreviewToggle={() => setPreviewOpen((v) => !v)}
+        secretsOpen={secretsOpen}
+        onSecretsToggle={() => setSecretsOpen((v) => !v)}
+        deployOpen={deployOpen}
+        onDeployToggle={() => setDeployOpen((v) => !v)}
       />
 
-      {/* ── Desktop layout (md+): side-by-side panels ────────────────── */}
+      {/* ── Desktop layout (md+) ──────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
+        {/* File sidebar */}
         <WorkspaceSidebar
           projectId={project.id}
           activeFilePath={activeFile?.path}
@@ -133,26 +161,25 @@ export default function WorkspacePage() {
           refreshKey={fileRefreshKey}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Editor + Preview split */}
+        {/* Editor + Preview */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <div className="flex-1 flex overflow-hidden">
-            <div className={cn("flex flex-col overflow-hidden", previewOpen ? "flex-1 min-w-0" : "flex-1")}>
+            {/* Editor */}
+            <div className={cn("flex flex-col overflow-hidden min-w-0", previewOpen ? "flex-1" : "flex-1")}>
               <div className="flex-1 overflow-hidden">
                 {activeFile ? (
                   <CodeEditor
                     projectId={project.id}
                     file={activeFile}
-                    onSave={(content) => setActiveFile((f) => f ? { ...f, content } : f)}
+                    onSave={handleEditorSave}
                   />
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
-                    <p className="text-sm">Select a file to start editing</p>
-                    <p className="text-xs opacity-60">or create a new file in the sidebar</p>
-                  </div>
+                  <EmptyEditor />
                 )}
               </div>
             </div>
 
+            {/* Live Preview (splits 50/50 with editor) */}
             {previewOpen && (
               <div className="flex-1 min-w-0 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
                 <PreviewPanel
@@ -171,6 +198,7 @@ export default function WorkspacePage() {
           )}
         </div>
 
+        {/* Right panels — only one shown at a time */}
         {chatOpen && (
           <div className="w-80 xl:w-96 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
             <ChatPanel
@@ -182,8 +210,7 @@ export default function WorkspacePage() {
             />
           </div>
         )}
-
-        {githubOpen && (
+        {!chatOpen && githubOpen && (
           <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
             <GitHubPanel
               projectId={project.id}
@@ -191,9 +218,19 @@ export default function WorkspacePage() {
             />
           </div>
         )}
+        {!chatOpen && !githubOpen && secretsOpen && (
+          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <SecretsPanel projectId={project.id} />
+          </div>
+        )}
+        {!chatOpen && !githubOpen && !secretsOpen && deployOpen && (
+          <div className="w-80 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <DeployPanel project={project} onProjectUpdate={mutateProject} />
+          </div>
+        )}
       </div>
 
-      {/* ── Mobile layout (< md): single panel + bottom tabs ─────────── */}
+      {/* ── Mobile layout (< md) ─────────────────────────────────────── */}
       <div className="flex md:hidden flex-1 overflow-hidden flex-col">
         {mobileTab === "files" && (
           <div className="flex-1 overflow-hidden">
@@ -213,16 +250,13 @@ export default function WorkspacePage() {
                 <CodeEditor
                   projectId={project.id}
                   file={activeFile}
-                  onSave={(content) => setActiveFile((f) => f ? { ...f, content } : f)}
+                  onSave={handleEditorSave}
                 />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
                   <Code2 className="w-10 h-10 opacity-20" />
                   <p className="text-sm text-center">No file open</p>
-                  <button
-                    onClick={() => setMobileTab("files")}
-                    className="text-xs text-primary underline underline-offset-2"
-                  >
+                  <button onClick={() => setMobileTab("files")} className="text-xs text-primary underline underline-offset-2">
                     Browse files →
                   </button>
                 </div>
@@ -267,17 +301,27 @@ export default function WorkspacePage() {
           </div>
         )}
 
+        {mobileTab === "secrets" && (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <SecretsPanel projectId={project.id} />
+          </div>
+        )}
+
+        {mobileTab === "deploy" && (
+          <div className="flex-1 overflow-y-auto bg-background">
+            <DeployPanel project={project} onProjectUpdate={mutateProject} />
+          </div>
+        )}
+
         {/* Mobile bottom tab bar */}
-        <div className="flex-shrink-0 border-t border-border bg-background flex items-stretch h-14 safe-b">
+        <div className="flex-shrink-0 border-t border-border bg-background flex items-stretch h-14 safe-b overflow-x-auto">
           {mobileTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setMobileTab(tab.id)}
               className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
-                mobileTab === tab.id
-                  ? "text-primary"
-                  : "text-muted-foreground",
+                "flex-1 min-w-[48px] flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors",
+                mobileTab === tab.id ? "text-primary" : "text-muted-foreground",
               )}
             >
               {tab.icon}
@@ -286,6 +330,15 @@ export default function WorkspacePage() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyEditor() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
+      <p className="text-sm">Select a file to start editing</p>
+      <p className="text-xs opacity-60">or ask AI to create one for you</p>
     </div>
   );
 }

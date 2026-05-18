@@ -9,6 +9,7 @@ import aiRouter from "./ai";
 import adminRouter from "./admin";
 import githubRouter from "./github";
 import previewRouter from "./preview";
+import secretsRouter from "./secrets";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use("/ai", aiRouter);
 router.use("/admin", adminRouter);
 router.use("/github", githubRouter);
 router.use("/preview", previewRouter);
+router.use("/projects", secretsRouter);
 
 export default router;

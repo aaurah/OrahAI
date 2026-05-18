@@ -143,10 +143,12 @@ export async function createOrUpdateFile(
   message: string,
   token: string,
   sha?: string | null,
+  branch?: string,
 ): Promise<void> {
   const encoded = Buffer.from(content, "utf-8").toString("base64");
   const body: Record<string, unknown> = { message, content: encoded };
   if (sha) body.sha = sha;
+  if (branch) body.branch = branch;
 
   const res = await fetch(
     `${GH_API}/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`,

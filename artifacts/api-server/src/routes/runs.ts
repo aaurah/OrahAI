@@ -53,7 +53,19 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
           .where(eq(runs.id, run.id)).catch((e: unknown) => logger.warn({ err: e }, "Failed to update run status"));
       });
     } else {
-      await db.update(runs).set({ status: "error", output: "No sandbox service configured.", completedAt: new Date() }).where(eq(runs.id, run.id));
+      const noSandboxOutput: Record<string, string> = {
+        html:       `✓ HTML project ready.\n\nOpen the Preview panel (globe icon) to view your project live in the browser.\nNo server-side execution is needed for HTML/CSS/JS projects.`,
+        nodejs:     `$ ${command}\n\n⚠  No execution sandbox is configured for this environment.\n\nTo run Node.js code, connect a sandbox service via the SANDBOX_URL environment variable.\nYour files are saved and ready — you can download or deploy them via GitHub.`,
+        typescript: `$ ${command}\n\n⚠  No execution sandbox is configured for this environment.\n\nTo run TypeScript code, connect a sandbox service via the SANDBOX_URL environment variable.\nYour files are saved and ready — you can download or deploy them via GitHub.`,
+        python:     `$ ${command}\n\n⚠  No execution sandbox is configured for this environment.\n\nTo run Python code, connect a sandbox service via the SANDBOX_URL environment variable.\nYour files are saved and ready — you can download or deploy them via GitHub.`,
+      };
+      const lang = project.language ?? "nodejs";
+      const isHtml = lang === "html";
+      await db.update(runs).set({
+        status: isHtml ? "success" : "error",
+        output: noSandboxOutput[lang] ?? noSandboxOutput.nodejs,
+        completedAt: new Date(),
+      }).where(eq(runs.id, run.id));
     }
 
     res.status(202).json({ data: run });

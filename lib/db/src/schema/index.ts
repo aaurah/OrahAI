@@ -106,6 +106,36 @@ export const runs = pgTable("runs", {
 
 export type Run = typeof runs.$inferSelect;
 
+// ── Project Secrets ───────────────────────────────────────────────────────────
+
+export const projectSecrets = pgTable("project_secrets", {
+  id:        text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  key:       text("key").notNull(),
+  value:     text("value").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("project_secrets_project_key_idx").on(t.projectId, t.key)]);
+
+export type ProjectSecret = typeof projectSecrets.$inferSelect;
+
+// ── Deployments ───────────────────────────────────────────────────────────────
+
+export const deployments = pgTable("deployments", {
+  id:          text("id").primaryKey(),
+  projectId:   text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  provider:    text("provider").notNull().default("github_pages"),
+  status:      text("status").notNull().default("pending"),
+  url:         text("url"),
+  sha:         text("sha"),
+  commitMsg:   text("commit_msg"),
+  error:       text("error"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type Deployment = typeof deployments.$inferSelect;
+
 // ── Chat Messages ─────────────────────────────────────────────────────────────
 
 export const chatMessages = pgTable("chat_messages", {
