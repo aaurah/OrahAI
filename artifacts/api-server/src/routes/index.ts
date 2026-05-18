@@ -8,6 +8,7 @@ import runsRouter from "./runs";
 import aiRouter from "./ai";
 import adminRouter from "./admin";
 import githubRouter from "./github";
+import previewRouter from "./preview";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use("/runs", runsRouter);
 router.use("/ai", aiRouter);
 router.use("/admin", adminRouter);
 router.use("/github", githubRouter);
+router.use("/preview", previewRouter);
 
 export default router;

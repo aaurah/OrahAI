@@ -13,6 +13,8 @@ export const users = pgTable("users", {
   bio:          text("bio"),
   passwordHash: text("password_hash"),
   githubToken:  text("github_token"),
+  isAdmin:      boolean("is_admin").notNull().default(false),
+  isFreeAccess: boolean("is_free_access").notNull().default(false),
   createdAt:    timestamp("created_at").notNull().defaultNow(),
   updatedAt:    timestamp("updated_at").notNull().defaultNow(),
   deletedAt:    timestamp("deleted_at"),

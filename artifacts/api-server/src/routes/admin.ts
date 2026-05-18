@@ -1,13 +1,13 @@
 import { Router, type Response, type NextFunction } from "express";
 import { db, users, projects, files, runs, chatMessages, memberships } from "@workspace/db";
 import { eq, isNull, ilike, desc, sql, and, count } from "drizzle-orm";
-import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { z } from "zod";
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireAdmin);
 
 router.get("/stats", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
@@ -52,7 +52,8 @@ router.get("/users", async (req: AuthenticatedRequest, res: Response, next: Next
     const [{ total }] = await db.select({ total: count() }).from(users).where(and(...conditions));
     const rows = await db.select({
       id: users.id, email: users.email, name: users.name, username: users.username,
-      avatarUrl: users.avatarUrl, createdAt: users.createdAt,
+      avatarUrl: users.avatarUrl, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess,
+      createdAt: users.createdAt,
     }).from(users).where(and(...conditions)).orderBy(desc(users.createdAt)).limit(limit).offset(offset);
 
     const withCounts = await Promise.all(rows.map(async (u) => {
@@ -86,6 +87,47 @@ router.patch("/users/:id", async (req: AuthenticatedRequest, res: Response, next
       .where(eq(users.id, id)).returning({ id: users.id, email: users.email, name: users.name, username: users.username });
     if (!updated) return next(createError("User not found", 404));
     res.json({ data: updated });
+  } catch (err) { next(err); }
+});
+
+router.post("/users/:id/grant-admin", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, id), isNull(users.deletedAt))).limit(1);
+    if (!user) return next(createError("User not found", 404));
+    await db.update(users).set({ isAdmin: true, updatedAt: new Date() }).where(eq(users.id, id));
+    res.json({ data: null, message: "Admin granted" });
+  } catch (err) { next(err); }
+});
+
+router.post("/users/:id/revoke-admin", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    if (id === req.user!.id) return next(createError("Cannot revoke your own admin access", 400));
+    const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, id), isNull(users.deletedAt))).limit(1);
+    if (!user) return next(createError("User not found", 404));
+    await db.update(users).set({ isAdmin: false, updatedAt: new Date() }).where(eq(users.id, id));
+    res.json({ data: null, message: "Admin revoked" });
+  } catch (err) { next(err); }
+});
+
+router.post("/users/:id/grant-free", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, id), isNull(users.deletedAt))).limit(1);
+    if (!user) return next(createError("User not found", 404));
+    await db.update(users).set({ isFreeAccess: true, updatedAt: new Date() }).where(eq(users.id, id));
+    res.json({ data: null, message: "Free access granted" });
+  } catch (err) { next(err); }
+});
+
+router.post("/users/:id/revoke-free", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, id), isNull(users.deletedAt))).limit(1);
+    if (!user) return next(createError("User not found", 404));
+    await db.update(users).set({ isFreeAccess: false, updatedAt: new Date() }).where(eq(users.id, id));
+    res.json({ data: null, message: "Free access revoked" });
   } catch (err) { next(err); }
 });
 

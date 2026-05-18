@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Bot, Play, Loader2, MessageSquare, Terminal as TerminalIcon, ArrowLeft, Circle, Github } from "lucide-react";
+import { Bot, Play, Loader2, MessageSquare, Terminal as TerminalIcon, ArrowLeft, Circle, Github, Globe } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import type { Project, Run } from "@/types";
@@ -15,6 +15,8 @@ interface Props {
   onTerminalToggle: () => void;
   githubOpen: boolean;
   onGithubToggle: () => void;
+  previewOpen: boolean;
+  onPreviewToggle: () => void;
 }
 
 const LANG_ICONS: Record<string, string> = {
@@ -26,6 +28,7 @@ export function WorkspaceTopbar({
   chatOpen, onChatToggle,
   terminalOpen, onTerminalToggle,
   githubOpen, onGithubToggle,
+  previewOpen, onPreviewToggle,
 }: Props) {
   const statusColor =
     latestRun?.status === "success" ? "text-green-500"
@@ -71,7 +74,15 @@ export function WorkspaceTopbar({
         )}
       </Button>
 
-      {/* Desktop-only panel toggles — mobile uses bottom tab bar */}
+      {/* Desktop-only panel toggles */}
+      <button
+        onClick={onPreviewToggle}
+        className={cn("hidden md:flex p-1.5 rounded hover:bg-muted transition-colors",
+          previewOpen ? "bg-muted text-primary" : "text-muted-foreground")}
+        title="Toggle preview"
+      >
+        <Globe className="w-4 h-4" />
+      </button>
       <button
         onClick={onTerminalToggle}
         className={cn("hidden md:flex p-1.5 rounded hover:bg-muted transition-colors", terminalOpen && "bg-muted text-foreground")}

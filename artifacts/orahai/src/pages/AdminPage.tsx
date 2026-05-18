@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { Shield, Users, FolderOpen, Play, BarChart3, Search, Trash2, RefreshCw, ChevronLeft, ChevronRight, Activity, Loader2, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { useLocation } from "wouter";
+import {
+  Shield, Users, FolderOpen, Play, BarChart3, Search, Trash2,
+  RefreshCw, ChevronLeft, ChevronRight, Activity, Loader2,
+  AlertCircle, CheckCircle, Clock, Infinity, Lock, ShieldCheck,
+  ShieldOff, Unlock,
+} from "lucide-react";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -7,6 +13,7 @@ import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { formatDistanceToNow } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 
 type Tab = "overview" | "users" | "projects" | "runs";
 
@@ -26,6 +33,8 @@ interface AdminUser {
   avatarUrl: string | null;
   createdAt: string;
   projectCount: number;
+  isAdmin: boolean;
+  isFreeAccess: boolean;
 }
 
 interface AdminProject {
@@ -64,6 +73,8 @@ const LANG_LABELS: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  const { user, isLoading } = useAuth();
+  const [, navigate] = useLocation();
   const [tab, setTab] = useState<Tab>("overview");
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -73,10 +84,43 @@ export default function AdminPage() {
     try {
       const res = await api.get<{ data: Stats }>("/api/admin/stats");
       setStats(res.data);
-    } catch { /* ignore */ } finally { setStatsLoading(false); }
+    } catch { } finally { setStatsLoading(false); }
   }, []);
 
-  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => {
+    if (!isLoading && user?.isAdmin) loadStats();
+  }, [isLoading, user, loadStats]);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !user.isAdmin) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center max-w-sm">
+            <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-8 h-8 text-destructive" />
+            </div>
+            <h1 className="text-xl font-bold mb-2">Access denied</h1>
+            <p className="text-muted-foreground text-sm mb-6">
+              You need admin privileges to view this page.
+            </p>
+            <Button onClick={() => navigate("/dashboard")}>Go to Dashboard</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <BarChart3 className="w-4 h-4" /> },
@@ -117,7 +161,7 @@ export default function AdminPage() {
         </div>
 
         {tab === "overview" && <OverviewTab stats={stats} loading={statsLoading} />}
-        {tab === "users" && <UsersTab />}
+        {tab === "users" && <UsersTab currentUserId={user.id} />}
         {tab === "projects" && <ProjectsTab />}
         {tab === "runs" && <RunsTab />}
       </main>
@@ -125,7 +169,9 @@ export default function AdminPage() {
   );
 }
 
-function StatCard({ label, value, sub, icon, color }: { label: string; value: number | string; sub?: string; icon: React.ReactNode; color: string }) {
+function StatCard({ label, value, sub, icon, color }: {
+  label: string; value: number | string; sub?: string; icon: React.ReactNode; color: string;
+}) {
   return (
     <div className="rounded-xl border bg-card p-5">
       <div className="flex items-center justify-between mb-3">
@@ -238,7 +284,7 @@ function OverviewTab({ stats, loading }: { stats: Stats | null; loading: boolean
   );
 }
 
-function UsersTab() {
+function UsersTab({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -246,7 +292,7 @@ function UsersTab() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -262,45 +308,63 @@ function UsersTab() {
       setUsers(res.data.users);
       setTotal(res.data.total);
       setPages(res.data.pages);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   }, [page, debouncedSearch]);
 
   useEffect(() => { setPage(1); }, [debouncedSearch]);
   useEffect(() => { load(); }, [load]);
 
+  const act = async (id: string, endpoint: string) => {
+    setActing(id + endpoint);
+    try {
+      await api.post(`/api/admin/users/${id}/${endpoint}`, {});
+      setUsers(prev => prev.map(u => {
+        if (u.id !== id) return u;
+        if (endpoint === "grant-free") return { ...u, isFreeAccess: true };
+        if (endpoint === "revoke-free") return { ...u, isFreeAccess: false };
+        if (endpoint === "grant-admin") return { ...u, isAdmin: true };
+        if (endpoint === "revoke-admin") return { ...u, isAdmin: false };
+        return u;
+      }));
+    } catch { } finally { setActing(null); }
+  };
+
   const handleDelete = async (id: string, email: string) => {
     if (!confirm(`Delete user "${email}"? This cannot be undone.`)) return;
-    setDeleting(id);
+    setActing(id + "delete");
     try {
       await api.delete(`/api/admin/users/${id}`);
       load();
-    } catch { /* ignore */ } finally { setDeleting(null); }
+    } catch { } finally { setActing(null); }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-muted-foreground">{total.toLocaleString()} total users</p>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by email or username…" value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search by email or username…" value={search}
+            onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border bg-card overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">User</th>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Username</th>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Access</th>
               <th className="text-right px-4 py-3 font-medium text-muted-foreground">Projects</th>
               <th className="text-right px-4 py-3 font-medium text-muted-foreground">Joined</th>
-              <th className="px-4 py-3" />
+              <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+              <tr><td colSpan={5} className="text-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+              </td></tr>
             ) : users.length === 0 ? (
               <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">No users found</td></tr>
             ) : users.map(u => (
@@ -316,16 +380,97 @@ function UsersTab() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">@{u.username}</td>
+
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {u.isFreeAccess ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <Infinity className="w-3 h-3" /> Unlimited
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
+                        Free plan
+                      </span>
+                    )}
+                    {u.isAdmin && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                        <Shield className="w-3 h-3" /> Admin
+                      </span>
+                    )}
+                  </div>
+                </td>
+
                 <td className="px-4 py-3 text-right tabular-nums">{u.projectCount}</td>
-                <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
+
+                <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap text-xs">
                   {formatDistanceToNow(new Date(u.createdAt))} ago
                 </td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => handleDelete(u.id, u.email)} disabled={!!deleting}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40">
-                    {deleting === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  </button>
+
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    {u.isFreeAccess ? (
+                      <button
+                        onClick={() => act(u.id, "revoke-free")}
+                        disabled={!!acting}
+                        title="Revoke unlimited access"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 transition-colors disabled:opacity-40"
+                      >
+                        {acting === u.id + "revoke-free"
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Lock className="w-3.5 h-3.5" />}
+                        Revoke unlimited
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => act(u.id, "grant-free")}
+                        disabled={!!acting}
+                        title="Grant unlimited access"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-muted hover:bg-muted/80 border border-border text-foreground transition-colors disabled:opacity-40"
+                      >
+                        {acting === u.id + "grant-free"
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Unlock className="w-3.5 h-3.5" />}
+                        Grant unlimited
+                      </button>
+                    )}
+
+                    {u.id !== currentUserId && (
+                      u.isAdmin ? (
+                        <button
+                          onClick={() => act(u.id, "revoke-admin")}
+                          disabled={!!acting}
+                          title="Revoke admin"
+                          className="p-1.5 rounded-md text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                        >
+                          {acting === u.id + "revoke-admin"
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <ShieldOff className="w-4 h-4" />}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => act(u.id, "grant-admin")}
+                          disabled={!!acting}
+                          title="Grant admin"
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                        >
+                          {acting === u.id + "grant-admin"
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <ShieldCheck className="w-4 h-4" />}
+                        </button>
+                      )
+                    )}
+
+                    <button
+                      onClick={() => handleDelete(u.id, u.email)}
+                      disabled={!!acting || u.id === currentUserId}
+                      title="Delete user"
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                    >
+                      {acting === u.id + "delete"
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Trash2 className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -376,7 +521,7 @@ function ProjectsTab() {
       setProjects(res.data.projects);
       setTotal(res.data.total);
       setPages(res.data.pages);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   }, [page, debouncedSearch, language]);
 
   useEffect(() => { setPage(1); }, [debouncedSearch, language]);
@@ -388,12 +533,12 @@ function ProjectsTab() {
     try {
       await api.delete(`/api/admin/projects/${id}`);
       load();
-    } catch { /* ignore */ } finally { setDeleting(null); }
+    } catch { } finally { setDeleting(null); }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <p className="text-sm text-muted-foreground flex-1">{total.toLocaleString()} total projects</p>
         <select value={language} onChange={e => setLanguage(e.target.value)}
           className="h-9 px-3 rounded-lg border border-border bg-background text-sm text-foreground">
@@ -404,12 +549,13 @@ function ProjectsTab() {
         </select>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search projects…" value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search projects…" value={search}
+            onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border bg-card overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Project</th>
@@ -423,7 +569,9 @@ function ProjectsTab() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+              <tr><td colSpan={7} className="text-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+              </td></tr>
             ) : projects.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-12 text-muted-foreground">No projects found</td></tr>
             ) : projects.map(p => (
@@ -487,7 +635,7 @@ function RunsTab() {
     try {
       const res = await api.get<{ data: AdminRun[] }>("/api/admin/runs?limit=50");
       setRunsList(res.data);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -508,40 +656,42 @@ function RunsTab() {
         </Button>
       </div>
 
-      <div className="rounded-xl border bg-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border bg-card overflow-x-auto">
+        <table className="w-full text-sm min-w-[560px]">
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Project</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Command</th>
               <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
               <th className="text-right px-4 py-3 font-medium text-muted-foreground">Exit</th>
-              <th className="text-right px-4 py-3 font-medium text-muted-foreground">Started</th>
+              <th className="text-right px-4 py-3 font-medium text-muted-foreground">When</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></td></tr>
+              <tr><td colSpan={5} className="text-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+              </td></tr>
             ) : runsList.length === 0 ? (
               <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">No runs yet</td></tr>
             ) : runsList.map(r => {
-              const cfg = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.queued;
+              const sc = STATUS_CONFIG[r.status] ?? STATUS_CONFIG.queued;
               return (
                 <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{r.projectName}</td>
+                  <td className="px-4 py-3 font-medium max-w-[140px] truncate">{r.projectName}</td>
                   <td className="px-4 py-3">
-                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{r.command || "default"}</code>
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono max-w-[180px] block truncate">{r.command}</code>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full", cfg.color)}>
-                      {cfg.icon}{r.status}
+                    <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium", sc.color)}>
+                      {sc.icon}{r.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                    {r.exitCode !== null ? r.exitCode : "—"}
+                  <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
+                    {r.exitCode ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-right text-muted-foreground text-xs whitespace-nowrap">
-                    {r.startedAt ? `${formatDistanceToNow(new Date(r.startedAt))} ago` : "—"}
+                  <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap text-xs">
+                    {formatDistanceToNow(new Date(r.createdAt))} ago
                   </td>
                 </tr>
               );

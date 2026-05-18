@@ -132,11 +132,13 @@ export function Navbar() {
                     <Code2 className="w-4 h-4 mr-2" />API keys
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/admin">
-                    <Shield className="w-4 h-4 mr-2" />Admin
-                  </Link>
-                </DropdownMenuItem>
+                {user.isAdmin && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin">
+                      <Shield className="w-4 h-4 mr-2" />Admin panel
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"

@@ -5,6 +5,8 @@ export interface AuthUser {
   username: string;
   avatarUrl: string | null;
   bio: string | null;
+  isAdmin: boolean;
+  isFreeAccess: boolean;
 }
 
 export interface LoginRequest {

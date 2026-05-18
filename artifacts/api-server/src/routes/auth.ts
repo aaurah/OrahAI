@@ -18,8 +18,8 @@ function signToken(userId: string, email: string) {
   });
 }
 
-function safeUser(u: { id: string; email: string; name: string | null; username: string; avatarUrl: string | null; bio: string | null }) {
-  return { id: u.id, email: u.email, name: u.name, username: u.username, avatarUrl: u.avatarUrl, bio: u.bio };
+function safeUser(u: { id: string; email: string; name: string | null; username: string; avatarUrl: string | null; bio: string | null; isAdmin: boolean; isFreeAccess: boolean }) {
+  return { id: u.id, email: u.email, name: u.name, username: u.username, avatarUrl: u.avatarUrl, bio: u.bio, isAdmin: u.isAdmin, isFreeAccess: u.isFreeAccess };
 }
 
 router.post("/register", authRateLimiter,
@@ -66,12 +66,18 @@ router.post("/login", authRateLimiter,
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
-      const [user] = await db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
+      const [user] = await db.select({ id: users.id, email: users.email, name: users.name, username: users.username, avatarUrl: users.avatarUrl, bio: users.bio, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess, passwordHash: users.passwordHash, deletedAt: users.deletedAt }).from(users).where(eq(users.email, parsed.data.email)).limit(1);
       if (!user || user.deletedAt || !user.passwordHash)
         return next(createError("Invalid email or password", 401));
 
       const valid = await bcrypt.compare(parsed.data.password, user.passwordHash);
       if (!valid) return next(createError("Invalid email or password", 401));
+
+      const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL?.toLowerCase().trim();
+      if (initialAdminEmail && user.email.toLowerCase() === initialAdminEmail && !user.isAdmin) {
+        await db.update(users).set({ isAdmin: true, updatedAt: new Date() }).where(eq(users.id, user.id));
+        user.isAdmin = true;
+      }
 
       const token = signToken(user.id, user.email);
       res.json({ data: { user: safeUser(user), token } });
@@ -82,7 +88,7 @@ router.get("/me", requireAuth,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const [user] = await db
-        .select({ id: users.id, email: users.email, name: users.name, username: users.username, avatarUrl: users.avatarUrl, bio: users.bio })
+        .select({ id: users.id, email: users.email, name: users.name, username: users.username, avatarUrl: users.avatarUrl, bio: users.bio, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess })
         .from(users)
         .where(eq(users.id, req.user!.id))
         .limit(1);

@@ -6,7 +6,7 @@ import { config } from "../lib/config";
 import { createError } from "./errorHandler";
 
 export interface AuthenticatedRequest extends Request {
-  user?: { id: string; email: string };
+  user?: { id: string; email: string; isAdmin: boolean; isFreeAccess: boolean };
 }
 
 interface JwtPayload {
@@ -39,7 +39,7 @@ export async function requireAuth(
     }
 
     const [user] = await db
-      .select({ id: users.id, email: users.email, deletedAt: users.deletedAt })
+      .select({ id: users.id, email: users.email, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess, deletedAt: users.deletedAt })
       .from(users)
       .where(eq(users.id, payload.sub))
       .limit(1);
@@ -49,11 +49,23 @@ export async function requireAuth(
       return;
     }
 
-    req.user = { id: user.id, email: user.email };
+    req.user = { id: user.id, email: user.email, isAdmin: user.isAdmin, isFreeAccess: user.isFreeAccess };
     next();
   } catch (err) {
     next(err);
   }
+}
+
+export function requireAdmin(
+  req: AuthenticatedRequest,
+  _res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user?.isAdmin) {
+    next(createError("Forbidden: admin access required", 403));
+    return;
+  }
+  next();
 }
 
 export async function optionalAuth(
