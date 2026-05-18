@@ -23,6 +23,8 @@ function Router() {
       <Route path="/workspace/:id" component={WorkspacePage} />
       <Route path="/deployments" component={DeploymentsPage} />
       <Route path="/settings/profile" component={SettingsPage} />
+      <Route path="/settings/workspace" component={SettingsPage} />
+      <Route path="/settings/password" component={SettingsPage} />
       <Route path="/settings/api-keys" component={SettingsPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/privacy">{() => <StaticPage page="privacy" />}</Route>
