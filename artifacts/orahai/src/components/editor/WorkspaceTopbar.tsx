@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import {
   Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
-  ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown,
+  ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown, Sprout,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,8 @@ interface Props {
   onSecretsToggle: () => void;
   deployOpen: boolean;
   onDeployToggle: () => void;
+  autoDevEnabled: boolean;
+  onAutoDevToggle: () => void;
 }
 
 const LANG_COLORS: Record<string, string> = {
@@ -46,6 +48,7 @@ export function WorkspaceTopbar({
   previewOpen, onPreviewToggle,
   secretsOpen, onSecretsToggle,
   deployOpen, onDeployToggle,
+  autoDevEnabled, onAutoDevToggle,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -101,6 +104,24 @@ export function WorkspaceTopbar({
           ) : (
             <><Play className="w-3.5 h-3.5 fill-current" /><span className="hidden sm:inline">Run</span></>
           )}
+        </button>
+
+        {/* ── Auto-develop button ─────────────────────────────────────── */}
+        <button
+          onClick={onAutoDevToggle}
+          title={autoDevEnabled ? "Auto-develop ON — click to stop" : "Auto-develop: AI grows your project automatically"}
+          className={cn(
+            "relative flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-semibold transition-all shrink-0 ml-1",
+            autoDevEnabled
+              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/40"
+              : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted border border-transparent",
+          )}
+        >
+          {autoDevEnabled && (
+            <span className="absolute inset-0 rounded-lg animate-pulse bg-emerald-500/10 pointer-events-none" />
+          )}
+          <Sprout className={cn("w-3.5 h-3.5 shrink-0", autoDevEnabled && "animate-bounce")} />
+          <span className="hidden sm:inline text-xs">{autoDevEnabled ? "Growing…" : "Auto"}</span>
         </button>
 
         {/* ── Desktop panel toggles ──────────────────────────────────── */}

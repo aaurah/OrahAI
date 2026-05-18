@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import {
   Send, Bot, User, Loader2, Sparkles, StopCircle, Trash2,
   Copy, Check, Play, Terminal as TerminalIcon,
@@ -13,12 +13,17 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
 
+export interface ChatPanelHandle {
+  submit: (text: string) => void;
+}
+
 interface ChatPanelProps {
   projectId: string;
   activeFilePath?: string;
   activeFileContent?: string;
   onApplyCode?: (code: string) => void;
   onFileChange?: (path: string, action: "write" | "delete") => void;
+  autoDevEnabled?: boolean;
 }
 
 interface AttachedImage {
@@ -48,7 +53,10 @@ type ListItem =
   | (RunEvent & { _type: "run" })
   | (FileOpEvent & { _type: "fileop" });
 
-export function ChatPanel({ projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange }: ChatPanelProps) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
+  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, autoDevEnabled },
+  ref,
+) {
   const [items, setItems] = useState<ListItem[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -115,6 +123,10 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     setAttachedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
+  useImperativeHandle(ref, () => ({
+    submit: (text: string) => { void handleSubmitCore(text, []); },
+  }));
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = input.trim();
@@ -122,6 +134,12 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
     setInput("");
     const imgs = attachedImages;
     setAttachedImages([]);
+    await handleSubmitCore(text, imgs);
+  };
+
+  const handleSubmitCore = async (text: string, imgs: AttachedImage[]) => {
+    if (!text && !imgs.length) return;
+    if (isStreaming) return;
 
     const userMsg: ChatMessage & { images?: AttachedImage[] } = {
       id: `temp-${crypto.randomUUID()}`, projectId, userId: null,
@@ -316,6 +334,14 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Auto-develop active banner */}
+      {autoDevEnabled && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-b border-emerald-500/20 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <span className="text-[11px] text-emerald-400 font-medium">Auto-develop active — AI is growing your project</span>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -521,7 +547,7 @@ export function ChatPanel({ projectId, activeFilePath, activeFileContent, onAppl
         onChange={(e) => { if (e.target.files?.length) handleImageFiles(e.target.files); e.target.value = ""; }} />
     </div>
   );
-}
+});
 
 // ── File Op Card ──────────────────────────────────────────────────────────────
 

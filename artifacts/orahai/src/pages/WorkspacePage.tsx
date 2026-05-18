@@ -3,7 +3,7 @@ import { useParams } from "wouter";
 import { Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon, MoreHorizontal, Github, KeyRound, Rocket } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatPanel, type ChatPanelHandle } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
 import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { PreviewPanel } from "@/components/editor/PreviewPanel";
@@ -35,7 +35,27 @@ export default function WorkspacePage() {
   const [isRunning, setIsRunning] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("ai");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [autoDevEnabled, setAutoDevEnabled] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<ChatPanelHandle>(null);
+
+  const AUTO_DEV_PROMPT =
+    "[AUTO-DEVELOP] You are in autonomous growth mode — like a tree that never stops growing. " +
+    "Analyze this project's current state right now. Identify the single most impactful improvement " +
+    "you can make (add a missing feature, fix a bug, improve the UI, write a missing file, refactor messy code). " +
+    "Then implement it completely using <<<WRITE>>> blocks. Do not ask for permission. " +
+    "Do not explain before acting. Build it, then give a one-sentence summary of what you grew.";
+
+  useEffect(() => {
+    if (!autoDevEnabled) return;
+    const trigger = () => {
+      setMobileTab("ai");
+      chatRef.current?.submit(AUTO_DEV_PROMPT);
+    };
+    trigger();
+    const id = setInterval(trigger, 4 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [autoDevEnabled]);
 
   const isWebProject = project?.language === "html";
 
@@ -149,6 +169,8 @@ export default function WorkspacePage() {
         onSecretsToggle={() => setSecretsOpen((v) => !v)}
         deployOpen={deployOpen}
         onDeployToggle={() => setDeployOpen((v) => !v)}
+        autoDevEnabled={autoDevEnabled}
+        onAutoDevToggle={() => setAutoDevEnabled((v) => !v)}
       />
 
       {/* ── Desktop layout ──────────────────────────────────────────── */}
@@ -195,11 +217,13 @@ export default function WorkspacePage() {
         {chatOpen && (
           <div className="w-80 xl:w-96 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
             <ChatPanel
+              ref={chatRef}
               projectId={project.id}
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
               onFileChange={handleFileChange}
+              autoDevEnabled={autoDevEnabled}
             />
           </div>
         )}
@@ -273,11 +297,13 @@ export default function WorkspacePage() {
           {mobileTab === "ai" && (
             <div className="h-full overflow-hidden flex flex-col">
               <ChatPanel
+                ref={chatRef}
                 projectId={project.id}
                 activeFilePath={activeFile?.path}
                 activeFileContent={activeFile?.content}
                 onApplyCode={handleApplyCode}
                 onFileChange={handleFileChange}
+                autoDevEnabled={autoDevEnabled}
               />
             </div>
           )}
