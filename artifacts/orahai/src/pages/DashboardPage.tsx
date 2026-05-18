@@ -223,67 +223,127 @@ export default function DashboardPage() {
   );
 }
 
-// ── Project card ───────────────────────────────────────────────────────────────
+// ── Project card with swipe-to-delete ─────────────────────────────────────────
+
+const SWIPE_THRESHOLD = 72; // px to reveal delete button
+const DELETE_TRIGGER  = 180; // px to auto-confirm delete
 
 function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDeleted: () => void }) {
   const [, navigate] = useLocation();
   const icon = LANGUAGE_ICONS[project.language] ?? "📁";
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [swiped, setSwiped] = useState(false); // true = delete button visible
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handle(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+  const cardRef   = useRef<HTMLDivElement>(null);
+  const startXRef = useRef<number | null>(null);
+  const curDxRef  = useRef(0);
+  const draggingRef = useRef(false);
+
+  function applyTranslate(dx: number, animated = false) {
+    const el = cardRef.current;
+    if (!el) return;
+    el.style.transition = animated ? "transform 0.25s ease" : "none";
+    el.style.transform  = `translateX(${dx}px)`;
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (deleting) return;
+    startXRef.current = e.clientX;
+    draggingRef.current = false;
+    cardRef.current?.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (startXRef.current === null) return;
+    const rawDx = e.clientX - startXRef.current;
+    const baseDx = swiped ? -SWIPE_THRESHOLD : 0;
+    const dx = Math.min(0, Math.max(-DELETE_TRIGGER, baseDx + rawDx));
+
+    if (Math.abs(rawDx) > 6) {
+      draggingRef.current = true;
+      e.preventDefault();
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [menuOpen]);
+    curDxRef.current = dx;
+    applyTranslate(dx);
+  }
+
+  function onPointerUp(e: React.PointerEvent) {
+    if (startXRef.current === null) return;
+    startXRef.current = null;
+    const dx = curDxRef.current;
+
+    if (!draggingRef.current) {
+      // Tap — if delete strip is showing and tap is on the right side, ignore (handled by button)
+      if (swiped) {
+        // tap anywhere on card while swiped → close
+        setSwiped(false);
+        applyTranslate(0, true);
+      } else {
+        navigate(`/workspace/${project.id}`);
+      }
+      return;
+    }
+
+    draggingRef.current = false;
+
+    if (dx <= -DELETE_TRIGGER) {
+      // Full swipe — delete immediately
+      applyTranslate(-DELETE_TRIGGER, true);
+      handleDelete();
+    } else if (dx <= -SWIPE_THRESHOLD) {
+      // Partial swipe — snap open to reveal button
+      setSwiped(true);
+      applyTranslate(-SWIPE_THRESHOLD, true);
+    } else {
+      // Swipe back — snap closed
+      setSwiped(false);
+      applyTranslate(0, true);
+    }
+  }
 
   async function handleDelete() {
     setDeleting(true);
     try {
       await api.delete(`/api/projects/${project.id}`);
       toast({ title: `"${project.name}" deleted` });
-      setConfirmDelete(false);
       onDeleted();
     } catch (err: unknown) {
       toast({ title: (err as Error).message ?? "Failed to delete project", variant: "destructive" });
+      setSwiped(false);
+      applyTranslate(0, true);
     } finally { setDeleting(false); }
   }
 
   return (
-    <>
-      <div className="group relative p-4 rounded-xl border bg-card hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
-        onClick={() => navigate(`/workspace/${project.id}`)}>
-        <div ref={menuRef} className="absolute top-3 right-3 z-10">
-          <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(v => !v); }}
-            className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100"
-          >
-            <MoreVertical className="w-3.5 h-3.5" />
-          </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-7 w-40 rounded-lg border bg-popover shadow-lg py-1 z-20">
-              <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); navigate(`/workspace/${project.id}`); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors">
-                <ExternalLink className="w-3 h-3 text-muted-foreground" />Open workspace
-              </button>
-              <div className="my-1 border-t border-border" />
-              <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors">
-                <Trash2 className="w-3 h-3" />Delete project
-              </button>
-            </div>
-          )}
-        </div>
+    <div className="relative rounded-xl overflow-hidden">
+      {/* Red delete strip revealed behind the card */}
+      <div className="absolute inset-0 flex items-center justify-end bg-destructive rounded-xl">
+        <button
+          onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+          disabled={deleting}
+          className="w-[72px] flex flex-col items-center justify-center gap-1 h-full text-white disabled:opacity-60"
+        >
+          {deleting
+            ? <Loader2 className="w-5 h-5 animate-spin" />
+            : <Trash2 className="w-5 h-5" />}
+          <span className="text-[10px] font-medium">{deleting ? "…" : "Delete"}</span>
+        </button>
+      </div>
 
+      {/* Card — slides left on swipe */}
+      <div
+        ref={cardRef}
+        className="group relative p-4 rounded-xl border bg-card touch-pan-y will-change-transform select-none"
+        style={{ transform: "translateX(0)" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
         <div className="flex items-start gap-3">
           <span className="text-xl shrink-0">{icon}</span>
           <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors pr-6">
+            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors">
               {project.name}
             </h3>
             {project.description && (
@@ -300,40 +360,22 @@ function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDel
               </span>
             </div>
           </div>
+
+          {/* Desktop three-dot menu — hidden on touch */}
+          <div className="hidden sm:block relative" onClick={e => e.stopPropagation()}>
+            <MoreVertical className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 cursor-pointer"
+              onClick={() => navigate(`/workspace/${project.id}`)} />
+          </div>
         </div>
 
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-card/70 rounded-xl pointer-events-none">
+        {/* Desktop hover overlay */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-card/70 rounded-xl pointer-events-none sm:flex hidden">
           <span className="flex items-center gap-1 text-xs font-medium text-primary">
             Open <ArrowRight className="w-3.5 h-3.5" />
           </span>
         </div>
       </div>
-
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-card border rounded-xl shadow-xl p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5 text-destructive" />
-              </div>
-              <div>
-                <h2 className="font-semibold">Delete project?</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  This will permanently delete <span className="font-medium text-foreground">"{project.name}"</span> and all its files.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting} className="gap-1.5">
-                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                {deleting ? "Deleting…" : "Delete"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 }
 
