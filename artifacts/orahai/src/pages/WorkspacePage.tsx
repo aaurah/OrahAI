@@ -44,6 +44,7 @@ export default function WorkspacePage() {
   const [autoDevEnabled, setAutoDevEnabled] = useState(false);
   const [growthCount, setGrowthCount] = useState(0);
   const [showSetupBanner, setShowSetupBanner] = useState(isSetupMode);
+  const [aiStreaming, setAiStreaming] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<ChatPanelHandle>(null);
   const promptFiredRef = useRef(false);
@@ -262,6 +263,7 @@ export default function WorkspacePage() {
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
               onFileChange={handleFileChange}
+              onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
             />
@@ -334,27 +336,27 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          {mobileTab === "ai" && (
-            <div className="h-full overflow-hidden flex flex-col">
-              {showSetupBanner && (
-                <SetupBanner
-                  projectId={project.id}
-                  onDismiss={dismissSetup}
-                  onAiSetup={handleAiSetup}
-                />
-              )}
-              <ChatPanel
-                ref={chatRef}
+          {/* AI tab — always mounted so streaming survives tab switches */}
+          <div className={cn("h-full overflow-hidden flex flex-col", mobileTab !== "ai" && "hidden")}>
+            {showSetupBanner && mobileTab === "ai" && (
+              <SetupBanner
                 projectId={project.id}
-                activeFilePath={activeFile?.path}
-                activeFileContent={activeFile?.content}
-                onApplyCode={handleApplyCode}
-                onFileChange={handleFileChange}
-                autoDevEnabled={autoDevEnabled}
-                growthCount={growthCount}
+                onDismiss={dismissSetup}
+                onAiSetup={handleAiSetup}
               />
-            </div>
-          )}
+            )}
+            <ChatPanel
+              ref={chatRef}
+              projectId={project.id}
+              activeFilePath={activeFile?.path}
+              activeFileContent={activeFile?.content}
+              onApplyCode={handleApplyCode}
+              onFileChange={handleFileChange}
+              onStreamingChange={setAiStreaming}
+              autoDevEnabled={autoDevEnabled}
+              growthCount={growthCount}
+            />
+          </div>
         </div>
 
         {/* More menu overlay */}
@@ -376,24 +378,30 @@ export default function WorkspacePage() {
         {/* Mobile bottom tab bar */}
         <div className="flex-shrink-0 border-t border-border bg-background safe-b">
           <div className="flex items-stretch h-[54px]">
-            {mobileTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setMobileTab(tab.id)}
-                className={cn(
-                  "flex-1 flex flex-col items-center justify-center gap-[3px] text-[9px] font-medium transition-colors",
-                  mobileTab === tab.id ? "text-primary" : "text-muted-foreground/70",
-                )}
-              >
-                <span className={cn(
-                  "flex items-center justify-center w-7 h-5 rounded-md transition-colors",
-                  mobileTab === tab.id && "text-primary"
-                )}>
-                  {tab.icon}
-                </span>
-                {tab.label}
-              </button>
-            ))}
+            {mobileTabs.map((tab) => {
+              const isAiStreaming = tab.id === "ai" && aiStreaming;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setMobileTab(tab.id)}
+                  className={cn(
+                    "flex-1 flex flex-col items-center justify-center gap-[3px] text-[9px] font-medium transition-colors relative",
+                    mobileTab === tab.id ? "text-primary" : "text-muted-foreground/70",
+                  )}
+                >
+                  <span className={cn(
+                    "flex items-center justify-center w-7 h-5 rounded-md transition-colors relative",
+                    mobileTab === tab.id && "text-primary"
+                  )}>
+                    {tab.icon}
+                    {isAiStreaming && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </span>
+                  {tab.label}
+                </button>
+              );
+            })}
             {/* More button */}
             <button
               onClick={() => setMoreMenuOpen((v) => !v)}

@@ -15,6 +15,7 @@ import type { ChatMessage, Run, ApiResponse } from "@/types";
 
 export interface ChatPanelHandle {
   submit: (text: string) => void;
+  getIsStreaming: () => boolean;
 }
 
 interface ChatPanelProps {
@@ -23,6 +24,7 @@ interface ChatPanelProps {
   activeFileContent?: string;
   onApplyCode?: (code: string) => void;
   onFileChange?: (path: string, action: "write" | "delete") => void;
+  onStreamingChange?: (streaming: boolean) => void;
   autoDevEnabled?: boolean;
   growthCount?: number;
 }
@@ -55,7 +57,7 @@ type ListItem =
   | (FileOpEvent & { _type: "fileop" });
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
-  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, autoDevEnabled, growthCount = 0 },
+  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, onStreamingChange, autoDevEnabled, growthCount = 0 },
   ref,
 ) {
   const [items, setItems] = useState<ListItem[]>([]);
@@ -126,6 +128,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   useImperativeHandle(ref, () => ({
     submit: (text: string) => { void handleSubmitCore(text, []); },
+    getIsStreaming: () => isStreaming,
   }));
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -154,6 +157,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     };
     setItems((prev) => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
+    onStreamingChange?.(true);
     setAgentStep(1);
     abortRef.current = new AbortController();
 
@@ -274,6 +278,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     } finally {
       setItems((prev) => prev.map((m) => "role" in m && m.id === assistantId ? { ...m, pending: false } : m));
       setIsStreaming(false);
+      onStreamingChange?.(false);
       setAgentStep(0);
       abortRef.current = null;
     }
