@@ -5,13 +5,25 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
+  Zap, Scale, Flame,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
 import { API_BASE, api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
+
+// ── Agent Modes ───────────────────────────────────────────────────────────────
+
+type AgentMode = "lite" | "economy" | "power";
+
+const AGENT_MODES: { id: AgentMode; label: string; icon: React.ReactNode; desc: string }[] = [
+  { id: "lite",    label: "Lite",    icon: <Zap   className="w-3 h-3" />, desc: "Fast, concise answers" },
+  { id: "economy", label: "Economy", icon: <Scale  className="w-3 h-3" />, desc: "Balanced quality & speed" },
+  { id: "power",   label: "Power",   icon: <Flame  className="w-3 h-3" />, desc: "Maximum depth & detail" },
+];
 
 export interface ChatPanelHandle {
   submit: (text: string) => void;
@@ -69,6 +81,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, "good" | "bad">>({});
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [agentMode, setAgentMode] = useState<AgentMode>(() => {
+    return (localStorage.getItem("orahai_agent_mode") as AgentMode | null) ?? "economy";
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +157,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     await handleSubmitCore(text, imgs);
   };
 
+  const handleModeChange = (mode: AgentMode) => {
+    setAgentMode(mode);
+    localStorage.setItem("orahai_agent_mode", mode);
+  };
+
   const handleSubmitCore = async (text: string, imgs: AttachedImage[]) => {
     if (!text && !imgs.length) return;
     if (isStreaming) return;
@@ -177,6 +197,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           filePath: activeFilePath,
           fileContext: activeFileContent?.slice(0, 8000),
           images: imgs.map((img) => ({ data: img.dataUrl.split(",")[1], mimeType: img.mimeType })),
+          mode: agentMode,
         }),
         signal: abortRef.current.signal,
       });
@@ -523,6 +544,36 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       {/* Input */}
       <div className="p-2.5 border-t border-border">
+        {/* Mode selector */}
+        <div className="flex items-center gap-1 mb-2">
+          {AGENT_MODES.map((m) => {
+            const active = agentMode === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                title={m.desc}
+                onClick={() => handleModeChange(m.id)}
+                disabled={isStreaming}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors disabled:opacity-40",
+                  active
+                    ? m.id === "lite"    ? "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                      : m.id === "power" ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                      : "bg-primary/20 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted border border-transparent",
+                )}
+              >
+                {m.icon}
+                {m.label}
+              </button>
+            );
+          })}
+          <span className="ml-auto text-[10px] text-muted-foreground hidden sm:block">
+            {AGENT_MODES.find(m => m.id === agentMode)?.desc}
+          </span>
+        </div>
+
         <form onSubmit={handleSubmit} className="relative">
           <Textarea
             ref={textareaRef}

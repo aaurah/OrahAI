@@ -189,12 +189,21 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         imageData: z.string().optional(),
         imageMimeType: z.string().optional(),
         images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
+        mode: z.enum(["lite", "economy", "power"]).default("economy"),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
-      const { message, fileContext, filePath, imageData, imageMimeType, images } = parsed.data;
+      const { message, fileContext, filePath, imageData, imageMimeType, images, mode } = parsed.data;
+
+      // Mode → capability settings
+      const MODE_CONFIG = {
+        lite:    { maxTokens:  8000, maxSteps: 2 },
+        economy: { maxTokens: 16000, maxSteps: 4 },
+        power:   { maxTokens: 32000, maxSteps: 6 },
+      } as const;
+      const { maxTokens, maxSteps } = MODE_CONFIG[mode];
 
       const allImages: { data: string; mimeType: string }[] = images?.length
         ? images
@@ -226,7 +235,13 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
 
-      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext);
+      const modeNote = mode === "lite"
+        ? "\n\nMODE: Lite — give a concise, direct answer. Skip lengthy preamble. Write files only if truly necessary."
+        : mode === "power"
+          ? "\n\nMODE: Power — think thoroughly, be exhaustive. Write complete, production-quality code. Take as many steps as needed."
+          : "";
+
+      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext) + modeNote;
 
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [{ type: "text", text: userContent }];
       for (const img of allImages) {
@@ -236,7 +251,6 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         });
       }
 
-      const MAX_STEPS = 6;
       let allContent = "";
 
       const agentMessages: OpenAI.ChatCompletionMessageParam[] = [
@@ -246,8 +260,8 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       ];
 
       // ── Agentic loop ──────────────────────────────────────────────────────
-      for (let step = 1; step <= MAX_STEPS; step++) {
-        send({ type: "agent_step", step, maxSteps: MAX_STEPS });
+      for (let step = 1; step <= maxSteps; step++) {
+        send({ type: "agent_step", step, maxSteps });
 
         if (step > 1) {
           send({ type: "delta", content: "\n\n---\n" });
@@ -258,7 +272,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         try {
           const stream = await openai.chat.completions.create({
             model: "gpt-5.1",
-            max_completion_tokens: 32000,
+            max_completion_tokens: maxTokens,
             messages: agentMessages,
             stream: true,
           });
