@@ -4,7 +4,7 @@ import {
   Shield, Users, FolderOpen, Play, BarChart3, Search, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, Activity, Loader2,
   AlertCircle, CheckCircle, Clock, Infinity, Lock, ShieldCheck,
-  ShieldOff, Unlock,
+  ShieldOff, Unlock, RotateCcw, X,
 } from "lucide-react";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
@@ -141,10 +141,13 @@ export default function AdminPage() {
             <h1 className="text-2xl font-bold">Admin Panel</h1>
             <p className="text-sm text-muted-foreground">System management and monitoring</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={loadStats} className="ml-auto gap-2" disabled={statsLoading}>
-            <RefreshCw className={cn("w-4 h-4", statsLoading && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <ResetDataButton onReset={loadStats} />
+            <Button variant="ghost" size="sm" onClick={loadStats} className="gap-2" disabled={statsLoading}>
+              <RefreshCw className={cn("w-4 h-4", statsLoading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="flex gap-1 mb-8 border-b border-border">
@@ -168,6 +171,130 @@ export default function AdminPage() {
     </div>
   );
 }
+
+// ── Reset Data Dialog ─────────────────────────────────────────────────────────
+
+function ResetDataButton({ onReset }: { onReset: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [clearRuns, setClearRuns] = useState(true);
+  const [clearChats, setClearChats] = useState(true);
+  const [clearFiles, setClearFiles] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [confirm, setConfirm] = useState("");
+
+  const nothingSelected = !clearRuns && !clearChats && !clearFiles;
+  const canReset = confirm === "RESET" && !nothingSelected;
+
+  const handleReset = async () => {
+    if (!canReset) return;
+    setLoading(true);
+    try {
+      const res = await api.post<{ data: Record<string, number>; message: string }>(
+        "/api/admin/reset", { clearRuns, clearChats, clearFiles }
+      );
+      const d = res.data ?? {};
+      const parts: string[] = [];
+      if (d.runs !== undefined) parts.push(`${d.runs} runs`);
+      if (d.chatMessages !== undefined) parts.push(`${d.chatMessages} chat messages`);
+      if (d.files !== undefined) parts.push(`${d.files} files`);
+      alert(`Reset complete. Removed: ${parts.join(", ") || "nothing"}.`);
+      setOpen(false);
+      setConfirm("");
+      onReset();
+    } catch (err) {
+      alert("Reset failed. See console for details.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10">
+        <RotateCcw className="w-4 h-4" />
+        Reset Data
+      </Button>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-destructive/10 flex items-center justify-center">
+              <RotateCcw className="w-5 h-5 text-destructive" />
+            </div>
+            <div>
+              <h2 className="font-bold text-base">Reset Data</h2>
+              <p className="text-xs text-muted-foreground">Users &amp; projects are always kept</p>
+            </div>
+          </div>
+          <button onClick={() => { setOpen(false); setConfirm(""); }}
+            className="p-1.5 rounded-md hover:bg-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-5">
+          Select what to clear. This <strong>cannot be undone</strong>.
+          Users, projects, and all their files remain intact unless you choose "Delete files" below.
+        </p>
+
+        <div className="space-y-3 mb-6">
+          {([
+            { label: "Run history", sub: "All run records and output logs", checked: clearRuns, set: setClearRuns, danger: false },
+            { label: "Chat messages", sub: "All AI conversation history", checked: clearChats, set: setClearChats, danger: false },
+            { label: "Delete files", sub: "Soft-delete all project files (dangerous)", checked: clearFiles, set: setClearFiles, danger: true },
+          ] as { label: string; sub: string; checked: boolean; set: (v: boolean) => void; danger: boolean }[]).map(({ label, sub, checked, set, danger }) => (
+            <label key={label}
+              className={cn(
+                "flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors",
+                checked
+                  ? danger ? "border-destructive/40 bg-destructive/5" : "border-primary/40 bg-primary/5"
+                  : "border-border hover:bg-muted/50"
+              )}>
+              <input type="checkbox" checked={checked} onChange={e => set(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded accent-primary" />
+              <div>
+                <p className={cn("text-sm font-medium", danger && checked && "text-destructive")}>{label}</p>
+                <p className="text-xs text-muted-foreground">{sub}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div className="mb-5">
+          <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+            Type <span className="font-mono font-bold text-foreground">RESET</span> to confirm
+          </label>
+          <input
+            value={confirm}
+            onChange={e => setConfirm(e.target.value)}
+            placeholder="RESET"
+            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-destructive/50 focus:border-destructive"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1" onClick={() => { setOpen(false); setConfirm(""); }}>
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground gap-2"
+            disabled={!canReset || loading || nothingSelected}
+            onClick={handleReset}
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+            Reset Now
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stat Card ─────────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, icon, color }: {
   label: string; value: number | string; sub?: string; icon: React.ReactNode; color: string;

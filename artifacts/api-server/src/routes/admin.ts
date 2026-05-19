@@ -192,4 +192,42 @@ router.get("/runs", async (req: AuthenticatedRequest, res: Response, next: NextF
   } catch (err) { next(err); }
 });
 
+// ── Data Reset ────────────────────────────────────────────────────────────────
+
+router.post("/reset", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      clearRuns:  z.boolean().default(true),
+      clearChats: z.boolean().default(true),
+      clearFiles: z.boolean().default(false),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400));
+
+    const { clearRuns: doRuns, clearChats: doChats, clearFiles: doFiles } = parsed.data;
+
+    const deleted: Record<string, number> = {};
+
+    if (doRuns) {
+      const result = await db.delete(runs).returning({ id: runs.id });
+      deleted.runs = result.length;
+    }
+
+    if (doChats) {
+      const result = await db.delete(chatMessages).returning({ id: chatMessages.id });
+      deleted.chatMessages = result.length;
+    }
+
+    if (doFiles) {
+      const result = await db.update(files)
+        .set({ deletedAt: new Date() })
+        .where(isNull(files.deletedAt))
+        .returning({ id: files.id });
+      deleted.files = result.length;
+    }
+
+    res.json({ data: deleted, message: "Reset complete" });
+  } catch (err) { next(err); }
+});
+
 export default router;
