@@ -283,6 +283,159 @@ export async function enablePages(owner: string, repo: string, branch: string, t
   throw err;
 }
 
+// ── New interfaces ────────────────────────────────────────────────────────────
+
+export interface GitHubCommit {
+  sha: string;
+  commit: { message: string; author: { name: string; date: string } };
+  html_url: string;
+  author: { login: string; avatar_url: string } | null;
+}
+
+export interface GitHubBranch {
+  name: string;
+  commit: { sha: string };
+  protected: boolean;
+}
+
+export interface GitHubRelease {
+  id: number;
+  tag_name: string;
+  name: string;
+  body: string | null;
+  draft: boolean;
+  prerelease: boolean;
+  html_url: string;
+  published_at: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+  created_at: string;
+  head_commit: { message: string } | null;
+  head_branch: string | null;
+  event: string;
+}
+
+export interface GitHubGist {
+  id: string;
+  html_url: string;
+  description: string;
+}
+
+// ── Commits ───────────────────────────────────────────────────────────────────
+
+export async function listCommits(
+  owner: string, repo: string, branch: string,
+  token: string | null, limit = 10,
+): Promise<GitHubCommit[]> {
+  return ghFetch<GitHubCommit[]>(
+    `${GH_API}/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}`,
+    token,
+  );
+}
+
+// ── Branches ──────────────────────────────────────────────────────────────────
+
+export async function listBranches(owner: string, repo: string, token: string | null): Promise<GitHubBranch[]> {
+  return ghFetch<GitHubBranch[]>(`${GH_API}/repos/${owner}/${repo}/branches?per_page=100`, token);
+}
+
+export async function createBranch(owner: string, repo: string, name: string, fromSha: string, token: string): Promise<void> {
+  const res = await fetch(`${GH_API}/repos/${owner}/${repo}/git/refs`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+      "User-Agent": "OrahAI/1.0",
+    },
+    body: JSON.stringify({ ref: `refs/heads/${name}`, sha: fromSha }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message ?? `Failed to create branch ${name}`);
+  }
+}
+
+// ── Releases ──────────────────────────────────────────────────────────────────
+
+export async function listReleases(owner: string, repo: string, token: string | null, limit = 10): Promise<GitHubRelease[]> {
+  return ghFetch<GitHubRelease[]>(
+    `${GH_API}/repos/${owner}/${repo}/releases?per_page=${limit}`,
+    token,
+  );
+}
+
+export async function createRelease(
+  owner: string, repo: string,
+  opts: { tag: string; name: string; body: string; draft?: boolean; prerelease?: boolean; targetBranch?: string },
+  token: string,
+): Promise<GitHubRelease> {
+  const res = await fetch(`${GH_API}/repos/${owner}/${repo}/releases`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+      "User-Agent": "OrahAI/1.0",
+    },
+    body: JSON.stringify({
+      tag_name: opts.tag,
+      name: opts.name,
+      body: opts.body,
+      draft: opts.draft ?? false,
+      prerelease: opts.prerelease ?? false,
+      target_commitish: opts.targetBranch ?? "main",
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message ?? "Failed to create release");
+  }
+  return res.json() as Promise<GitHubRelease>;
+}
+
+// ── Gists ─────────────────────────────────────────────────────────────────────
+
+export async function createGist(
+  description: string, isPublic: boolean, files: Record<string, string>, token: string,
+): Promise<GitHubGist> {
+  const gistFiles: Record<string, { content: string }> = {};
+  for (const [name, content] of Object.entries(files)) {
+    gistFiles[name] = { content: content || " " };
+  }
+  const res = await fetch(`${GH_API}/gists`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+      "User-Agent": "OrahAI/1.0",
+    },
+    body: JSON.stringify({ description, public: isPublic, files: gistFiles }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message ?? "Failed to create gist");
+  }
+  return res.json() as Promise<GitHubGist>;
+}
+
+// ── GitHub Actions ────────────────────────────────────────────────────────────
+
+export async function listWorkflowRuns(owner: string, repo: string, token: string | null, limit = 10): Promise<GitHubWorkflowRun[]> {
+  const data = await ghFetch<{ workflow_runs: GitHubWorkflowRun[] }>(
+    `${GH_API}/repos/${owner}/${repo}/actions/runs?per_page=${limit}`,
+    token,
+  );
+  return data.workflow_runs;
+}
+
 export const LANGUAGE_MAP: Record<string, string> = {
   JavaScript: "nodejs", TypeScript: "typescript",
   Python: "python", HTML: "html", CSS: "html",

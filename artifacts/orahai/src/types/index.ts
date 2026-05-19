@@ -160,6 +160,52 @@ export interface GitHubPushResult {
   sha: string | null;
 }
 
+export interface GitHubCommitItem {
+  sha: string;
+  message: string;
+  authorName: string;
+  authorDate: string;
+  url: string;
+  authorLogin: string | null;
+  authorAvatar: string | null;
+}
+
+export interface GitHubBranchItem {
+  name: string;
+  sha: string;
+  protected: boolean;
+  active: boolean;
+}
+
+export interface GitHubReleaseItem {
+  id: number;
+  tag: string;
+  name: string;
+  body: string;
+  draft: boolean;
+  prerelease: boolean;
+  url: string;
+  publishedAt: string;
+}
+
+export interface GitHubActionRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string;
+  createdAt: string;
+  commitMessage: string;
+  branch: string;
+  event: string;
+}
+
+export interface GitHubGistResult {
+  id: string;
+  url: string;
+  description: string;
+}
+
 export interface ProjectTemplate {
   id: string;
   name: string;

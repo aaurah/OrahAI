@@ -11,6 +11,8 @@ import {
   parseGitHubUrl, getRepo, getRepoTree, downloadFiles,
   getBranchSha, createOrUpdateFile, getMimeType, isImportable,
   createRepo, getAuthenticatedUser, enablePages,
+  listCommits, listBranches, createBranch,
+  listReleases, createRelease, createGist, listWorkflowRuns,
   LANGUAGE_MAP,
 } from "../lib/github";
 
@@ -662,6 +664,202 @@ router.post("/projects/:id/deploy", async (req: AuthenticatedRequest, res: Respo
     res.json({
       data: { pushed, url: pagesUrl, settingsUrl, branch: deployBranch, pagesEnabled, pagesWarning },
       message: `Deployed ${pushed} file${pushed !== 1 ? "s" : ""} to GitHub Pages`,
+    });
+  } catch (err) { next(err); }
+});
+
+// ── Per-project: commits ──────────────────────────────────────────────────────
+
+router.get("/projects/:id/commits", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const [p] = await db.select({ githubRepo: projects.githubRepo, githubBranch: projects.githubBranch })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    const [owner, repo] = p.githubRepo.split("/");
+    const branch = p.githubBranch ?? "main";
+    const commits = await listCommits(owner, repo, branch, userRow?.githubToken ?? null, limit);
+    res.json({
+      data: commits.map(c => ({
+        sha: c.sha,
+        message: c.commit.message.split("\n")[0],
+        authorName: c.commit.author.name,
+        authorDate: c.commit.author.date,
+        url: c.html_url,
+        authorLogin: c.author?.login ?? null,
+        authorAvatar: c.author?.avatar_url ?? null,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+// ── Per-project: branches ─────────────────────────────────────────────────────
+
+router.get("/projects/:id/branches", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const [p] = await db.select({ githubRepo: projects.githubRepo, githubBranch: projects.githubBranch })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    const [owner, repo] = p.githubRepo.split("/");
+    const branches = await listBranches(owner, repo, userRow?.githubToken ?? null);
+    res.json({
+      data: branches.map(b => ({
+        name: b.name,
+        sha: b.commit.sha,
+        protected: b.protected,
+        active: b.name === (p.githubBranch ?? "main"),
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+router.post("/projects/:id/branch", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({ name: z.string().min(1).max(100), fromBranch: z.string().optional() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400));
+
+    const [p] = await db.select({ id: projects.id, githubRepo: projects.githubRepo, githubBranch: projects.githubBranch, ownerId: projects.ownerId })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+    if (p.ownerId !== req.user!.id) return next(createError("Forbidden", 403));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!userRow?.githubToken) return next(createError("No GitHub token", 401));
+
+    const [owner, repo] = p.githubRepo.split("/");
+    const fromBranch = parsed.data.fromBranch ?? p.githubBranch ?? "main";
+    const sha = await getBranchSha(owner, repo, fromBranch, userRow.githubToken);
+    await createBranch(owner, repo, parsed.data.name, sha, userRow.githubToken);
+    res.json({ data: { name: parsed.data.name, fromBranch, sha }, message: `Branch "${parsed.data.name}" created` });
+  } catch (err) { next(err); }
+});
+
+// ── Per-project: releases ─────────────────────────────────────────────────────
+
+router.get("/projects/:id/releases", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const [p] = await db.select({ githubRepo: projects.githubRepo, githubBranch: projects.githubBranch })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    const [owner, repo] = p.githubRepo.split("/");
+    const releases = await listReleases(owner, repo, userRow?.githubToken ?? null, 10);
+    res.json({
+      data: releases.map(r => ({
+        id: r.id, tag: r.tag_name, name: r.name,
+        body: r.body ?? "", draft: r.draft, prerelease: r.prerelease,
+        url: r.html_url, publishedAt: r.published_at,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+router.post("/projects/:id/release", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      tag: z.string().min(1).max(128),
+      name: z.string().max(255).optional().default(""),
+      body: z.string().max(10000).optional().default(""),
+      draft: z.boolean().optional().default(false),
+      prerelease: z.boolean().optional().default(false),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400));
+
+    const [p] = await db.select({ id: projects.id, githubRepo: projects.githubRepo, githubBranch: projects.githubBranch, ownerId: projects.ownerId })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+    if (p.ownerId !== req.user!.id) return next(createError("Forbidden", 403));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!userRow?.githubToken) return next(createError("No GitHub token", 401));
+
+    const [owner, repo] = p.githubRepo.split("/");
+    const release = await createRelease(owner, repo, {
+      tag: parsed.data.tag,
+      name: parsed.data.name || parsed.data.tag,
+      body: parsed.data.body,
+      draft: parsed.data.draft,
+      prerelease: parsed.data.prerelease,
+      targetBranch: p.githubBranch ?? "main",
+    }, userRow.githubToken);
+
+    res.json({
+      data: { id: release.id, tag: release.tag_name, name: release.name, url: release.html_url, draft: release.draft, prerelease: release.prerelease },
+      message: `Release ${release.tag_name} created`,
+    });
+  } catch (err) { next(err); }
+});
+
+// ── Gists (not project-scoped) ────────────────────────────────────────────────
+
+router.post("/gists", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      projectId: z.string().min(1),
+      description: z.string().max(300).optional().default(""),
+      public: z.boolean().optional().default(true),
+      paths: z.array(z.string()).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("Validation error", 400));
+
+    const [p] = await db.select({ id: projects.id, ownerId: projects.ownerId })
+      .from(projects).where(and(eq(projects.id, parsed.data.projectId), isNull(projects.deletedAt))).limit(1);
+    if (!p) return next(createError("Project not found", 404));
+    if (p.ownerId !== req.user!.id) return next(createError("Forbidden", 403));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!userRow?.githubToken) return next(createError("No GitHub token", 401));
+
+    const query = db.select({ path: files.path, content: files.content, isDir: files.isDir })
+      .from(files)
+      .where(and(eq(files.projectId, p.id), isNull(files.deletedAt), eq(files.isDir, false)));
+
+    const projectFiles = await query;
+    const filtered = parsed.data.paths?.length
+      ? projectFiles.filter(f => parsed.data.paths!.includes(f.path))
+      : projectFiles.slice(0, 20);
+
+    if (filtered.length === 0) return next(createError("No files to share", 400));
+
+    const fileMap: Record<string, string> = {};
+    for (const f of filtered) {
+      const filename = f.path.replace(/\//g, "_");
+      fileMap[filename] = f.content || " ";
+    }
+
+    const gist = await createGist(parsed.data.description, parsed.data.public, fileMap, userRow.githubToken);
+    res.json({ data: { id: gist.id, url: gist.html_url, description: gist.description }, message: "Gist created" });
+  } catch (err) { next(err); }
+});
+
+// ── Per-project: GitHub Actions runs ─────────────────────────────────────────
+
+router.get("/projects/:id/actions", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const [p] = await db.select({ githubRepo: projects.githubRepo })
+      .from(projects).where(and(eq(projects.id, String(req.params.id)), isNull(projects.deletedAt))).limit(1);
+    if (!p?.githubRepo) return next(createError("No GitHub repository connected", 400));
+
+    const [userRow] = await db.select({ githubToken: users.githubToken }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+    const [owner, repo] = p.githubRepo.split("/");
+    const runs = await listWorkflowRuns(owner, repo, userRow?.githubToken ?? null, 10);
+    res.json({
+      data: runs.map(r => ({
+        id: r.id, name: r.name, status: r.status,
+        conclusion: r.conclusion, url: r.html_url,
+        createdAt: r.created_at,
+        commitMessage: r.head_commit?.message?.split("\n")[0] ?? "",
+        branch: r.head_branch ?? "",
+        event: r.event,
+      })),
     });
   } catch (err) { next(err); }
 });
