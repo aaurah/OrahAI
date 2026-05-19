@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Rocket, Github, Download, ExternalLink, Loader2, CheckCircle2,
   XCircle, Globe, ChevronDown, ChevronUp, Monitor,
-  AlertCircle, Smartphone, Copy, Check, RefreshCw,
+  AlertCircle, Smartphone, Copy, Check, RefreshCw, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
+import { DomainsPanel } from "./DomainsPanel";
 
 interface DeployResult {
   pushed: number;
@@ -93,7 +94,7 @@ function CmdBlock({ cmd }: { cmd: string }) {
 
 export function DeployPanel({ project, onProjectUpdate }: Props) {
   const slugified = project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const [deployTab, setDeployTab] = useState<"publish" | "github" | "download" | "mobile">("publish");
+  const [deployTab, setDeployTab] = useState<"publish" | "domains" | "github" | "download" | "mobile">("publish");
 
   // GitHub state
   const [deploying, setDeploying] = useState(false);
@@ -172,6 +173,7 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
       <div className="flex border-b border-border shrink-0 overflow-x-auto">
         {([
           { id: "publish",  label: "Publish",  icon: Globe },
+          { id: "domains",  label: "Domains",  icon: Link2 },
           { id: "mobile",   label: "Mobile",   icon: Smartphone },
           { id: "github",   label: "GitHub",   icon: Github },
           { id: "download", label: "Download", icon: Download },
@@ -278,6 +280,11 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
               </button>
             </div>
           </div>
+        )}
+
+        {/* ── DOMAINS TAB ─────────────────────────────────────────────── */}
+        {deployTab === "domains" && (
+          <DomainsPanel project={project} />
         )}
 
         {/* ── MOBILE TAB ──────────────────────────────────────────────── */}

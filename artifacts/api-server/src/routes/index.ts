@@ -11,6 +11,7 @@ import githubRouter from "./github";
 import previewRouter from "./preview";
 import secretsRouter from "./secrets";
 import mobileRouter from "./mobile";
+import domainsRouter from "./domains";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/github", githubRouter);
 router.use("/preview", previewRouter);
 router.use("/projects", secretsRouter);
 router.use("/mobile", mobileRouter);
+router.use("/projects", domainsRouter);
 
 export default router;

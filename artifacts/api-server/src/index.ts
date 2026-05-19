@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runEmailNormalizationMigration } from "./lib/emailMigration";
+import { runDomainsMigration } from "./lib/domainsMigration";
 
 const rawPort = process.env["PORT"];
 
@@ -16,7 +17,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-runEmailNormalizationMigration()
+Promise.all([runEmailNormalizationMigration(), runDomainsMigration()])
   .then(() => {
     app.listen(port, (err) => {
       if (err) {

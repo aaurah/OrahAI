@@ -151,3 +151,18 @@ export const chatMessages = pgTable("chat_messages", {
 });
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
+
+// ── Project Domains ───────────────────────────────────────────────────────────
+
+export const projectDomains = pgTable("project_domains", {
+  id:                text("id").primaryKey(),
+  projectId:         text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  domain:            text("domain").notNull(),
+  status:            text("status").notNull().default("pending"),
+  verificationToken: text("verification_token").notNull(),
+  verifiedAt:        timestamp("verified_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("project_domains_project_domain_idx").on(t.projectId, t.domain)]);
+
+export type ProjectDomain = typeof projectDomains.$inferSelect;
