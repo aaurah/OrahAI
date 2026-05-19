@@ -8,7 +8,6 @@ import { createError } from "../middlewares/errorHandler";
 import { aiRateLimiter } from "../middlewares/rateLimit";
 import { cuid } from "../lib/cuid";
 import { logger } from "../lib/logger";
-import { runInProject } from "../lib/executor";
 
 const router = Router();
 
@@ -27,20 +26,6 @@ async function assertProjectAccess(projectId: string, userId: string) {
   )).limit(1);
   if (!p) throw createError("Project not found", 404);
   return p;
-}
-
-// ── Extract $ command lines the AI wants to auto-run ──────────────────────────
-function extractAutoRunCommands(content: string): { command: string; idx: number }[] {
-  const results: { command: string; idx: number }[] = [];
-  let idx = 0;
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("$ ")) {
-      const cmd = trimmed.slice(2).trim();
-      if (cmd) results.push({ command: cmd, idx: idx++ });
-    }
-  }
-  return results;
 }
 
 // ── Parse <<<WRITE:path>>> ... <<<END>>> and <<<DELETE:path>>> blocks ─────────
@@ -297,7 +282,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         const openCount = (stepContent.match(/<<<WRITE:[^\n>]+>>>/g) ?? []).length;
         const closeCount = (stepContent.match(/<<<END>>>/g) ?? []).length;
         const truncatedBlock = openCount > closeCount;
-        if (truncatedBlock && step < MAX_STEPS) {
+        if (truncatedBlock && step < maxSteps) {
           // Find which file was being written when the stream cut off
           const allOpens = [...stepContent.matchAll(/<<<WRITE:([^\n>]+)>>>/g)];
           const lastOpen = allOpens[allOpens.length - 1]?.[1]?.trim() ?? "the file";
@@ -337,29 +322,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           send({ type: "file_ops_done" });
         }
 
-        // ── Shell commands ───────────────────────────────────────────────────
-        const autoRunCmds = extractAutoRunCommands(stepContent);
         const cmdResults: CmdResult[] = [];
-        if (autoRunCmds.length > 0) {
-          send({ type: "runs_start", count: autoRunCmds.length });
-          for (const { command, idx } of autoRunCmds) {
-            send({ type: "run_start", idx, command });
-            try {
-              const result = await runInProject(project.id, command, projectFiles);
-              send({ type: "run_result", idx, command, ...result });
-              cmdResults.push({ command, status: result.status, output: result.output ?? "", exitCode: result.exitCode });
-            } catch (e) {
-              const errMsg = (e as Error).message;
-              send({ type: "run_result", idx, command, status: "error", output: errMsg, exitCode: 1 });
-              cmdResults.push({ command, status: "error", output: errMsg, exitCode: 1 });
-            }
-          }
-          send({ type: "runs_done" });
-        }
 
         // If no actions were taken, the agent is done
-        if (fileOps.length === 0 && autoRunCmds.length === 0) break;
-        if (step === MAX_STEPS) break;
+        if (fileOps.length === 0) break;
+        if (step === maxSteps) break;
 
         // Feed results back so the agent can react and continue
         agentMessages.push({ role: "assistant", content: stepContent });

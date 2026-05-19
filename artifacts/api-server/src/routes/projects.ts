@@ -5,6 +5,7 @@ import { eq, and, or, isNull, ilike, sql, asc } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
+import { assertSafePath } from "../lib/pathValidation";
 
 const router = Router();
 
@@ -143,6 +144,7 @@ router.post("/import/files", requireAuth, async (req: AuthenticatedRequest, res:
       return map[ext] ?? "text/plain";
     };
 
+    for (const f of parsed.data.files) assertSafePath(f.path);
     const fileValues = parsed.data.files.map((f) => ({
       id: cuid(), projectId, path: f.path,
       name: f.path.split("/").pop() ?? f.path,

@@ -5,6 +5,7 @@ import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
+import { assertSafePath } from "../lib/pathValidation";
 
 const router = Router();
 
@@ -21,7 +22,7 @@ async function assertProjectAccess(projectId: string, userId: string) {
 }
 
 function safePath(p: string) {
-  if (!p || p.includes("..") || p.startsWith("/")) throw createError("Invalid file path", 400);
+  assertSafePath(p);
 }
 
 function mimeFromName(name: string): string {
