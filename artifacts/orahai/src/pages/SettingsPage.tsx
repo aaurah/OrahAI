@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Navbar } from "@/components/layout/Navbar";
-import { User, Key, Building2, Lock } from "lucide-react";
+import { User, Key, Building2, Lock, Plus, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
@@ -326,16 +326,252 @@ function PasswordTab() {
 }
 
 // ── API Keys tab ──────────────────────────────────────────────────────────────
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+interface NewKeyResult extends ApiKeyRow {
+  key: string;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button
+      onClick={copy}
+      className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+      title="Copy"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+function NewKeyBanner({ result, onDismiss }: { result: NewKeyResult; onDismiss: () => void }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-emerald-400">Key created — copy it now</p>
+          <p className="text-xs text-muted-foreground mt-0.5">This is the only time you'll see the full key.</p>
+        </div>
+        <button onClick={onDismiss} className="text-xs text-muted-foreground hover:text-foreground">
+          Dismiss
+        </button>
+      </div>
+      <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 font-mono text-xs break-all">
+        <span className="flex-1 select-all">{visible ? result.key : result.keyPrefix + "•".repeat(result.key.length - result.keyPrefix.length)}</span>
+        <button
+          onClick={() => setVisible(v => !v)}
+          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0"
+          title={visible ? "Hide" : "Reveal"}
+        >
+          {visible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+        </button>
+        <CopyButton text={result.key} />
+      </div>
+    </div>
+  );
+}
+
 function ApiKeysTab() {
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState<NewKeyResult | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const rows = await api.get<ApiKeyRow[]>("/api/user/api-keys");
+      setKeys(rows);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function create() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    setErr(null);
+    try {
+      const result = await api.post<NewKeyResult>("/api/user/api-keys", { name: newName.trim() });
+      setNewKey(result);
+      setNewName("");
+      setShowForm(false);
+      await load();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Failed to create key");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setRevoking(id);
+    try {
+      await api.delete(`/api/user/api-keys/${id}`);
+      await load();
+    } catch { /* ignore */ } finally {
+      setRevoking(null);
+    }
+  }
+
+  const activeKeys = keys.filter(k => !k.revokedAt);
+  const revokedKeys = keys.filter(k => k.revokedAt);
+
+  function fmtDate(d: string | null) {
+    if (!d) return "Never";
+    return new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold mb-1">API Keys</h2>
-        <p className="text-sm text-muted-foreground">Manage your personal API keys.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold mb-1">API Keys</h2>
+          <p className="text-sm text-muted-foreground">
+            Use API keys to authenticate programmatic requests to the OrahAI API.
+          </p>
+        </div>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New key
+          </button>
+        )}
       </div>
-      <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
-        API key management coming soon.
-      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="rounded-xl border bg-card p-4 space-y-3">
+          <p className="text-sm font-medium">Create a new API key</p>
+          <input
+            type="text"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") create(); if (e.key === "Escape") setShowForm(false); }}
+            placeholder="Key name (e.g. My script)"
+            autoFocus
+            maxLength={80}
+            className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          {err && <p className="text-xs text-destructive">{err}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={create}
+              disabled={creating || !newName.trim()}
+              className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {creating ? "Creating…" : "Create key"}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); setErr(null); setNewName(""); }}
+              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* New key reveal banner */}
+      {newKey && <NewKeyBanner result={newKey} onDismiss={() => setNewKey(null)} />}
+
+      {/* Active keys */}
+      {loading ? (
+        <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
+      ) : activeKeys.length === 0 && !showForm ? (
+        <div className="rounded-xl border bg-card p-8 text-center space-y-2">
+          <Key className="w-8 h-8 mx-auto text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">No API keys yet.</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-sm text-primary hover:underline"
+          >
+            Create your first key
+          </button>
+        </div>
+      ) : activeKeys.length > 0 ? (
+        <div className="rounded-xl border divide-y divide-border overflow-hidden">
+          {activeKeys.map(key => (
+            <div key={key.id} className="flex items-center gap-3 px-4 py-3 bg-card">
+              <Key className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{key.name}</p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  {key.keyPrefix}••••••••
+                  <span className="ml-3 font-sans">Created {fmtDate(key.createdAt)}</span>
+                  {key.lastUsedAt && <span className="ml-2">· Last used {fmtDate(key.lastUsedAt)}</span>}
+                </p>
+              </div>
+              <button
+                onClick={() => revoke(key.id)}
+                disabled={revoking === key.id}
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="w-3 h-3" />
+                {revoking === key.id ? "Revoking…" : "Revoke"}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Usage hint */}
+      {activeKeys.length > 0 && (
+        <div className="rounded-xl border bg-muted/30 p-4 space-y-1.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Usage</p>
+          <div className="flex items-center gap-2 font-mono text-xs bg-card rounded-lg border px-3 py-2">
+            <span className="flex-1 select-all text-muted-foreground">Authorization: Bearer {"<your-key>"}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Revoked keys (collapsed section) */}
+      {revokedKeys.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground list-none flex items-center gap-1">
+            <span className="group-open:hidden">▶</span>
+            <span className="hidden group-open:inline">▼</span>
+            {revokedKeys.length} revoked key{revokedKeys.length > 1 ? "s" : ""}
+          </summary>
+          <div className="mt-2 rounded-xl border divide-y divide-border overflow-hidden opacity-60">
+            {revokedKeys.map(key => (
+              <div key={key.id} className="flex items-center gap-3 px-4 py-3 bg-card">
+                <Key className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate line-through text-muted-foreground">{key.name}</p>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    {key.keyPrefix}••••••••
+                    <span className="ml-3 font-sans">Revoked {fmtDate(key.revokedAt)}</span>
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import previewRouter from "./preview";
 import secretsRouter from "./secrets";
 import mobileRouter from "./mobile";
 import domainsRouter from "./domains";
+import apiKeysRouter from "./apiKeys";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use("/preview", previewRouter);
 router.use("/projects", secretsRouter);
 router.use("/mobile", mobileRouter);
 router.use("/projects", domainsRouter);
+router.use("/user/api-keys", apiKeysRouter);
 
 export default router;

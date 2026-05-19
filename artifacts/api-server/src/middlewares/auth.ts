@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { db, users } from "@workspace/db";
+import crypto from "crypto";
+import { db, users, apiKeys } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { createError } from "./errorHandler";
@@ -23,6 +24,37 @@ function isPreviewToken(payload: JwtPayload): boolean {
   return Array.isArray(aud) ? aud.includes("preview") : aud === "preview";
 }
 
+async function resolveApiKey(raw: string): Promise<{ id: string; email: string; isAdmin: boolean; isFreeAccess: boolean } | null> {
+  const hash = crypto.createHash("sha256").update(raw).digest("hex");
+  const now = new Date();
+
+  const [row] = await db
+    .select({
+      keyId: apiKeys.id,
+      userId: apiKeys.userId,
+      revokedAt: apiKeys.revokedAt,
+      expiresAt: apiKeys.expiresAt,
+    })
+    .from(apiKeys)
+    .where(eq(apiKeys.keyHash, hash))
+    .limit(1);
+
+  if (!row || row.revokedAt) return null;
+  if (row.expiresAt && row.expiresAt < now) return null;
+
+  // Update lastUsedAt asynchronously — don't block the request
+  db.update(apiKeys).set({ lastUsedAt: now }).where(eq(apiKeys.id, row.keyId)).catch(() => {});
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess, deletedAt: users.deletedAt })
+    .from(users)
+    .where(eq(users.id, row.userId))
+    .limit(1);
+
+  if (!user || user.deletedAt) return null;
+  return { id: user.id, email: user.email, isAdmin: user.isAdmin, isFreeAccess: user.isFreeAccess };
+}
+
 export async function requireAuth(
   req: AuthenticatedRequest,
   _res: Response,
@@ -36,6 +68,20 @@ export async function requireAuth(
     }
 
     const token = header.slice(7);
+
+    // API key path
+    if (token.startsWith("orahai_sk_")) {
+      const user = await resolveApiKey(token);
+      if (!user) {
+        next(createError("Invalid or revoked API key", 401));
+        return;
+      }
+      req.user = user;
+      next();
+      return;
+    }
+
+    // JWT path
     let payload: JwtPayload;
     try {
       payload = jwt.verify(token, config.auth.jwtSecret) as JwtPayload;
