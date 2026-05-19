@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Rocket, Github, Download, ExternalLink, Loader2, CheckCircle2,
-  XCircle, Globe, Shield, Bell, ChevronDown, ChevronUp, Monitor,
-  Database, Zap, MapPin, Lock, Tag, MessageCircle, Eye, EyeOff,
-  Server, Cpu, MemoryStick, AlertCircle, Star,
+  XCircle, Globe, ChevronDown, ChevronUp, Monitor,
+  AlertCircle, Smartphone, Copy, Check, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -66,9 +65,32 @@ function Section({ title, children, defaultOpen = true }: {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+      title="Copy"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+function CmdBlock({ cmd }: { cmd: string }) {
+  return (
+    <div className="flex items-center gap-1 bg-[#0d0d0d] rounded-lg px-3 py-2 font-mono text-xs text-slate-300 border border-white/5">
+      <span className="text-muted-foreground/50 mr-1 select-none">$</span>
+      <span className="flex-1 break-all">{cmd}</span>
+      <CopyButton text={cmd} />
+    </div>
+  );
+}
+
 export function DeployPanel({ project, onProjectUpdate }: Props) {
   const slugified = project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const [deployTab, setDeployTab] = useState<"publish" | "github" | "download">("publish");
+  const [deployTab, setDeployTab] = useState<"publish" | "github" | "download" | "mobile">("publish");
 
   // GitHub state
   const [deploying, setDeploying] = useState(false);
@@ -78,6 +100,23 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
 
   // Download state
   const [downloading, setDownloading] = useState(false);
+
+  // Mobile / Expo state
+  const [expoUrl, setExpoUrl] = useState<string | null>(null);
+  const [expoLoading, setExpoLoading] = useState(false);
+
+  const fetchExpoUrl = useCallback(async () => {
+    setExpoLoading(true);
+    try {
+      const res = await api.get<{ data: { expoUrl: string | null } }>("/api/mobile/expo-url");
+      setExpoUrl(res.data.expoUrl);
+    } catch { setExpoUrl(null); }
+    finally { setExpoLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (deployTab === "mobile") fetchExpoUrl();
+  }, [deployTab, fetchExpoUrl]);
 
   const handleGhDeploy = async () => {
     if (deploying) return;
@@ -127,15 +166,16 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-border shrink-0">
+      <div className="flex border-b border-border shrink-0 overflow-x-auto">
         {([
-          { id: "publish", label: "Publish", icon: Globe },
-          { id: "github", label: "GitHub", icon: Github },
+          { id: "publish",  label: "Publish",  icon: Globe },
+          { id: "mobile",   label: "Mobile",   icon: Smartphone },
+          { id: "github",   label: "GitHub",   icon: Github },
           { id: "download", label: "Download", icon: Download },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setDeployTab(id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors flex-1 justify-center",
+              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors flex-1 justify-center whitespace-nowrap",
               deployTab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
             )}>
             <Icon className="w-3 h-3" />{label}
@@ -234,6 +274,145 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
                 <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-auto" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── MOBILE TAB ──────────────────────────────────────────────── */}
+        {deployTab === "mobile" && (
+          <div className="p-4 space-y-5">
+
+            {/* ── Test on device ─────────────────────────────────────── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Test on device</p>
+                <button onClick={fetchExpoUrl} disabled={expoLoading}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                  title="Refresh">
+                  <RefreshCw className={cn("w-3.5 h-3.5", expoLoading && "animate-spin")} />
+                </button>
+              </div>
+
+              {expoLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : expoUrl ? (
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div className="flex justify-center">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&bgcolor=ffffff&color=000000&data=${encodeURIComponent(expoUrl)}`}
+                      alt="Expo Go QR code"
+                      width={180}
+                      height={180}
+                      className="rounded-lg border border-border"
+                    />
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Scan with <strong className="text-foreground">Expo Go</strong> on iOS or Android
+                  </p>
+                  <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2 border border-border/60">
+                    <span className="text-[10px] font-mono text-muted-foreground flex-1 break-all">{expoUrl}</span>
+                    <CopyButton text={expoUrl} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <a href="https://apps.apple.com/app/expo-go/id982107779" target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-xs font-medium">
+                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current" aria-hidden="true"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                      App Store
+                    </a>
+                    <a href="https://play.google.com/store/apps/details?id=host.exp.exponent" target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border bg-card hover:bg-muted/40 transition-colors text-xs font-medium">
+                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current" aria-hidden="true"><path d="M3.18 23.76c.3.17.64.24.99.2l12.45-7.19-2.75-2.77-10.69 9.76zM.54 1.52C.2 1.86 0 2.4 0 3.1v17.8c0 .7.2 1.24.54 1.58l.08.08 9.97-9.97v-.22L.62 1.44l-.08.08zm15.6 10.98-3.31-3.31 3.31-3.31c.63.36 1.04.99 1.04 1.67v3.28c0 .68-.41 1.31-1.04 1.67zm1.52 4.13-1.63.94-2.75-2.77 2.75-2.77 1.63.94c1.63.94 1.63 2.71 0 3.66z"/></svg>
+                      Play Store
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-4 flex flex-col items-center gap-2 text-center">
+                  <AlertCircle className="w-5 h-5 text-muted-foreground/50" />
+                  <p className="text-xs text-muted-foreground">Expo dev server not detected.</p>
+                  <p className="text-[11px] text-muted-foreground/70">Make sure the Expo workflow is running, then refresh.</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── Build for Android ──────────────────────────────────── */}
+            <Section title="Build for Android" defaultOpen={false}>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Build a production-ready <strong className="text-foreground">APK</strong> (sideload) or <strong className="text-foreground">AAB</strong> (Play Store) using Expo Application Services.
+              </p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">1. Install EAS CLI</p>
+                <CmdBlock cmd="npm install -g eas-cli" />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">2. Log in to Expo</p>
+                <CmdBlock cmd="eas login" />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">3. Build Android bundle (AAB)</p>
+                <CmdBlock cmd="eas build --platform android --profile production" />
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-1">
+                <p className="text-[11px] font-medium">App details</p>
+                <p className="text-[10px] text-muted-foreground font-mono">Package: com.replit.orahaimobile</p>
+                <p className="text-[10px] text-muted-foreground font-mono">Version: 1.0.0</p>
+              </div>
+              <a href="https://docs.expo.dev/build/setup/" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                EAS Build docs <ExternalLink className="w-3 h-3" />
+              </a>
+            </Section>
+
+            {/* ── Build for iOS ──────────────────────────────────────── */}
+            <Section title="Build for iOS" defaultOpen={false}>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Build an <strong className="text-foreground">IPA</strong> for the App Store using EAS. Requires an Apple Developer account ($99/yr).
+              </p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">1. Install EAS CLI</p>
+                <CmdBlock cmd="npm install -g eas-cli" />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">2. Build iOS archive (IPA)</p>
+                <CmdBlock cmd="eas build --platform ios --profile production" />
+              </div>
+              <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-1">
+                <p className="text-[11px] font-medium">App details</p>
+                <p className="text-[10px] text-muted-foreground font-mono">Bundle ID: com.replit.orahaimobile</p>
+                <p className="text-[10px] text-muted-foreground font-mono">Version: 1.0.0</p>
+              </div>
+              <a href="https://docs.expo.dev/build/setup/" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                EAS Build docs <ExternalLink className="w-3 h-3" />
+              </a>
+            </Section>
+
+            {/* ── Submit to stores ───────────────────────────────────── */}
+            <Section title="Submit to stores" defaultOpen={false}>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                After a successful build, submit directly to the App Store or Google Play with one command.
+              </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current text-muted-foreground" aria-hidden="true"><path d="M3.18 23.76c.3.17.64.24.99.2l12.45-7.19-2.75-2.77-10.69 9.76zM.54 1.52C.2 1.86 0 2.4 0 3.1v17.8c0 .7.2 1.24.54 1.58l.08.08 9.97-9.97v-.22L.62 1.44l-.08.08zm15.6 10.98-3.31-3.31 3.31-3.31c.63.36 1.04.99 1.04 1.67v3.28c0 .68-.41 1.31-1.04 1.67zm1.52 4.13-1.63.94-2.75-2.77 2.75-2.77 1.63.94c1.63.94 1.63 2.71 0 3.66z"/></svg>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Google Play Store</p>
+                </div>
+                <CmdBlock cmd="eas submit --platform android" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current text-muted-foreground" aria-hidden="true"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Apple App Store</p>
+                </div>
+                <CmdBlock cmd="eas submit --platform ios" />
+              </div>
+              <a href="https://docs.expo.dev/submit/introduction/" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                EAS Submit docs <ExternalLink className="w-3 h-3" />
+              </a>
+            </Section>
+
           </div>
         )}
 

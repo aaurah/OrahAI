@@ -10,6 +10,7 @@ import adminRouter from "./admin";
 import githubRouter from "./github";
 import previewRouter from "./preview";
 import secretsRouter from "./secrets";
+import mobileRouter from "./mobile";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use("/admin", adminRouter);
 router.use("/github", githubRouter);
 router.use("/preview", previewRouter);
 router.use("/projects", secretsRouter);
+router.use("/mobile", mobileRouter);
 
 export default router;
