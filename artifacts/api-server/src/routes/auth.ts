@@ -34,21 +34,23 @@ router.post("/register", authRateLimiter,
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
+      const normalizedEmail = parsed.data.email.toLowerCase().trim();
+
       const [existing] = await db
         .select({ id: users.id, email: users.email, username: users.username })
         .from(users)
-        .where(or(eq(users.email, parsed.data.email), eq(users.username, parsed.data.username)))
+        .where(or(eq(users.email, normalizedEmail), eq(users.username, parsed.data.username)))
         .limit(1);
 
       if (existing) {
-        const field = existing.email === parsed.data.email ? "email" : "username";
+        const field = existing.email === normalizedEmail ? "email" : "username";
         return next(createError(`That ${field} is already in use`, 409));
       }
 
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
       const [user] = await db.insert(users).values({
         id: cuid(),
-        email: parsed.data.email,
+        email: normalizedEmail,
         username: parsed.data.username,
         name: parsed.data.name ?? null,
         passwordHash,
@@ -66,7 +68,9 @@ router.post("/login", authRateLimiter,
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
-      const [user] = await db.select({ id: users.id, email: users.email, name: users.name, username: users.username, avatarUrl: users.avatarUrl, bio: users.bio, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess, passwordHash: users.passwordHash, deletedAt: users.deletedAt }).from(users).where(eq(users.email, parsed.data.email)).limit(1);
+      const normalizedEmail = parsed.data.email.toLowerCase().trim();
+
+      const [user] = await db.select({ id: users.id, email: users.email, name: users.name, username: users.username, avatarUrl: users.avatarUrl, bio: users.bio, isAdmin: users.isAdmin, isFreeAccess: users.isFreeAccess, passwordHash: users.passwordHash, deletedAt: users.deletedAt }).from(users).where(eq(users.email, normalizedEmail)).limit(1);
       if (!user || user.deletedAt || !user.passwordHash)
         return next(createError("Invalid email or password", 401));
 

@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id:           text("id").primaryKey(),
-  email:        text("email").notNull().unique(),
+  email:        text("email").notNull(),
   name:         text("name"),
   username:     text("username").notNull().unique(),
   avatarUrl:    text("avatar_url"),
@@ -19,7 +19,9 @@ export const users = pgTable("users", {
   createdAt:    timestamp("created_at").notNull().defaultNow(),
   updatedAt:    timestamp("updated_at").notNull().defaultNow(),
   deletedAt:    timestamp("deleted_at"),
-});
+}, (t) => [
+  uniqueIndex("users_email_lower_idx").on(sql`lower(${t.email})`),
+]);
 
 export type User = typeof users.$inferSelect;
 
