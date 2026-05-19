@@ -68,19 +68,6 @@ function Section({ title, children, defaultOpen = true }: {
 
 export function DeployPanel({ project, onProjectUpdate }: Props) {
   const slugified = project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const [domain, setDomain] = useState(slugified);
-  const [domainAvailable, setDomainAvailable] = useState(true);
-  const [isPublic, setIsPublic] = useState(true);
-  const [monitoringEnabled, setMonitoringEnabled] = useState(false);
-  const [feedbackWidget, setFeedbackWidget] = useState(false);
-  const [badge, setBadge] = useState(false);
-  const [blockVulns, setBlockVulns] = useState(false);
-  const [region, setRegion] = useState("United States (East)");
-  const [publishing, setPublishing] = useState(false);
-  const [published, setPublished] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState("");
-  const [adjustOpen, setAdjustOpen] = useState(false);
-  const [secretsOpen, setSecretsOpen] = useState(false);
   const [deployTab, setDeployTab] = useState<"publish" | "github" | "download">("publish");
 
   // GitHub state
@@ -91,21 +78,6 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
 
   // Download state
   const [downloading, setDownloading] = useState(false);
-
-  useEffect(() => {
-    setDomainAvailable(domain.length >= 3);
-  }, [domain]);
-
-  const handlePublish = async () => {
-    if (publishing || !domainAvailable) return;
-    setPublishing(true);
-    await new Promise(r => setTimeout(r, 2200));
-    const url = `https://${domain}.orahai.app/`;
-    setPublishedUrl(url);
-    setPublished(true);
-    setPublishing(false);
-    toast({ title: `Published to ${url}` });
-  };
 
   const handleGhDeploy = async () => {
     if (deploying) return;
@@ -176,298 +148,92 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
         {/* ── PUBLISH TAB ─────────────────────────────────────────────── */}
         {deployTab === "publish" && (
           <div className="p-4 space-y-4">
-            <div>
-              <h2 className="text-lg font-bold">Publish your app</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Make it live and accessible to anyone</p>
+            {/* Coming soon banner */}
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Rocket className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold text-primary">One-click publishing — coming soon</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Direct publishing to <span className="font-mono text-foreground">*.orahai.app</span> is not available yet. In the meantime, use <strong className="text-foreground">GitHub Pages</strong> to deploy your app for free, or <strong className="text-foreground">Download</strong> a ZIP to host anywhere.
+              </p>
             </div>
 
-            {/* Published success state */}
-            {published && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="text-sm font-semibold text-emerald-400">App is live!</span>
-                </div>
-                <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-primary hover:underline break-all">
-                  {publishedUrl}<ExternalLink className="w-3 h-3 shrink-0" />
-                </a>
-                <button onClick={() => setPublished(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
-                  Edit publish settings
-                </button>
+            {/* Preview of what's coming */}
+            <div className="space-y-3 opacity-40 pointer-events-none select-none">
+              <div>
+                <h2 className="text-lg font-bold">Publish your app</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Make it live and accessible to anyone</p>
               </div>
-            )}
 
-            {!published && (
-              <>
-                {/* Domain */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">Domain</Label>
-                    <span className={cn(
-                      "text-[10px] font-medium flex items-center gap-1",
-                      domainAvailable ? "text-emerald-400" : "text-destructive",
-                    )}>
-                      <CheckCircle2 className="w-3 h-3" />
-                      {domainAvailable ? "Available" : "Too short"}
-                    </span>
+              {/* Domain preview */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Domain</Label>
+                </div>
+                <div className="flex items-center gap-0">
+                  <div className="flex-1 h-9 px-3 flex items-center bg-muted/50 border border-input rounded-l-md text-sm font-mono text-muted-foreground">
+                    {slugified}
                   </div>
-                  <div className="flex items-center gap-0">
-                    <Input
-                      value={domain}
-                      onChange={e => setDomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                      className="h-9 text-sm rounded-r-none border-r-0 font-mono"
-                      placeholder={slugified}
-                    />
-                    <div className="h-9 flex items-center px-3 bg-muted/50 border border-input rounded-r-md text-sm text-muted-foreground font-mono shrink-0">
-                      .orahai.app
-                    </div>
+                  <div className="h-9 flex items-center px-3 bg-muted/50 border border-input rounded-r-md text-sm text-muted-foreground font-mono shrink-0">
+                    .orahai.app
                   </div>
-                  {domain.length >= 3 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Your app will be at <span className="text-foreground font-mono">https://{domain}.orahai.app/</span>
+                </div>
+              </div>
+
+              {/* What you're publishing */}
+              <div className="rounded-xl border border-border bg-card p-3">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">What you're publishing</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                    <Monitor className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{project.name}</p>
+                    <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Globe className="w-3 h-3" />
+                      https://{slugified}.orahai.app/
                     </p>
-                  )}
-                </div>
-
-                {/* What you're publishing */}
-                <div className="rounded-xl border border-border bg-card p-3">
-                  <p className="text-xs text-muted-foreground mb-2 font-medium">What you're publishing</p>
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                      <Monitor className="w-5 h-5 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">{project.name}</p>
-                      <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                        <Globe className="w-3 h-3" />
-                        https://{domain || slugified}.orahai.app/
-                      </p>
-                    </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Who can access */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Who can access your app</Label>
-                  <div className="relative">
-                    <select
-                      value={isPublic ? "public" : "private"}
-                      onChange={e => setIsPublic(e.target.value === "public")}
-                      className="w-full h-9 rounded-md border border-input bg-transparent pl-9 pr-4 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring appearance-none"
-                    >
-                      <option value="public">Public — Anyone on the internet</option>
-                      <option value="private">Private — Only me</option>
-                    </select>
-                    <Globe className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
+              {/* Publish button preview */}
+              <div className="w-full flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-bold bg-primary/40 text-primary-foreground/60 cursor-not-allowed">
+                <Rocket className="w-4 h-4" />Publish
+              </div>
+            </div>
+
+            {/* Alternatives */}
+            <div className="space-y-2 pt-1">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available right now</p>
+              <button
+                onClick={() => setDeployTab("github")}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <Github className="w-4 h-4" />
                 </div>
-
-                {/* Database settings */}
-                <Section title="Database settings" defaultOpen={false}>
-                  <div className="flex items-start gap-3">
-                    <Database className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-medium">Production database</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        A separate production database is automatically provisioned when you publish.
-                        Your development data stays isolated.
-                      </p>
-                    </div>
-                  </div>
-                </Section>
-
-                {/* Monitoring tools */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monitoring tools</p>
-                  <div className="rounded-xl border border-border bg-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <Bell className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Enable app monitoring</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                            Be the first to know when your app is down. We'll continuously check if your app is online and notify you if things go wrong.
-                          </p>
-                        </div>
-                      </div>
-                      <Toggle checked={monitoringEnabled} onChange={setMonitoringEnabled} />
-                    </div>
-                  </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Deploy to GitHub Pages</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Free hosting via your GitHub repository</p>
                 </div>
-
-                {/* Engagement tools */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Engagement tools</p>
-                  <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
-                    <div className="flex items-start justify-between gap-3 p-4">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <MessageCircle className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">Enable feedback widget</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                            Add a feedback widget to your published app. Users can submit bug reports sent directly to the AI.
-                          </p>
-                        </div>
-                      </div>
-                      <Toggle checked={feedbackWidget} onChange={setFeedbackWidget} />
-                    </div>
-                    <div className="flex items-start justify-between gap-3 p-4">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <Star className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">"Made with OrahAI" badge</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                            Display a badge on your published app. When someone signs up via your referral link, you earn credits.
-                          </p>
-                        </div>
-                      </div>
-                      <Toggle checked={badge} onChange={setBadge} />
-                    </div>
-                  </div>
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-auto" />
+              </button>
+              <button
+                onClick={() => setDeployTab("download")}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <Download className="w-4 h-4" />
                 </div>
-
-                {/* Publish button */}
-                <button
-                  onClick={handlePublish}
-                  disabled={publishing || !domainAvailable}
-                  className={cn(
-                    "w-full flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-bold transition-all",
-                    publishing || !domainAvailable
-                      ? "bg-primary/40 text-primary-foreground/60 cursor-not-allowed"
-                      : "bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-primary/20 hover:shadow-lg",
-                  )}
-                >
-                  {publishing ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />Publishing…</>
-                  ) : (
-                    <><Rocket className="w-4 h-4" />Publish</>
-                  )}
-                </button>
-
-                {/* Adjust settings */}
-                <div className="rounded-xl border border-border overflow-hidden">
-                  <button
-                    onClick={() => setAdjustOpen(v => !v)}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="text-left">
-                      <p className="text-sm font-semibold">Adjust settings</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">Manually configure machine settings, secrets, ports, and more.</p>
-                    </div>
-                    {adjustOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  </button>
-
-                  {adjustOpen && (
-                    <div className="border-t border-border divide-y divide-border/50">
-                      {/* Deployment type */}
-                      <div className="px-4 py-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Deployment type</p>
-                          <span className="text-[10px] text-muted-foreground">
-                            Technology used to publish your app.{" "}
-                            <span className="text-primary cursor-pointer hover:underline">Learn more</span>
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between h-9 px-3 rounded-md border border-input bg-muted/20 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Zap className="w-3.5 h-3.5 text-primary" />
-                            <span className="font-medium">Autoscale</span>
-                          </div>
-                          <span className="text-[10px] bg-primary/15 text-primary font-semibold px-1.5 py-0.5 rounded">Recommended</span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">Automatically scales from zero to any level of demand.</p>
-                      </div>
-
-                      {/* Machine configuration */}
-                      <div className="px-4 py-3 space-y-2">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Machine configuration</p>
-                        <p className="text-[11px] text-muted-foreground">The power of the servers running your app.</p>
-                        <div className="flex items-center justify-between px-3 py-2.5 rounded-md border border-border bg-card">
-                          <div className="flex items-center gap-3 text-xs">
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Cpu className="w-3.5 h-3.5" />
-                              <span>2 vCPUs</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <MemoryStick className="w-3.5 h-3.5" />
-                              <span>4 GiB RAM</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-muted-foreground">
-                              <Server className="w-3.5 h-3.5" />
-                              <span>3 max</span>
-                            </div>
-                          </div>
-                          <button className="text-xs text-primary flex items-center gap-1 hover:underline shrink-0">
-                            Edit <ExternalLink className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="flex justify-between text-[11px] text-muted-foreground px-0.5">
-                          <span>Per machine: <span className="text-foreground font-mono">$0.004/hr</span></span>
-                          <span>At max traffic: <span className="text-foreground font-mono">$0.011/hr</span></span>
-                        </div>
-                      </div>
-
-                      {/* Deployment secrets */}
-                      <div className="px-4 py-3">
-                        <button onClick={() => setSecretsOpen(v => !v)}
-                          className="w-full flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                            <p className="text-sm font-medium">Deployment secrets</p>
-                          </div>
-                          {secretsOpen ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
-                        </button>
-                        <p className="text-[11px] text-muted-foreground mt-1">Private keys your app uses to access APIs and services.</p>
-                        {secretsOpen && (
-                          <div className="mt-2 p-3 rounded-md border border-dashed border-border/60 bg-muted/20 text-xs text-muted-foreground text-center">
-                            Manage secrets in the Secrets panel → they are automatically available in production.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Deployment geography */}
-                      <div className="px-4 py-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
-                          <p className="text-sm font-medium">Deployment geography</p>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">Choose where your app is hosted. Selecting a region closer to your users reduces latency.</p>
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={region}
-                            onChange={e => setRegion(e.target.value)}
-                            className="flex-1 h-9 rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          >
-                            {REGIONS.map(r => (
-                              <option key={r} value={r}>{r}</option>
-                            ))}
-                          </select>
-                          <span className="text-[10px] bg-primary/15 text-primary font-semibold px-1.5 py-1 rounded shrink-0">Closest</span>
-                        </div>
-                      </div>
-
-                      {/* Block critical vulnerabilities */}
-                      <div className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-2 min-w-0">
-                            <Shield className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                            <div>
-                              <p className="text-sm font-medium">Block publishing of critical vulnerabilities</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                                We always run a security scan before publishing. This setting controls whether publishing is blocked when critical security issues are found.
-                              </p>
-                            </div>
-                          </div>
-                          <Toggle checked={blockVulns} onChange={setBlockVulns} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Download as ZIP</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Deploy to Vercel, Netlify, or any host</p>
                 </div>
-              </>
-            )}
+                <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-auto" />
+              </button>
+            </div>
           </div>
         )}
 
