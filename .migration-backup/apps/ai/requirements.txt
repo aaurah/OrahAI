@@ -1,7 +1,7 @@
 fastapi==0.124.0
 uvicorn[standard]==0.34.0
 httpx==0.28.1
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 pydantic==2.10.5
 sse-starlette==2.2.1
-starlette==0.46.3
+starlette==0.47.3
