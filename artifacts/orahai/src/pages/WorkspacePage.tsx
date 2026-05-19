@@ -215,18 +215,18 @@ export default function WorkspacePage() {
         isRunning={isRunning}
         onRun={handleRun}
         chatOpen={chatOpen}
-        onChatToggle={() => setChatOpen((v) => !v)}
+        onChatToggle={() => { setChatOpen((v) => !v); setGithubOpen(false); setSecretsOpen(false); setDeployOpen(false); }}
         terminalOpen={terminalOpen}
         onTerminalToggle={() => setTerminalOpen((v) => !v)}
         githubOpen={githubOpen}
-        onGithubToggle={() => setGithubOpen((v) => !v)}
+        onGithubToggle={() => { setGithubOpen((v) => { const next = !v; if (next) { setChatOpen(false); setSecretsOpen(false); setDeployOpen(false); } return next; }); }}
         previewOpen={previewOpen}
         onPreviewToggle={() => setPreviewOpen((v) => !v)}
         secretsOpen={secretsOpen}
-        onSecretsToggle={() => setSecretsOpen((v) => !v)}
+        onSecretsToggle={() => { setSecretsOpen((v) => { const next = !v; if (next) { setChatOpen(false); setGithubOpen(false); setDeployOpen(false); } return next; }); }}
         showSecrets={isProjectOwner}
         deployOpen={deployOpen}
-        onDeployToggle={() => setDeployOpen((v) => !v)}
+        onDeployToggle={() => { setDeployOpen((v) => { const next = !v; if (next) { setChatOpen(false); setGithubOpen(false); setSecretsOpen(false); } return next; }); }}
         autoDevEnabled={autoDevEnabled}
         onAutoDevToggle={() => { setAutoDevEnabled((v) => !v); setGrowthCount(0); }}
         growthCount={growthCount}
@@ -328,19 +328,49 @@ export default function WorkspacePage() {
 
           {mobileTab === "editor" && (
             <div className="h-full flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-hidden">
-                {activeFile ? (
-                  <CodeEditor projectId={project.id} file={activeFile} onSave={handleEditorSave} />
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
-                    <Code2 className="w-10 h-10 opacity-20" />
-                    <p className="text-sm text-center">No file open</p>
-                    <button onClick={() => setMobileTab("files")} className="text-xs text-primary underline underline-offset-2">
-                      Browse files →
-                    </button>
+              {/* Panel overlays — shown when opened from More menu */}
+              {githubOpen ? (
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  <div className="flex items-center gap-2 px-3 h-9 border-b border-border shrink-0">
+                    <button onClick={() => setGithubOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
                   </div>
-                )}
-              </div>
+                  <div className="flex-1 overflow-hidden">
+                    <GitHubPanel projectId={project.id} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
+                  </div>
+                </div>
+              ) : secretsOpen && isProjectOwner ? (
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  <div className="flex items-center gap-2 px-3 h-9 border-b border-border shrink-0">
+                    <button onClick={() => setSecretsOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <SecretsPanel projectId={project.id} />
+                  </div>
+                </div>
+              ) : deployOpen ? (
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  <div className="flex items-center gap-2 px-3 h-9 border-b border-border shrink-0">
+                    <button onClick={() => setDeployOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <DeployPanel project={project} onProjectUpdate={mutateProject} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-hidden">
+                  {activeFile ? (
+                    <CodeEditor projectId={project.id} file={activeFile} onSave={handleEditorSave} />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
+                      <Code2 className="w-10 h-10 opacity-20" />
+                      <p className="text-sm text-center">No file open</p>
+                      <button onClick={() => setMobileTab("files")} className="text-xs text-primary underline underline-offset-2">
+                        Browse files →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
