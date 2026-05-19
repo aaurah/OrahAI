@@ -97,12 +97,62 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const queueRef = useRef<QueuedEntry[]>([]);
   const abortedRef = useRef(false);
   const [queueCount, setQueueCount] = useState(0);
+  const [bgJobActive, setBgJobActive] = useState(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
+  // Fetch latest chat messages from the server
+  const fetchMessages = useCallback(() => {
     api.get<{ data: ChatMessage[] }>(`/api/ai/chat/${projectId}`)
       .then((res) => setItems(res.data ?? []))
       .catch(() => undefined);
   }, [projectId]);
+
+  useEffect(() => { fetchMessages(); }, [fetchMessages]);
+
+  // On mount: check whether there is an in-flight background job for this project
+  useEffect(() => {
+    if (isStreaming) return; // already live-streaming — no need
+    api.get<{ data: { active: boolean; startedAt: string | null } }>(`/api/ai/chat/${projectId}/status`)
+      .then((res) => setBgJobActive(res.data?.active ?? false))
+      .catch(() => undefined);
+  }, [projectId, isStreaming]);
+
+  // Poll for completion while a background job is active
+  useEffect(() => {
+    if (!bgJobActive || isStreaming) {
+      if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+      return;
+    }
+    const tick = () => {
+      fetchMessages();
+      api.get<{ data: { active: boolean } }>(`/api/ai/chat/${projectId}/status`)
+        .then((res) => {
+          if (!res.data?.active) {
+            setBgJobActive(false);
+            fetchMessages(); // final fetch to get the completed message
+          }
+        })
+        .catch(() => undefined);
+    };
+    pollTimerRef.current = setInterval(tick, 3000);
+    return () => { if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; } };
+  }, [bgJobActive, isStreaming, projectId, fetchMessages]);
+
+  // Refetch messages (and check status) whenever the tab regains focus
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetchMessages();
+        if (!isStreaming) {
+          api.get<{ data: { active: boolean } }>(`/api/ai/chat/${projectId}/status`)
+            .then((res) => setBgJobActive(res.data?.active ?? false))
+            .catch(() => undefined);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [projectId, isStreaming, fetchMessages]);
 
   const scrollBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -427,6 +477,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Background job banner — shown when AI is working after tab was closed */}
+      {bgJobActive && !isStreaming && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/10 border-b border-sky-500/20 shrink-0">
+          <Loader2 className="w-3 h-3 text-sky-400 animate-spin shrink-0" />
+          <span className="text-[11px] text-sky-400 font-medium flex-1">
+            AI is still working in the background…
+          </span>
+          <span className="text-[10px] text-sky-400/60">checking every 3s</span>
+        </div>
+      )}
 
       {/* Auto-develop active banner */}
       {autoDevEnabled && (

@@ -16,6 +16,31 @@ const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
+// ── In-memory background job tracker ─────────────────────────────────────────
+// Keeps a record of in-flight AI requests so clients can re-subscribe after
+// closing and reopening the tab.  Lives in process memory — fine for single-
+// instance deployments; jobs are auto-evicted after 30 minutes.
+
+interface ActiveJob {
+  projectId: string;
+  startedAt: Date;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const activeJobs = new Map<string, ActiveJob>();
+
+function registerJob(projectId: string) {
+  const existing = activeJobs.get(projectId);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => activeJobs.delete(projectId), 30 * 60 * 1000);
+  activeJobs.set(projectId, { projectId, startedAt: new Date(), timer });
+}
+
+function unregisterJob(projectId: string) {
+  const job = activeJobs.get(projectId);
+  if (job) { clearTimeout(job.timer); activeJobs.delete(projectId); }
+}
+
 async function assertProjectAccess(projectId: string, userId: string) {
   const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
     .from(memberships).where(eq(memberships.userId, userId));
@@ -218,7 +243,13 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders?.();
 
-      const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+      // Fault-tolerant send — if the client has already disconnected the write
+      // will throw or return false; we swallow it so processing continues.
+      const send = (event: object) => {
+        try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch { /* client gone */ }
+      };
+
+      registerJob(project.id);
 
       const modeNote = mode === "lite"
         ? "\n\nMODE: Lite — give a concise, direct answer. Skip lengthy preamble. Write files only if truly necessary."
@@ -337,10 +368,23 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         id: cuid(), projectId: project.id, role: "assistant", content: allContent,
       }).returning();
 
+      unregisterJob(project.id);
       send({ type: "done", messageId: saved.id });
-      res.end();
-    } catch (err) { next(err); }
+      try { res.end(); } catch { /* client gone */ }
+    } catch (err) {
+      unregisterJob(String(req.params.projectId));
+      next(err);
+    }
   });
+
+// ── Background job status (used by client on tab-reopen) ─────────────────────
+router.get("/chat/:projectId/status", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    await assertProjectAccess(String(req.params.projectId), req.user!.id);
+    const job = activeJobs.get(String(req.params.projectId));
+    res.json({ data: { active: !!job, startedAt: job?.startedAt ?? null } });
+  } catch (err) { next(err); }
+});
 
 router.get("/chat/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
