@@ -411,6 +411,11 @@ export default function WorkspacePage() {
                     file={activeFile}
                     onSave={handleEditorSave}
                     onDirtyChange={handleDirtyChange}
+                    onCodeAction={(action, prompt, _path) => {
+                      setChatOpen(true);
+                      setMobileTab("ai");
+                      setTimeout(() => chatRef.current?.submit(prompt), 100);
+                    }}
                   />
                 ) : (
                   <EmptyEditor />
@@ -552,7 +557,17 @@ export default function WorkspacePage() {
                   />
                   <div className="flex-1 overflow-hidden">
                     {activeFile ? (
-                      <CodeEditor projectId={project.id} file={activeFile} onSave={handleEditorSave} onDirtyChange={handleDirtyChange} />
+                      <CodeEditor
+                        projectId={project.id}
+                        file={activeFile}
+                        onSave={handleEditorSave}
+                        onDirtyChange={handleDirtyChange}
+                        onCodeAction={(action, prompt, _path) => {
+                          setChatOpen(true);
+                          setMobileTab("ai");
+                          setTimeout(() => chatRef.current?.submit(prompt), 100);
+                        }}
+                      />
                     ) : (
                       <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 px-6">
                         <Code2 className="w-10 h-10 opacity-20" />

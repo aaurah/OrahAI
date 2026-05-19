@@ -37,6 +37,33 @@ const SUGGESTIONS = [
   "Dashboard for sales analytics",
 ];
 
+const TEMPLATES: { emoji: string; label: string; tag: string; prompt: string }[] = [
+  {
+    emoji: "⚛️", label: "React App", tag: "Vite + TypeScript",
+    prompt: "Build a complete React app with Vite, TypeScript, Tailwind CSS, and React Router. Include a home page, about page, and reusable components.",
+  },
+  {
+    emoji: "🚀", label: "Next.js App", tag: "Full-stack",
+    prompt: "Build a Next.js 14 app with TypeScript, Tailwind CSS, server components, and API routes. Include a home page, navigation, and a data fetching example.",
+  },
+  {
+    emoji: "⚡", label: "Express API", tag: "Node.js + REST",
+    prompt: "Build a production-ready Express REST API with TypeScript, JWT authentication, PostgreSQL, input validation, error handling, and CRUD endpoints.",
+  },
+  {
+    emoji: "🐍", label: "FastAPI", tag: "Python + OpenAPI",
+    prompt: "Build a Python FastAPI backend with Pydantic models, SQLAlchemy ORM, JWT auth, automatic OpenAPI docs, and CRUD endpoints for a resource.",
+  },
+  {
+    emoji: "⟠", label: "Smart Contract", tag: "Solidity + Hardhat",
+    prompt: "Build a Solidity smart contract with Hardhat, including an ERC-20 token, deployment scripts, and tests. Add a README with usage instructions.",
+  },
+  {
+    emoji: "🌐", label: "Portfolio Site", tag: "HTML + CSS",
+    prompt: "Build a beautiful developer portfolio website with HTML, CSS, and JavaScript. Include hero, about, skills, projects, and contact sections with animations.",
+  },
+];
+
 const STOP_WORDS = new Set([
   "i","want","to","build","create","make","a","an","the","with","using",
   "for","and","that","which","is","of","in","on","at","by","from","my",
@@ -341,6 +368,29 @@ export default function DashboardPage() {
           <p className="text-center text-[11px] text-muted-foreground mt-2.5">
             Press <kbd className="bg-muted px-1.5 py-0.5 rounded font-mono">Enter</kbd> to create &nbsp;·&nbsp; Shift+Enter for new line
           </p>
+        </div>
+
+        {/* ── Project Templates ─────────────────────────────────── */}
+        <div className="w-full max-w-2xl mx-auto px-4 pb-10">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 text-center">
+            Or start from a template
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.label}
+                disabled={isCreating}
+                onClick={() => handleBuild(tpl.prompt)}
+                className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-left group disabled:opacity-50"
+              >
+                <span className="text-xl shrink-0">{tpl.emoji}</span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold truncate">{tpl.label}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{tpl.tag}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Projects section ─────────────────────────────────── */}
