@@ -65,9 +65,15 @@ interface FileOpEvent {
 }
 
 type ListItem =
-  | (ChatMessage & { pending?: boolean; images?: AttachedImage[] })
+  | (ChatMessage & { pending?: boolean; queued?: boolean; images?: AttachedImage[] })
   | (RunEvent & { _type: "run" })
   | (FileOpEvent & { _type: "fileop" });
+
+interface QueuedEntry {
+  text: string;
+  imgs: AttachedImage[];
+  displayId: string;
+}
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
   { projectId, activeFilePath, activeFileContent, onApplyCode, onApplyToPath, onFileChange, onStreamingChange, autoDevEnabled, growthCount = 0 },
@@ -88,6 +94,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queueRef = useRef<QueuedEntry[]>([]);
+  const abortedRef = useRef(false);
+  const [queueCount, setQueueCount] = useState(0);
 
   useEffect(() => {
     api.get<{ data: ChatMessage[] }>(`/api/ai/chat/${projectId}`)
@@ -143,18 +152,45 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   };
 
   useImperativeHandle(ref, () => ({
-    submit: (text: string) => { void handleSubmitCore(text, []); },
+    submit: (text: string) => {
+      if (isStreaming) {
+        const displayId = `queued-${crypto.randomUUID()}`;
+        setItems((prev) => [...prev, {
+          id: displayId, projectId, userId: null,
+          role: "user" as const, content: text, createdAt: new Date().toISOString(), queued: true,
+        }]);
+        queueRef.current.push({ text, imgs: [], displayId });
+        setQueueCount(queueRef.current.length);
+      } else {
+        void handleSubmitCore(text, [], null);
+      }
+    },
     getIsStreaming: () => isStreaming,
   }));
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = input.trim();
-    if ((!text && !attachedImages.length) || isStreaming) return;
+    if (!text && !attachedImages.length) return;
     setInput("");
     const imgs = attachedImages;
     setAttachedImages([]);
-    await handleSubmitCore(text, imgs);
+
+    if (isStreaming) {
+      const displayId = `queued-${crypto.randomUUID()}`;
+      setItems((prev) => [...prev, {
+        id: displayId, projectId, userId: null,
+        role: "user" as const, content: text || "(images)",
+        createdAt: new Date().toISOString(),
+        images: imgs.length ? imgs : undefined,
+        queued: true,
+      }]);
+      queueRef.current.push({ text, imgs, displayId });
+      setQueueCount(queueRef.current.length);
+      return;
+    }
+
+    await handleSubmitCore(text, imgs, null);
   };
 
   const handleModeChange = (mode: AgentMode) => {
@@ -162,24 +198,34 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     localStorage.setItem("orahai_agent_mode", mode);
   };
 
-  const handleSubmitCore = async (text: string, imgs: AttachedImage[]) => {
+  const handleSubmitCore = async (text: string, imgs: AttachedImage[], existingUserMsgId: string | null) => {
     if (!text && !imgs.length) return;
-    if (isStreaming) return;
 
-    const userMsg: ChatMessage & { images?: AttachedImage[] } = {
-      id: `temp-${crypto.randomUUID()}`, projectId, userId: null,
-      role: "user", content: text || "(images)", createdAt: new Date().toISOString(),
-      images: imgs.length ? imgs : undefined,
-    };
     const assistantId = `temp-${crypto.randomUUID()}`;
     const assistantMsg: ChatMessage & { pending?: boolean } = {
       id: assistantId, projectId, userId: null,
       role: "assistant", content: "", createdAt: new Date().toISOString(), pending: true,
     };
-    setItems((prev) => [...prev, userMsg, assistantMsg]);
+
+    if (existingUserMsgId) {
+      // Queued message already shown — strip the queued badge and append assistant placeholder
+      setItems((prev) => [
+        ...prev.map((m) => "role" in m && m.id === existingUserMsgId ? { ...m, queued: false } : m),
+        assistantMsg,
+      ]);
+    } else {
+      const userMsg: ChatMessage & { images?: AttachedImage[] } = {
+        id: `temp-${crypto.randomUUID()}`, projectId, userId: null,
+        role: "user", content: text || "(images)", createdAt: new Date().toISOString(),
+        images: imgs.length ? imgs : undefined,
+      };
+      setItems((prev) => [...prev, userMsg, assistantMsg]);
+    }
+
     setIsStreaming(true);
     onStreamingChange?.(true);
     setAgentStep(1);
+    abortedRef.current = false;
     abortRef.current = new AbortController();
 
     try {
@@ -291,7 +337,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         }
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
+      if ((err as Error).name === "AbortError") {
+        abortedRef.current = true;
+      } else {
         toast({ title: "AI request failed", variant: "destructive" });
         setItems((prev) => prev.map((m) =>
           "role" in m && m.id === assistantId ? { ...m, content: "Something went wrong. Please try again." } : m
@@ -299,10 +347,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       }
     } finally {
       setItems((prev) => prev.map((m) => "role" in m && m.id === assistantId ? { ...m, pending: false } : m));
-      setIsStreaming(false);
-      onStreamingChange?.(false);
       setAgentStep(0);
       abortRef.current = null;
+
+      if (abortedRef.current) {
+        // Abort clears the queue and removes any pending queued messages
+        queueRef.current = [];
+        setQueueCount(0);
+        setItems((prev) => prev.filter((m) => !("queued" in m && (m as { queued?: boolean }).queued)));
+        setIsStreaming(false);
+        onStreamingChange?.(false);
+      } else {
+        const next = queueRef.current.shift();
+        if (next) {
+          setQueueCount(queueRef.current.length);
+          void handleSubmitCore(next.text, next.imgs, next.displayId);
+        } else {
+          setQueueCount(0);
+          setIsStreaming(false);
+          onStreamingChange?.(false);
+        }
+      }
     }
   };
 
@@ -402,14 +467,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           if ("_type" in item && item._type === "fileop") {
             return <FileOpCard key={item.id} event={item as FileOpEvent & { _type: "fileop" }} />;
           }
-          const msg = item as ChatMessage & { pending?: boolean; images?: AttachedImage[] };
+          const msg = item as ChatMessage & { pending?: boolean; queued?: boolean; images?: AttachedImage[] };
           const isPending = !!(msg as { pending?: boolean }).pending;
+          const isQueued = !!(msg as { queued?: boolean }).queued;
           const hasContent = !!msg.content && msg.content !== "(images)";
           return (
             <div key={msg.id} className={cn("flex gap-2 group/msg", msg.role === "user" && "flex-row-reverse")}>
               <div className={cn(
                 "w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs",
                 msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                isQueued && "opacity-50",
               )}>
                 {msg.role === "user" ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
               </div>
@@ -417,7 +484,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <div className={cn(
                   "text-sm rounded-xl px-3 py-2 space-y-2",
                   msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                  isQueued && "opacity-50",
                 )}>
+                  {isQueued && (
+                    <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide opacity-70 -mb-1">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      queued
+                    </div>
+                  )}
                   {msg.images && msg.images.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {msg.images.map((img, i) => (
@@ -579,32 +653,56 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); handleSubmit(); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); void handleSubmit(); } }}
             onPaste={handlePaste}
-            placeholder={attachedImages.length ? "Describe what you want done with these images…" : "Ask me to edit files, fix bugs, add features…"}
+            placeholder={
+              isStreaming
+                ? "Type your next message — it will be queued…"
+                : attachedImages.length
+                ? "Describe what you want done with these images…"
+                : "Ask me to edit files, fix bugs, add features…"
+            }
             rows={2}
-            enterKeyHint="enter"
+            enterKeyHint="send"
             className="resize-none pr-16 text-sm"
-            disabled={isStreaming}
           />
           <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isStreaming}
+            <button type="button" onClick={() => fileInputRef.current?.click()}
               title="Attach image"
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
               <ImagePlus className="w-3.5 h-3.5" />
             </button>
-            {isStreaming ? (
-              <Button type="button" size="sm" variant="ghost" onClick={() => abortRef.current?.abort()} className="w-7 h-7 p-0">
+            {isStreaming && (
+              <Button type="button" size="sm" variant="ghost"
+                onClick={() => abortRef.current?.abort()}
+                title="Stop & clear queue"
+                className="w-7 h-7 p-0">
                 <StopCircle className="w-3.5 h-3.5 text-destructive" />
               </Button>
-            ) : (
-              <Button type="submit" size="sm" className="w-7 h-7 p-0" disabled={!input.trim() && !attachedImages.length}>
-                <Send className="w-3 h-3" />
-              </Button>
             )}
+            <Button
+              type="submit"
+              size="sm"
+              title={isStreaming ? "Queue message" : "Send"}
+              className="relative w-7 h-7 p-0"
+              disabled={!input.trim() && !attachedImages.length}
+            >
+              <Send className="w-3 h-3" />
+              {queueCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 bg-amber-500 rounded-full text-[8px] font-bold flex items-center justify-center text-white leading-none">
+                  {queueCount}
+                </span>
+              )}
+            </Button>
           </div>
         </form>
-        <p className="text-[10px] text-muted-foreground mt-1">↵ newline · tap send to submit · paste image</p>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          {queueCount > 0
+            ? `${queueCount} message${queueCount > 1 ? "s" : ""} queued · stop to cancel all`
+            : isStreaming
+            ? "AI responding · send to queue · stop to abort"
+            : "↵ newline · Ctrl+Enter or tap send · paste image"}
+        </p>
       </div>
 
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
