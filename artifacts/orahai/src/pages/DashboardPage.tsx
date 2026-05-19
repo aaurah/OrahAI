@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Plus, Search, Code2, Globe, Clock, ArrowRight, FolderOpen,
   Download, MoreVertical, Trash2, ExternalLink, Loader2,
-  Sparkles, Send, Github, Lock, CheckCircle2, ChevronDown, ChevronUp,
+  Sparkles, Send, Github, Lock, CheckCircle2, ChevronDown, ChevronUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -374,7 +374,7 @@ export default function DashboardPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {projects.map((project) => (
-                <ProjectCard key={project.id} project={project} onDeleted={() => mutate()} />
+                <ProjectCard key={project.id} project={project} hasGithubToken={!!hasGithubToken} onDeleted={() => mutate()} onLinked={() => mutate()} />
               ))}
             </div>
           )}
@@ -396,11 +396,17 @@ export default function DashboardPage() {
 const SWIPE_THRESHOLD = 72; // px to reveal delete button
 const DELETE_TRIGGER  = 180; // px to auto-confirm delete
 
-function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDeleted: () => void }) {
+function ProjectCard({ project, hasGithubToken, onDeleted, onLinked }: {
+  project: ProjectWithCounts;
+  hasGithubToken: boolean;
+  onDeleted: () => void;
+  onLinked: () => void;
+}) {
   const [, navigate] = useLocation();
   const icon = LANGUAGE_ICONS[project.language] ?? "📁";
   const [deleting, setDeleting] = useState(false);
   const [swiped, setSwiped] = useState(false); // true = delete button visible
+  const [linkOpen, setLinkOpen] = useState(false);
 
   const cardRef   = useRef<HTMLDivElement>(null);
   const startXRef = useRef<number | null>(null);
@@ -527,6 +533,31 @@ function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDel
                 {formatDistanceToNow(new Date(project.updatedAt))}
               </span>
             </div>
+
+            {/* GitHub status row */}
+            <div className="mt-2 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+              {project.githubRepo ? (
+                <a
+                  href={`https://github.com/${project.githubRepo}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[10px] text-primary hover:underline truncate max-w-full"
+                >
+                  <Github className="w-2.5 h-2.5 shrink-0" />
+                  <span className="truncate">{project.githubRepo}</span>
+                  <ExternalLink className="w-2 h-2 shrink-0 opacity-60" />
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setLinkOpen(true)}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-foreground/40 rounded px-1.5 py-0.5 transition-colors"
+                >
+                  <Github className="w-2.5 h-2.5" />
+                  Link to GitHub
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Desktop three-dot menu — hidden on touch */}
@@ -542,6 +573,185 @@ function ProjectCard({ project, onDeleted }: { project: ProjectWithCounts; onDel
             Open <ArrowRight className="w-3.5 h-3.5" />
           </span>
         </div>
+      </div>
+
+      {linkOpen && (
+        <LinkGitHubModal
+          projectId={project.id}
+          projectName={project.name}
+          hasGithubToken={hasGithubToken}
+          onClose={() => setLinkOpen(false)}
+          onLinked={() => { onLinked(); setLinkOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Link to GitHub modal ───────────────────────────────────────────────────────
+
+function LinkGitHubModal({
+  projectId, projectName, hasGithubToken, onClose, onLinked,
+}: {
+  projectId: string;
+  projectName: string;
+  hasGithubToken: boolean;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const [mode, setMode] = useState<"connect" | "create">("connect");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [branch, setBranch] = useState("main");
+  const [repoName, setRepoName] = useState(() => slugifyRepo(projectName));
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function handleConnect() {
+    if (!repoUrl.trim()) return;
+    setBusy(true);
+    try {
+      await api.patch(`/api/github/projects/${projectId}/connect`, { repoUrl: repoUrl.trim(), branch: branch.trim() || "main" });
+      toast({ title: "Linked to GitHub repo" });
+      onLinked();
+    } catch (err: unknown) {
+      toast({ title: (err as Error).message ?? "Failed to link", variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
+  async function handleCreate() {
+    if (!repoName.trim()) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/github/projects/${projectId}/create-and-push`, {
+        repoName: repoName.trim(), private: isPrivate, description: projectName,
+      });
+      toast({ title: "GitHub repo created and pushed!" });
+      onLinked();
+    } catch (err: unknown) {
+      toast({ title: (err as Error).message ?? "Failed to create repo", variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-card border rounded-2xl shadow-2xl w-full max-w-sm p-5 flex flex-col gap-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Github className="w-4 h-4" />
+            <span className="text-sm font-semibold">Link to GitHub</span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <p className="text-xs text-muted-foreground -mt-1">
+          Connect <span className="font-medium text-foreground">{projectName}</span> to a GitHub repository.
+        </p>
+
+        {!hasGithubToken ? (
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs p-3 leading-relaxed">
+            GitHub not connected. Open any project workspace, click the GitHub button in the top bar, and sign in — then come back here.
+          </div>
+        ) : (
+          <>
+            {/* Mode tabs */}
+            <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
+              {(["connect", "create"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    "flex-1 py-1.5 transition-colors",
+                    mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/40",
+                  )}
+                >
+                  {m === "connect" ? "Connect existing repo" : "Create new repo"}
+                </button>
+              ))}
+            </div>
+
+            {mode === "connect" ? (
+              <div className="flex flex-col gap-2.5">
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1 block">GitHub repo URL</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="https://github.com/owner/repo"
+                    value={repoUrl}
+                    onChange={e => setRepoUrl(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleConnect()}
+                    disabled={busy}
+                    className="w-full h-8 px-2.5 text-xs rounded-lg border bg-transparent focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1 block">Branch</label>
+                  <input
+                    type="text"
+                    placeholder="main"
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                    disabled={busy}
+                    className="w-full h-8 px-2.5 text-xs rounded-lg border bg-transparent focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <Button size="sm" onClick={handleConnect} disabled={busy || !repoUrl.trim()} className="w-full gap-1.5">
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Github className="w-3.5 h-3.5" />}
+                  {busy ? "Linking…" : "Link repo"}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1 block">Repository name</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="my-project"
+                    value={repoName}
+                    onChange={e => setRepoName(slugifyRepo(e.target.value))}
+                    onKeyDown={e => e.key === "Enter" && handleCreate()}
+                    disabled={busy}
+                    className="w-full h-8 px-2.5 text-xs rounded-lg border bg-transparent focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {([
+                    { val: false, label: "Public" },
+                    { val: true,  label: "Private" },
+                  ] as const).map(({ val, label }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setIsPrivate(val)}
+                      disabled={busy}
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors",
+                        isPrivate === val
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/30",
+                      )}
+                    >
+                      {val && <Lock className="w-3 h-3" />}{label}
+                    </button>
+                  ))}
+                  {!isPrivate && <span className="text-[10px] text-muted-foreground ml-1">Free GitHub Pages</span>}
+                </div>
+                <Button size="sm" onClick={handleCreate} disabled={busy || !repoName.trim()} className="w-full gap-1.5">
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Github className="w-3.5 h-3.5" />}
+                  {busy ? "Creating & pushing…" : "Create repo & push"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
