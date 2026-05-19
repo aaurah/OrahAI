@@ -15,6 +15,7 @@ import type { Project } from "@/types";
 interface DeployResult {
   pushed: number;
   url: string;
+  settingsUrl: string;
   branch: string;
   deployedAt: string;
 }
@@ -122,7 +123,7 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
     if (deploying) return;
     setDeploying(true); setDeployError(null);
     try {
-      const res = await api.post<{ data: { pushed: number; url: string; branch: string } }>(
+      const res = await api.post<{ data: { pushed: number; url: string; settingsUrl: string; branch: string } }>(
         `/api/github/projects/${project.id}/deploy`,
         { message: commitMsg || "Deploy from OrahAI" },
       );
@@ -446,35 +447,69 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
                 </div>
               ) : (
                 <>
+                  {/* How it works — 3 steps */}
+                  <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">How it works</p>
+                    {[
+                      { n: "1", text: <>OrahAI pushes your files to a <code className="bg-muted px-1 rounded">gh-pages</code> branch (with <code className="bg-muted px-1 rounded">.nojekyll</code> so all file types are served correctly).</> },
+                      { n: "2", text: <>In your repo's <strong className="text-foreground">Settings → Pages</strong>, set the source to the <code className="bg-muted px-1 rounded">gh-pages</code> branch. The repo must be <strong className="text-foreground">public</strong> on free GitHub plans.</> },
+                      { n: "3", text: <>GitHub builds and publishes your site at <code className="bg-muted px-1 rounded">https://&lt;user&gt;.github.io/&lt;repo&gt;/</code> — usually within a minute.</> },
+                    ].map(({ n, text }) => (
+                      <div key={n} className="flex gap-2.5">
+                        <span className="w-4 h-4 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">{text}</p>
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label className="text-xs">Commit message</Label>
                     <Input value={commitMsg} onChange={e => setCommitMsg(e.target.value)} className="h-8 text-xs" />
                   </div>
+
                   {deployError && (
                     <div className="flex items-start gap-2 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
                       <XCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
                       <p className="text-xs text-destructive">{deployError}</p>
                     </div>
                   )}
+
                   {lastDeploy && !deployError && (
-                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-green-600 dark:text-green-400 font-medium">Deployed {lastDeploy.pushed} files</p>
+                    <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                        <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                          Pushed {lastDeploy.pushed} file{lastDeploy.pushed !== 1 ? "s" : ""} to <code className="bg-green-500/20 px-1 rounded">gh-pages</code>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-muted/40 rounded px-2.5 py-1.5 border border-border/60">
+                        <span className="text-[10px] font-mono text-muted-foreground flex-1 break-all">{lastDeploy.url}</span>
+                        <CopyButton text={lastDeploy.url} />
                         <a href={lastDeploy.url} target="_blank" rel="noopener noreferrer"
-                          className="text-[11px] text-green-600/80 dark:text-green-400/80 hover:underline break-all flex items-center gap-1 mt-0.5">
-                          {lastDeploy.url} <ExternalLink className="w-3 h-3 shrink-0" />
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Open site">
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       </div>
+                      <a href={lastDeploy.settingsUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+                        <Github className="w-3 h-3" />
+                        Enable Pages in repo Settings → Pages
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     </div>
                   )}
+
                   <Button className="w-full gap-2" onClick={handleGhDeploy} disabled={deploying}>
-                    {deploying ? <><Loader2 className="w-4 h-4 animate-spin" />Deploying…</> : <><Github className="w-4 h-4" />Deploy to GitHub Pages</>}
+                    {deploying
+                      ? <><Loader2 className="w-4 h-4 animate-spin" />Deploying…</>
+                      : <><Github className="w-4 h-4" />{lastDeploy ? "Re-deploy to GitHub Pages" : "Deploy to GitHub Pages"}</>}
                   </Button>
-                  <p className="text-[10px] text-muted-foreground/60">
-                    Pushes files to <code className="bg-muted px-1 rounded">gh-pages</code> branch.
-                    Enable GitHub Pages in repo Settings → Pages.
-                  </p>
+
+                  {!lastDeploy && (
+                    <p className="text-[10px] text-muted-foreground/60">
+                      Also writes <code className="bg-muted px-1 rounded">.nojekyll</code> so Jekyll doesn't hide your files.
+                    </p>
+                  )}
                 </>
               )}
             </div>

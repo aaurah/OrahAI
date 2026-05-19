@@ -624,21 +624,31 @@ router.post("/projects/:id/deploy", async (req: AuthenticatedRequest, res: Respo
       }
     } catch { /* branch doesn't exist yet — that's fine */ }
 
+    // Always inject .nojekyll so GitHub Pages skips Jekyll processing,
+    // which would otherwise silently drop files/folders starting with "_"
+    // (e.g. _next, _app, __pycache__). See: https://docs.github.com/en/pages
+    const filesToDeploy = [
+      ...projectFiles,
+      { path: ".nojekyll", content: "" },
+    ];
+
     const BATCH = 3;
     let pushed = 0;
-    for (let i = 0; i < projectFiles.length; i += BATCH) {
-      const batch = projectFiles.slice(i, i + BATCH);
+    for (let i = 0; i < filesToDeploy.length; i += BATCH) {
+      const batch = filesToDeploy.slice(i, i + BATCH);
       await Promise.allSettled(batch.map(async (f) => {
         await createOrUpdateFile(owner, repo, f.path, f.content, parsed.data.message!, token, ghTreeMap.get(f.path) ?? null, deployBranch);
         pushed++;
       }));
-      if (i + BATCH < projectFiles.length) await new Promise(r => setTimeout(r, 150));
+      if (i + BATCH < filesToDeploy.length) await new Promise(r => setTimeout(r, 150));
     }
+    pushed -= 1; // don't count .nojekyll in the user-facing total
 
     const pagesUrl = `https://${owner.toLowerCase()}.github.io/${repo}/`;
+    const settingsUrl = `https://github.com/${owner}/${repo}/settings/pages`;
 
     res.json({
-      data: { pushed, url: pagesUrl, branch: deployBranch },
+      data: { pushed, url: pagesUrl, settingsUrl, branch: deployBranch },
       message: `Deployed ${pushed} file${pushed !== 1 ? "s" : ""} to GitHub Pages`,
     });
   } catch (err) { next(err); }
