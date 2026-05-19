@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Plus, Search, Code2, Globe, Clock, ArrowRight, FolderOpen,
   Download, MoreVertical, Trash2, ExternalLink, Loader2,
-  Sparkles, Send, Github,
+  Sparkles, Send, Github, Lock, CheckCircle2, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -13,7 +13,7 @@ import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 import { useAuth } from "@/hooks/useAuth";
-import { formatDistanceToNow } from "@/lib/utils";
+import { formatDistanceToNow, cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import type { ProjectWithCounts, ApiResponse, Project } from "@/types";
@@ -92,6 +92,10 @@ function extractProjectName(description: string): string {
   return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
+function slugifyRepo(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 100) || "my-project";
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -102,7 +106,27 @@ export default function DashboardPage() {
 
   const [prompt, setPrompt] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [createStep, setCreateStep] = useState<"idle" | "project" | "github">("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // GitHub push option
+  const [pushToGitHub, setPushToGitHub] = useState(false);
+  const [ghRepoName, setGhRepoName] = useState("");
+  const [ghRepoPrivate, setGhRepoPrivate] = useState(false);
+  const [hasGithubToken, setHasGithubToken] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.get<{ data: { hasToken: boolean } }>("/api/github/token")
+      .then(r => setHasGithubToken(r.data.hasToken))
+      .catch(() => setHasGithubToken(false));
+  }, []);
+
+  // Keep repo name in sync with project name derived from prompt
+  useEffect(() => {
+    if (pushToGitHub && prompt.trim()) {
+      setGhRepoName(slugifyRepo(extractProjectName(prompt.trim())));
+    }
+  }, [prompt, pushToGitHub]);
 
   const handleBuild = async (text: string) => {
     const trimmed = text.trim();
@@ -115,6 +139,7 @@ export default function DashboardPage() {
     }
 
     setIsCreating(true);
+    setCreateStep("project");
     try {
       const res = await api.post<ApiResponse<Project>>("/api/projects", {
         name: extractProjectName(trimmed),
@@ -122,10 +147,30 @@ export default function DashboardPage() {
         workspaceId: wsId,
       });
       mutate();
+
+      if (pushToGitHub && ghRepoName.trim()) {
+        setCreateStep("github");
+        try {
+          await api.post(`/api/github/projects/${res.data.id}/create-and-push`, {
+            repoName: ghRepoName.trim(),
+            private: ghRepoPrivate,
+            description: `Created with OrahAI`,
+          });
+          toast({ title: `Created & pushed to GitHub — ${ghRepoName.trim()}` });
+        } catch (ghErr: unknown) {
+          const e = ghErr as { response?: { data?: { message?: string } } };
+          toast({
+            title: `Project created, but GitHub push failed: ${e.response?.data?.message ?? "unknown error"}`,
+            variant: "destructive",
+          });
+        }
+      }
+
       navigate(`/workspace/${res.data.id}?prompt=${encodeURIComponent(trimmed)}`);
     } catch (err: unknown) {
       toast({ title: (err as Error).message ?? "Failed to create project", variant: "destructive" });
       setIsCreating(false);
+      setCreateStep("idle");
     }
   };
 
@@ -163,7 +208,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Main chat input */}
-          <div className="relative rounded-xl border border-border bg-card shadow-lg focus-within:border-primary/50 focus-within:shadow-primary/10 focus-within:shadow-xl transition-all">
+          <div className="rounded-xl border border-border bg-card shadow-lg focus-within:border-primary/50 focus-within:shadow-primary/10 focus-within:shadow-xl transition-all">
             <div className="flex items-start gap-3 px-4 pt-4 pb-3">
               <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -190,7 +235,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Suggestion chips */}
-            {!prompt && (
+            {!prompt && !pushToGitHub && (
               <div className="px-4 pb-3 flex flex-wrap gap-1.5">
                 {SUGGESTIONS.slice(0, 4).map((s) => (
                   <button
@@ -203,6 +248,94 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
+
+            {/* ── GitHub push option ─────────────────────────── */}
+            <div className="border-t border-border/60 px-4 py-2.5">
+              {/* Toggle row */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (!pushToGitHub && !hasGithubToken) {
+                    toast({ title: "Connect GitHub first — open any project workspace and use the GitHub panel", variant: "destructive" });
+                    return;
+                  }
+                  setPushToGitHub(v => !v);
+                }}
+                className="flex items-center gap-2 w-full text-left group"
+              >
+                <div className={cn(
+                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                  pushToGitHub ? "bg-primary" : "bg-muted-foreground/30",
+                )}>
+                  <span className={cn(
+                    "pointer-events-none inline-block h-3 w-3 rounded-full bg-white shadow transition-transform duration-200",
+                    pushToGitHub ? "translate-x-3" : "translate-x-0",
+                  )} />
+                </div>
+                <Github className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                  Also push to GitHub
+                </span>
+                {hasGithubToken === false && (
+                  <span className="ml-auto text-[10px] text-amber-500 font-medium">GitHub not connected</span>
+                )}
+                {pushToGitHub && (
+                  hasGithubToken
+                    ? <CheckCircle2 className="ml-auto w-3.5 h-3.5 text-green-500" />
+                    : <ChevronDown className="ml-auto w-3.5 h-3.5 text-muted-foreground" />
+                )}
+              </button>
+
+              {/* Expanded repo options */}
+              {pushToGitHub && hasGithubToken && (
+                <div className="mt-3 space-y-2.5">
+                  {/* Repo name */}
+                  <div className="flex items-center gap-2">
+                    <Github className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      type="text"
+                      value={ghRepoName}
+                      onChange={e => setGhRepoName(e.target.value.replace(/[^a-z0-9-_.]/gi, "-").toLowerCase())}
+                      placeholder="repo-name"
+                      disabled={isCreating}
+                      className="flex-1 h-7 px-2.5 text-xs font-mono rounded-lg border border-input bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                    />
+                  </div>
+                  {/* Visibility toggle */}
+                  <div className="flex items-center gap-1.5">
+                    {([
+                      { val: false, label: "Public",  Icon: Globe },
+                      { val: true,  label: "Private", Icon: Lock  },
+                    ] as const).map(({ val, label, Icon }) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setGhRepoPrivate(val)}
+                        disabled={isCreating}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors",
+                          ghRepoPrivate === val
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/30",
+                        )}
+                      >
+                        <Icon className="w-3 h-3" />{label}
+                      </button>
+                    ))}
+                    {!ghRepoPrivate && (
+                      <span className="text-[10px] text-muted-foreground ml-1">Free GitHub Pages hosting</span>
+                    )}
+                  </div>
+                  {/* Loading step label */}
+                  {isCreating && (
+                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {createStep === "project" ? "Creating project…" : "Creating GitHub repo & pushing…"}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <p className="text-center text-[11px] text-muted-foreground mt-2.5">
