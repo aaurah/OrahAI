@@ -10,6 +10,7 @@ import DeploymentsPage from "@/pages/DeploymentsPage";
 import SettingsPage from "@/pages/SettingsPage";
 import AdminPage from "@/pages/AdminPage";
 import StaticPage from "@/pages/StaticPage";
+import ExplorePage from "@/pages/ExplorePage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/register" component={RegisterPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/explore" component={ExplorePage} />
       <Route path="/workspace/:id" component={WorkspacePage} />
       <Route path="/deployments" component={DeploymentsPage} />
       <Route path="/settings/profile" component={SettingsPage} />

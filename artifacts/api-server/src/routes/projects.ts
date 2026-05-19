@@ -499,4 +499,88 @@ function starterFiles(language: string, projectName: string) {
   }));
 }
 
+// ── Community (public projects) ───────────────────────────────────────────────
+
+router.get("/community", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const search = String(req.query.search ?? "").trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+    const offset = (page - 1) * limit;
+
+    const conditions = [
+      isNull(projects.deletedAt) as ReturnType<typeof eq>,
+      sql`${projects.isPublic} = true` as unknown as ReturnType<typeof eq>,
+      ...(search ? [ilike(projects.name, `%${search}%`) as ReturnType<typeof eq>] : []),
+    ];
+
+    const rows = await db
+      .select({
+        id: projects.id,
+        name: projects.name,
+        description: projects.description,
+        language: projects.language,
+        ownerId: projects.ownerId,
+        ownerName: sql<string | null>`(SELECT name FROM users WHERE id = ${projects.ownerId})`,
+        ownerUsername: sql<string>`(SELECT username FROM users WHERE id = ${projects.ownerId})`,
+        updatedAt: projects.updatedAt,
+        fileCount: sql<number>`(SELECT COUNT(*) FROM files WHERE project_id = ${projects.id} AND deleted_at IS NULL AND is_dir = false)`,
+      })
+      .from(projects)
+      .where(and(...conditions))
+      .orderBy(asc(projects.updatedAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [{ count: totalCount }] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(projects)
+      .where(and(...conditions));
+
+    res.json({ data: rows, total: Number(totalCount), page, limit });
+  } catch (err) { next(err); }
+});
+
+// ── Fork a project ────────────────────────────────────────────────────────────
+
+router.post("/:id/fork", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({ workspaceId: z.string().min(1) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return next(createError("workspaceId required", 400));
+
+    const sourceId = String(req.params.id);
+    const [source] = await db.select().from(projects)
+      .where(and(eq(projects.id, sourceId), isNull(projects.deletedAt), sql`${projects.isPublic} = true`)).limit(1);
+    if (!source) return next(createError("Project not found or not public", 404));
+
+    await assertWorkspaceMember(parsed.data.workspaceId, req.user!.id);
+
+    const forkedId = cuid();
+    const slug = await uniqueProjectSlug(parsed.data.workspaceId, slugify(source.name));
+
+    await db.insert(projects).values({
+      id: forkedId,
+      name: `${source.name}`,
+      slug,
+      description: source.description,
+      language: source.language,
+      workspaceId: parsed.data.workspaceId,
+      ownerId: req.user!.id,
+      isPublic: false,
+    });
+
+    const sourceFiles = await db.select().from(files)
+      .where(and(eq(files.projectId, sourceId), isNull(files.deletedAt)));
+
+    if (sourceFiles.length > 0) {
+      await db.insert(files).values(
+        sourceFiles.map(f => ({ ...f, id: cuid(), projectId: forkedId, createdAt: new Date(), updatedAt: new Date() }))
+      );
+    }
+
+    res.status(201).json({ data: { id: forkedId, name: source.name }, message: `Forked from ${source.name}` });
+  } catch (err) { next(err); }
+});
+
 export default router;

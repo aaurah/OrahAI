@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useEditorSettings } from "@/hooks/useEditorSettings";
 import type { ProjectFile } from "@/types";
 
 interface CodeEditorProps {
   projectId: string;
   file: ProjectFile;
   onSave?: (content: string) => void;
+  onDirtyChange?: (path: string, dirty: boolean) => void;
 }
 
-export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
+export function CodeEditor({ projectId, file, onSave, onDirtyChange }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<unknown>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const { settings } = useEditorSettings();
 
   useEffect(() => {
     let destroyed = false;
@@ -25,14 +28,14 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
       const editor = monaco.editor.create(containerRef.current, {
         value: file.content,
         language: getMonacoLanguage(file.mimeType, file.name),
-        theme: "vs-dark",
-        fontSize: 14,
+        theme: settings.theme,
+        fontSize: settings.fontSize,
         fontFamily: '"JetBrains Mono", "Fira Code", Menlo, monospace',
-        lineNumbers: "on",
-        minimap: { enabled: false },
+        lineNumbers: settings.lineNumbers,
+        minimap: { enabled: settings.minimap },
         scrollBeyondLastLine: false,
-        wordWrap: "on",
-        tabSize: 2,
+        wordWrap: settings.wordWrap,
+        tabSize: settings.tabSize,
         renderWhitespace: "selection",
         cursorBlinking: "smooth",
         smoothScrolling: true,
@@ -42,12 +45,21 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
 
       editorRef.current = editor;
 
-      editor.onDidChangeModelContent(() => setIsDirty(true));
+      editor.onDidChangeModelContent(() => {
+        setIsDirty(true);
+        onDirtyChange?.(file.path, true);
+      });
 
       editor.addCommand(
         // @ts-ignore
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-        () => saveFile(editor.getValue())
+        async () => {
+          const content = editor.getValue();
+          if (settings.formatOnSave) {
+            await editor.getAction("editor.action.formatDocument")?.run();
+          }
+          saveFile(content);
+        }
       );
     }
 
@@ -62,21 +74,39 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
     };
   }, [file.path]);
 
+  // Update content when file changes externally
   useEffect(() => {
     if (editorRef.current) {
       const editor = editorRef.current as { getValue: () => string; setValue: (v: string) => void };
       if (editor.getValue() !== file.content) {
         editor.setValue(file.content);
         setIsDirty(false);
+        onDirtyChange?.(file.path, false);
       }
     }
   }, [file.content]);
+
+  // Apply settings changes to live editor
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const editor = editorRef.current as {
+      updateOptions: (opts: Record<string, unknown>) => void;
+    };
+    editor.updateOptions({
+      fontSize: settings.fontSize,
+      wordWrap: settings.wordWrap,
+      minimap: { enabled: settings.minimap },
+      tabSize: settings.tabSize,
+      lineNumbers: settings.lineNumbers,
+    });
+  }, [settings.fontSize, settings.wordWrap, settings.minimap, settings.tabSize, settings.lineNumbers]);
 
   async function saveFile(content: string) {
     setIsSaving(true);
     try {
       await api.put(`/api/files/${projectId}`, { path: file.path, content, mimeType: file.mimeType });
       setIsDirty(false);
+      onDirtyChange?.(file.path, false);
       onSave?.(content);
     } catch (err) {
       console.error("Failed to save file:", err);
@@ -89,8 +119,8 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
     <div className="relative h-full flex flex-col">
       <div className="flex items-center justify-between px-4 h-9 border-b border-border bg-muted/30 shrink-0">
         <div className="flex items-center gap-2 text-sm">
-          <span className="font-mono text-muted-foreground">{file.path}</span>
-          {isDirty && <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
+          <span className="font-mono text-muted-foreground text-xs">{file.path}</span>
+          {isDirty && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {isSaving ? (
@@ -106,7 +136,7 @@ export function CodeEditor({ projectId, file, onSave }: CodeEditorProps) {
               Save (⌘S)
             </button>
           ) : (
-            <span className="text-green-500">Saved</span>
+            <span className="text-green-500/80">Saved</span>
           )}
         </div>
       </div>
@@ -122,7 +152,8 @@ function getMonacoLanguage(mimeType: string, filename: string): string {
     jsx: "javascriptreact", html: "html", css: "css", scss: "scss", json: "json",
     md: "markdown", sh: "shell", bash: "shell", yaml: "yaml", yml: "yaml",
     toml: "toml", go: "go", rs: "rust", java: "java", cpp: "cpp", c: "c",
-    rb: "ruby", php: "php", sql: "sql",
+    rb: "ruby", php: "php", sql: "sql", vue: "html", svelte: "html",
+    kt: "kotlin", swift: "swift", lua: "lua", r: "r", dart: "dart",
   };
   return extMap[ext] ?? "plaintext";
 }

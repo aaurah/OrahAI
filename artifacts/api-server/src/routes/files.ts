@@ -126,6 +126,38 @@ router.delete("/:projectId", requireAuth, async (req: AuthenticatedRequest, res:
   } catch (err) { next(err); }
 });
 
+router.get("/:projectId/search", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params.projectId);
+    const q = String(req.query.q ?? "").trim();
+    const limit = Math.min(Number(req.query.limit) || 100, 300);
+    if (!q) { res.json({ data: [] }); return; }
+
+    await assertProjectAccess(projectId, req.user!.id);
+
+    const projectFiles = await db
+      .select({ path: files.path, content: files.content })
+      .from(files)
+      .where(and(eq(files.projectId, projectId), isNull(files.deletedAt), eq(files.isDir, false)));
+
+    const results: Array<{ path: string; line: number; preview: string }> = [];
+    const lq = q.toLowerCase();
+
+    for (const file of projectFiles) {
+      const lines = (file.content ?? "").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(lq)) {
+          results.push({ path: file.path, line: i + 1, preview: lines[i].slice(0, 300) });
+          if (results.length >= limit) break;
+        }
+      }
+      if (results.length >= limit) break;
+    }
+
+    res.json({ data: results });
+  } catch (err) { next(err); }
+});
+
 router.post("/:projectId/rename", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({ oldPath: z.string(), newPath: z.string() });

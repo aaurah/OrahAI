@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   Bot, Code2, LayoutDashboard, Rocket, ChevronDown, LogOut, User, Shield,
-  Sun, Moon, Circle,
+  Sun, Moon, Circle, Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -15,8 +15,9 @@ import { signOut } from "@/lib/auth";
 import { useTheme, type Theme } from "@/contexts/ThemeContext";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/deployments", label: "Deployments", icon: Rocket },
+  { href: "/dashboard",   label: "Dashboard",   icon: LayoutDashboard },
+  { href: "/explore",     label: "Explore",     icon: Globe           },
+  { href: "/deployments", label: "Deployments", icon: Rocket          },
 ];
 
 const THEME_OPTS: { value: Theme; label: string; Icon: React.ElementType }[] = [

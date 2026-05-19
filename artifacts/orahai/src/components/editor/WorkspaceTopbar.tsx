@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import {
   Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
   ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown, Sprout,
+  Search, Package, Settings, Command,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,13 @@ interface Props {
   autoDevEnabled: boolean;
   onAutoDevToggle: () => void;
   growthCount?: number;
+  searchOpen: boolean;
+  onSearchToggle: () => void;
+  packagesOpen: boolean;
+  onPackagesToggle: () => void;
+  settingsOpen: boolean;
+  onSettingsToggle: () => void;
+  onCommandPalette: () => void;
 }
 
 const LANG_COLORS: Record<string, string> = {
@@ -36,10 +44,16 @@ const LANG_COLORS: Record<string, string> = {
   python:     "bg-yellow-400",
   typescript: "bg-blue-500",
   html:       "bg-orange-400",
+  go:         "bg-cyan-400",
+  rust:       "bg-orange-600",
+  ruby:       "bg-red-400",
+  java:       "bg-red-500",
 };
 
 const LANG_LABELS: Record<string, string> = {
   nodejs: "Node", python: "Python", typescript: "TypeScript", html: "HTML",
+  go: "Go", rust: "Rust", ruby: "Ruby", java: "Java", php: "PHP",
+  cpp: "C++", csharp: "C#",
 };
 
 export function WorkspaceTopbar({
@@ -51,6 +65,10 @@ export function WorkspaceTopbar({
   secretsOpen, onSecretsToggle, showSecrets = false,
   deployOpen, onDeployToggle,
   autoDevEnabled, onAutoDevToggle, growthCount = 0,
+  searchOpen, onSearchToggle,
+  packagesOpen, onPackagesToggle,
+  settingsOpen, onSettingsToggle,
+  onCommandPalette,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -89,6 +107,14 @@ export function WorkspaceTopbar({
         )}
 
         <div className="flex-1" />
+
+        {/* Command palette shortcut */}
+        <button onClick={onCommandPalette} title="Command Palette (Ctrl+K)"
+          className="hidden md:flex items-center gap-1.5 h-7 px-2 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mr-1">
+          <Command className="w-3 h-3" />
+          <span className="hidden lg:inline">Search…</span>
+          <kbd className="hidden lg:inline text-[10px] px-1 rounded bg-muted border border-border">⌘K</kbd>
+        </button>
 
         {/* ── Run button ──────────────────────────────────────────────── */}
         <button
@@ -144,6 +170,13 @@ export function WorkspaceTopbar({
             <MessageSquare className="w-4 h-4" />
           </TooltipBtn>
           <div className="w-px h-4 bg-border mx-0.5" />
+          <TooltipBtn label="Search files (Ctrl+Shift+F)" active={searchOpen} onClick={onSearchToggle}>
+            <Search className="w-4 h-4" />
+          </TooltipBtn>
+          <TooltipBtn label="Packages" active={packagesOpen} onClick={onPackagesToggle}>
+            <Package className="w-4 h-4" />
+          </TooltipBtn>
+          <div className="w-px h-4 bg-border mx-0.5" />
           <TooltipBtn label="Import" onClick={() => setImportOpen(true)}>
             <Upload className="w-4 h-4" />
           </TooltipBtn>
@@ -157,6 +190,10 @@ export function WorkspaceTopbar({
           )}
           <TooltipBtn label="Deploy" active={deployOpen} onClick={onDeployToggle}>
             <Rocket className="w-4 h-4" />
+          </TooltipBtn>
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <TooltipBtn label="Editor settings" active={settingsOpen} onClick={onSettingsToggle}>
+            <Settings className="w-4 h-4" />
           </TooltipBtn>
         </div>
 
