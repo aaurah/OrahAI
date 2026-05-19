@@ -12,6 +12,7 @@ import { DeployPanel } from "@/components/editor/DeployPanel";
 import { SetupBanner } from "@/components/editor/SetupBanner";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
+import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,8 @@ export default function WorkspacePage() {
   const [, navigate] = useLocation();
   const { project, isLoading, mutate: mutateProject } = useProject(id ?? null);
   const { runs, mutate: mutateRuns } = useRuns(id ?? null);
+  const { user: currentUser } = useAuth();
+  const isProjectOwner = !!(project && currentUser && project.ownerId === currentUser.id);
   const latestRun = runs[0] ?? null;
 
   const isSetupMode = new URLSearchParams(search).get("setup") === "1";
@@ -221,6 +224,7 @@ export default function WorkspacePage() {
         onPreviewToggle={() => setPreviewOpen((v) => !v)}
         secretsOpen={secretsOpen}
         onSecretsToggle={() => setSecretsOpen((v) => !v)}
+        showSecrets={isProjectOwner}
         deployOpen={deployOpen}
         onDeployToggle={() => setDeployOpen((v) => !v)}
         autoDevEnabled={autoDevEnabled}
@@ -297,7 +301,7 @@ export default function WorkspacePage() {
             <GitHubPanel projectId={project.id} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
           </div>
         )}
-        {!chatOpen && !githubOpen && secretsOpen && (
+        {!chatOpen && !githubOpen && secretsOpen && isProjectOwner && (
           <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
             <SecretsPanel projectId={project.id} />
           </div>
@@ -388,7 +392,7 @@ export default function WorkspacePage() {
           <div ref={moreRef} className="absolute bottom-16 right-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
             {[
               { label: "GitHub",  icon: <Github className="w-4 h-4" />,  action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
-              { label: "Secrets", icon: <KeyRound className="w-4 h-4" />, action: () => { setMobileTab("editor"); setSecretsOpen(true); setMoreMenuOpen(false); } },
+              ...(isProjectOwner ? [{ label: "Secrets", icon: <KeyRound className="w-4 h-4" />, action: () => { setMobileTab("editor"); setSecretsOpen(true); setMoreMenuOpen(false); } }] : []),
               { label: "Deploy",  icon: <Rocket className="w-4 h-4" />,  action: () => { setMobileTab("editor"); setDeployOpen(true); setMoreMenuOpen(false); } },
             ].map((item) => (
               <button key={item.label} onClick={item.action}

@@ -23,6 +23,7 @@ interface Props {
   onPreviewToggle: () => void;
   secretsOpen: boolean;
   onSecretsToggle: () => void;
+  showSecrets?: boolean;
   deployOpen: boolean;
   onDeployToggle: () => void;
   autoDevEnabled: boolean;
@@ -47,7 +48,7 @@ export function WorkspaceTopbar({
   terminalOpen, onTerminalToggle,
   githubOpen, onGithubToggle,
   previewOpen, onPreviewToggle,
-  secretsOpen, onSecretsToggle,
+  secretsOpen, onSecretsToggle, showSecrets = false,
   deployOpen, onDeployToggle,
   autoDevEnabled, onAutoDevToggle, growthCount = 0,
 }: Props) {
@@ -149,9 +150,11 @@ export function WorkspaceTopbar({
           <TooltipBtn label="GitHub" active={githubOpen} onClick={onGithubToggle} highlight={!!project.githubRepo}>
             <Github className="w-4 h-4" />
           </TooltipBtn>
-          <TooltipBtn label="Secrets" active={secretsOpen} onClick={onSecretsToggle}>
-            <KeyRound className="w-4 h-4" />
-          </TooltipBtn>
+          {showSecrets && (
+            <TooltipBtn label="Secrets" active={secretsOpen} onClick={onSecretsToggle}>
+              <KeyRound className="w-4 h-4" />
+            </TooltipBtn>
+          )}
           <TooltipBtn label="Deploy" active={deployOpen} onClick={onDeployToggle}>
             <Rocket className="w-4 h-4" />
           </TooltipBtn>

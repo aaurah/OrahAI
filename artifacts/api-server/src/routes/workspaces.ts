@@ -132,6 +132,13 @@ router.delete("/:id/members/:userId", requireAuth, async (req: AuthenticatedRequ
     const userId = String(req.params.userId);
     const isSelf = userId === req.user!.id;
     if (!isSelf) await assertWorkspaceRole(id, req.user!.id, ["owner", "admin"]);
+
+    const [target] = await db.select().from(memberships)
+      .where(and(eq(memberships.userId, userId), eq(memberships.workspaceId, id)))
+      .limit(1);
+    if (!target) return next(createError("Member not found", 404));
+    if (target.role === "owner") return next(createError("The workspace owner cannot be removed", 403));
+
     await db.delete(memberships).where(and(eq(memberships.userId, userId), eq(memberships.workspaceId, id)));
     res.json({ data: null, message: "Member removed" });
   } catch (err) { next(err); }

@@ -1,7 +1,7 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { db, projects, projectSecrets, memberships } from "@workspace/db";
-import { eq, and, or, isNull, sql } from "drizzle-orm";
+import { db, projects, projectSecrets } from "@workspace/db";
+import { eq, and, isNull } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
@@ -9,22 +9,17 @@ import { cuid } from "../lib/cuid";
 const router = Router();
 router.use(requireAuth);
 
-async function assertProjectAccess(projectId: string, userId: string) {
-  const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
-    .from(memberships).where(eq(memberships.userId, userId));
+async function assertProjectOwner(projectId: string, userId: string) {
   const [p] = await db.select().from(projects)
-    .where(and(
-      eq(projects.id, projectId),
-      isNull(projects.deletedAt),
-      or(eq(projects.ownerId, userId), sql`${projects.workspaceId} IN (${memberSubquery})`),
-    )).limit(1);
-  if (!p) throw createError("Project not found", 404);
+    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt), eq(projects.ownerId, userId)))
+    .limit(1);
+  if (!p) throw createError("Project not found or insufficient permissions", 403);
   return p;
 }
 
 router.get("/:projectId/secrets", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectOwner(req.params.projectId, req.user!.id);
     const rows = await db.select().from(projectSecrets)
       .where(eq(projectSecrets.projectId, req.params.projectId));
     res.json({ data: rows.map(r => ({ ...r, value: r.value ? "••••••••" : "" })) });
@@ -33,7 +28,7 @@ router.get("/:projectId/secrets", async (req: AuthenticatedRequest, res: Respons
 
 router.get("/:projectId/secrets/:id/reveal", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectOwner(req.params.projectId, req.user!.id);
     const [row] = await db.select().from(projectSecrets)
       .where(and(eq(projectSecrets.id, req.params.id), eq(projectSecrets.projectId, req.params.projectId)))
       .limit(1);
@@ -44,7 +39,7 @@ router.get("/:projectId/secrets/:id/reveal", async (req: AuthenticatedRequest, r
 
 router.post("/:projectId/secrets", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectOwner(req.params.projectId, req.user!.id);
     const schema = z.object({ key: z.string().min(1).max(256).regex(/^[A-Z_][A-Z0-9_]*$/i, "Key must be alphanumeric with underscores"), value: z.string().max(8192) });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError(parsed.error.errors[0]?.message ?? "Validation error", 400));
@@ -60,7 +55,7 @@ router.post("/:projectId/secrets", async (req: AuthenticatedRequest, res: Respon
 
 router.patch("/:projectId/secrets/:id", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectOwner(req.params.projectId, req.user!.id);
     const schema = z.object({ value: z.string().max(8192) });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400));
@@ -75,7 +70,7 @@ router.patch("/:projectId/secrets/:id", async (req: AuthenticatedRequest, res: R
 
 router.delete("/:projectId/secrets/:id", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    await assertProjectAccess(req.params.projectId, req.user!.id);
+    await assertProjectOwner(req.params.projectId, req.user!.id);
     await db.delete(projectSecrets)
       .where(and(eq(projectSecrets.id, req.params.id), eq(projectSecrets.projectId, req.params.projectId)));
     res.json({ data: null, message: "Secret deleted" });
