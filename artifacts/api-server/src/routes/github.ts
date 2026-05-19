@@ -10,7 +10,7 @@ import { config } from "../lib/config";
 import {
   parseGitHubUrl, getRepo, getRepoTree, downloadFiles,
   getBranchSha, createOrUpdateFile, getMimeType, isImportable,
-  createRepo, getAuthenticatedUser,
+  createRepo, getAuthenticatedUser, enablePages,
   LANGUAGE_MAP,
 } from "../lib/github";
 
@@ -647,8 +647,20 @@ router.post("/projects/:id/deploy", async (req: AuthenticatedRequest, res: Respo
     const pagesUrl = `https://${owner.toLowerCase()}.github.io/${repo}/`;
     const settingsUrl = `https://github.com/${owner}/${repo}/settings/pages`;
 
+    // Auto-enable GitHub Pages so users don't have to do it manually.
+    // Will 409 (already on) gracefully. Throws for private repos on free plans.
+    let pagesEnabled = false;
+    let pagesWarning: string | null = null;
+    try {
+      pagesEnabled = await enablePages(owner, repo, deployBranch, token);
+    } catch (e: unknown) {
+      const err = e as Error & { statusCode?: number };
+      // 403/404 usually means private repo on free plan — not fatal
+      pagesWarning = err.message ?? "Could not auto-enable GitHub Pages";
+    }
+
     res.json({
-      data: { pushed, url: pagesUrl, settingsUrl, branch: deployBranch },
+      data: { pushed, url: pagesUrl, settingsUrl, branch: deployBranch, pagesEnabled, pagesWarning },
       message: `Deployed ${pushed} file${pushed !== 1 ? "s" : ""} to GitHub Pages`,
     });
   } catch (err) { next(err); }

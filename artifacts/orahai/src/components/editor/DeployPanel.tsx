@@ -17,6 +17,8 @@ interface DeployResult {
   url: string;
   settingsUrl: string;
   branch: string;
+  pagesEnabled: boolean;
+  pagesWarning: string | null;
   deployedAt: string;
 }
 
@@ -123,7 +125,7 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
     if (deploying) return;
     setDeploying(true); setDeployError(null);
     try {
-      const res = await api.post<{ data: { pushed: number; url: string; settingsUrl: string; branch: string } }>(
+      const res = await api.post<{ data: { pushed: number; url: string; settingsUrl: string; branch: string; pagesEnabled: boolean; pagesWarning: string | null } }>(
         `/api/github/projects/${project.id}/deploy`,
         { message: commitMsg || "Deploy from OrahAI" },
       );
@@ -451,9 +453,9 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
                   <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-2">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">How it works</p>
                     {[
-                      { n: "1", text: <>OrahAI pushes your files to a <code className="bg-muted px-1 rounded">gh-pages</code> branch (with <code className="bg-muted px-1 rounded">.nojekyll</code> so all file types are served correctly).</> },
-                      { n: "2", text: <>In your repo's <strong className="text-foreground">Settings → Pages</strong>, set the source to the <code className="bg-muted px-1 rounded">gh-pages</code> branch. The repo must be <strong className="text-foreground">public</strong> on free GitHub plans.</> },
-                      { n: "3", text: <>GitHub builds and publishes your site at <code className="bg-muted px-1 rounded">https://&lt;user&gt;.github.io/&lt;repo&gt;/</code> — usually within a minute.</> },
+                      { n: "1", text: <>OrahAI pushes your files to a <code className="bg-muted px-1 rounded">gh-pages</code> branch and adds <code className="bg-muted px-1 rounded">.nojekyll</code> so all file types are served correctly.</> },
+                      { n: "2", text: <>GitHub Pages is <strong className="text-foreground">enabled automatically</strong> on your repo. If the repo is private you'll need to upgrade to GitHub Pro or make it public first.</> },
+                      { n: "3", text: <>Your site goes live at <code className="bg-muted px-1 rounded">https://&lt;user&gt;.github.io/&lt;repo&gt;/</code> — GitHub usually takes under a minute to build and publish.</> },
                     ].map(({ n, text }) => (
                       <div key={n} className="flex gap-2.5">
                         <span className="w-4 h-4 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{n}</span>
@@ -475,27 +477,48 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
                   )}
 
                   {lastDeploy && !deployError && (
-                    <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 space-y-2">
+                    <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 space-y-2.5">
+                      {/* Files pushed */}
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
                         <p className="text-xs text-green-600 dark:text-green-400 font-medium">
                           Pushed {lastDeploy.pushed} file{lastDeploy.pushed !== 1 ? "s" : ""} to <code className="bg-green-500/20 px-1 rounded">gh-pages</code>
                         </p>
                       </div>
-                      <div className="flex items-center gap-2 bg-muted/40 rounded px-2.5 py-1.5 border border-border/60">
-                        <span className="text-[10px] font-mono text-muted-foreground flex-1 break-all">{lastDeploy.url}</span>
-                        <CopyButton text={lastDeploy.url} />
-                        <a href={lastDeploy.url} target="_blank" rel="noopener noreferrer"
-                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Open site">
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
+
+                      {/* Pages enable status */}
+                      {lastDeploy.pagesWarning ? (
+                        <div className="flex items-start gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          <div className="space-y-1 min-w-0">
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400">{lastDeploy.pagesWarning}</p>
+                            <a href={lastDeploy.settingsUrl} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 hover:underline">
+                              Enable manually in Settings → Pages <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                          <p className="text-xs text-green-600 dark:text-green-400">
+                            {lastDeploy.pagesEnabled ? "GitHub Pages enabled automatically" : "GitHub Pages already enabled"}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Live URL */}
+                      <div>
+                        <p className="text-[10px] text-muted-foreground mb-1">Your site will be live at (takes ~1 min to build):</p>
+                        <div className="flex items-center gap-2 bg-muted/40 rounded px-2.5 py-1.5 border border-border/60">
+                          <span className="text-[10px] font-mono text-muted-foreground flex-1 break-all">{lastDeploy.url}</span>
+                          <CopyButton text={lastDeploy.url} />
+                          <a href={lastDeploy.url} target="_blank" rel="noopener noreferrer"
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Open site">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
                       </div>
-                      <a href={lastDeploy.settingsUrl} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-xs text-primary hover:underline">
-                        <Github className="w-3 h-3" />
-                        Enable Pages in repo Settings → Pages
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
                     </div>
                   )}
 

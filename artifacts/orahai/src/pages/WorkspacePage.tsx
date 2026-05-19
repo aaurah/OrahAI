@@ -298,7 +298,7 @@ export default function WorkspacePage() {
         )}
         {!chatOpen && githubOpen && (
           <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <GitHubPanel projectId={project.id} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
+            <GitHubPanel projectId={project.id} projectName={project.name} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
           </div>
         )}
         {!chatOpen && !githubOpen && secretsOpen && isProjectOwner && (
@@ -335,7 +335,7 @@ export default function WorkspacePage() {
                     <button onClick={() => setGithubOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
                   </div>
                   <div className="flex-1 overflow-hidden">
-                    <GitHubPanel projectId={project.id} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
+                    <GitHubPanel projectId={project.id} projectName={project.name} onSynced={() => { mutateProject(); setFileRefreshKey((k) => k + 1); }} />
                   </div>
                 </div>
               ) : secretsOpen && isProjectOwner ? (

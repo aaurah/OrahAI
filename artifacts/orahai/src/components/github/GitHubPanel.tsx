@@ -1,21 +1,28 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Github, GitBranch, RefreshCw, Upload, Unlink, Link2,
-  Loader2, CheckCircle2, Key, ExternalLink, X,
+  Loader2, CheckCircle2, Key, ExternalLink, X, Plus, Lock, Globe,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { api, API_BASE } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
+import { cn } from "@/lib/utils";
 import type { ApiResponse, GitHubProjectStatus, GitHubSyncResult, GitHubPushResult } from "@/types";
 
 interface Props {
   projectId: string;
+  projectName?: string;
   onSynced?: () => void;
 }
 
-export function GitHubPanel({ projectId, onSynced }: Props) {
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 100) || "my-project";
+}
+
+export function GitHubPanel({ projectId, projectName, onSynced }: Props) {
   const [status, setStatus] = useState<GitHubProjectStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [oauthConfigured, setOauthConfigured] = useState(false);
@@ -34,6 +41,14 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
   const [isSavingToken, setIsSavingToken] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
 
+  // "Push as new repo" state
+  const [activeTab, setActiveTab] = useState<"new" | "connect">("new");
+  const [newRepoName, setNewRepoName] = useState("");
+  const [newRepoPrivate, setNewRepoPrivate] = useState(false);
+  const [newRepoDesc, setNewRepoDesc] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const popupRef = useRef<Window | null>(null);
 
   const refresh = async () => {
@@ -45,11 +60,17 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
 
   useEffect(() => {
     refresh();
-    // Check if OAuth is configured on this server
     api.get<ApiResponse<{ configured: boolean }>>("/api/github/oauth/configured")
       .then(r => setOauthConfigured(r.data.configured))
       .catch(() => setOauthConfigured(false));
   }, [projectId]);
+
+  // Pre-fill repo name from project name
+  useEffect(() => {
+    if (projectName && !newRepoName) {
+      setNewRepoName(slugify(projectName));
+    }
+  }, [projectName]);
 
   // Listen for OAuth popup message
   useEffect(() => {
@@ -83,12 +104,8 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
     popupRef.current = popup;
     setIsOAuthLoading(true);
 
-    // Detect if popup closes without postMessage (user closed manually)
     const poll = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(poll);
-        setIsOAuthLoading(false);
-      }
+      if (popup.closed) { clearInterval(poll); setIsOAuthLoading(false); }
     }, 500);
   };
 
@@ -159,6 +176,23 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
     } finally { setIsPushing(false); }
   };
 
+  const handleCreateAndPush = async () => {
+    const name = newRepoName.trim();
+    if (!name) { toast({ title: "Enter a repository name", variant: "destructive" }); return; }
+    setIsCreating(true);
+    try {
+      const res = await api.post<ApiResponse<{ repoUrl: string; pushed: number }>>(
+        `/api/github/projects/${projectId}/create-and-push`,
+        { repoName: name, private: newRepoPrivate, description: newRepoDesc.trim() },
+      );
+      toast({ title: `Pushed to GitHub`, description: res.message ?? `${res.data.pushed} files pushed to ${name}` });
+      onSynced?.();
+      await refresh();
+    } catch (err: unknown) {
+      toast({ title: (err as Error).message, variant: "destructive" });
+    } finally { setIsCreating(false); }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-24">
@@ -182,7 +216,6 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
         {/* ── Auth section ──────────────────────────────────────── */}
         {!hasToken && (
           <div className="space-y-3">
-            {/* OAuth button (shown when configured) */}
             {oauthConfigured && (
               <button
                 onClick={handleOAuth}
@@ -196,7 +229,6 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
               </button>
             )}
 
-            {/* PAT fallback */}
             <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <Key className="w-3.5 h-3.5 text-muted-foreground" />
@@ -204,30 +236,23 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
                   {oauthConfigured ? "Or use a Personal Access Token" : "Connect with GitHub"}
                 </span>
               </div>
-
               {!oauthConfigured && (
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   Add a GitHub Personal Access Token to push code, pull repositories, and sync your work.
                 </p>
               )}
-
               {!showTokenForm ? (
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowTokenForm(true)}
-                    className="text-xs text-primary hover:underline"
-                  >
+                  <button onClick={() => setShowTokenForm(true)} className="text-xs text-primary hover:underline">
                     {oauthConfigured ? "Use a token instead" : "Add token →"}
                   </button>
                   <span className="text-muted-foreground text-xs">·</span>
                   <a
                     href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=OrahAI"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    target="_blank" rel="noopener noreferrer"
                     className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors"
                   >
-                    Create token
-                    <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                    Create token <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
                   </a>
                 </div>
               ) : (
@@ -242,21 +267,11 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
                     autoFocus
                   />
                   <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleSaveToken}
-                      disabled={isSavingToken || !tokenInput.trim()}
-                      className="h-7 text-xs gap-1"
-                    >
+                    <Button size="sm" onClick={handleSaveToken} disabled={isSavingToken || !tokenInput.trim()} className="h-7 text-xs gap-1">
                       {isSavingToken && <Loader2 className="w-3 h-3 animate-spin" />}
                       Save token
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => { setShowTokenForm(false); setTokenInput(""); }}
-                      className="h-7 text-xs"
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => { setShowTokenForm(false); setTokenInput(""); }} className="h-7 text-xs">
                       <X className="w-3 h-3" />
                     </Button>
                   </div>
@@ -290,35 +305,147 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
           </div>
         )}
 
-        {/* ── Connect repo ──────────────────────────────────────── */}
-        {!isConnected && (
-          <div className="space-y-2">
-            <Label className="text-xs">Connect a repository</Label>
-            <Input
-              placeholder="https://github.com/owner/repo"
-              value={connectUrl}
-              onChange={(e) => setConnectUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleConnect(); }}
-              className="h-7 text-xs"
-            />
-            <div className="flex gap-2">
-              <Input
-                placeholder="Branch (main)"
-                value={connectBranch}
-                onChange={(e) => setConnectBranch(e.target.value)}
-                className="h-7 text-xs w-28 shrink-0"
-              />
-              <Button
-                size="sm"
-                onClick={handleConnect}
-                disabled={isConnecting || !connectUrl.trim()}
-                className="h-7 text-xs gap-1 flex-1"
+        {/* ── Tab switcher: "Push as new repo" | "Connect existing" ── */}
+        {hasToken && !isConnected && (
+          <>
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => setActiveTab("new")}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 h-7 text-xs font-medium transition-colors",
+                  activeTab === "new"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                )}
               >
-                {isConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                Connect
-              </Button>
+                <Plus className="w-3 h-3" />
+                New repo
+              </button>
+              <button
+                onClick={() => setActiveTab("connect")}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 h-7 text-xs font-medium transition-colors border-l border-border",
+                  activeTab === "connect"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                )}
+              >
+                <Link2 className="w-3 h-3" />
+                Existing repo
+              </button>
             </div>
-          </div>
+
+            {/* ── Push as new repo ──────────────────────────────── */}
+            {activeTab === "new" && (
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Repository name</Label>
+                  <Input
+                    placeholder="my-project"
+                    value={newRepoName}
+                    onChange={(e) => setNewRepoName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCreateAndPush(); }}
+                    className="h-7 text-xs font-mono"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Visibility toggle */}
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  <button
+                    onClick={() => setNewRepoPrivate(false)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 h-7 text-xs font-medium transition-colors",
+                      !newRepoPrivate
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/30",
+                    )}
+                  >
+                    <Globe className="w-3 h-3" />
+                    Public
+                  </button>
+                  <button
+                    onClick={() => setNewRepoPrivate(true)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 h-7 text-xs font-medium transition-colors border-l border-border",
+                      newRepoPrivate
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/30",
+                    )}
+                  >
+                    <Lock className="w-3 h-3" />
+                    Private
+                  </button>
+                </div>
+
+                {/* Advanced: description */}
+                <button
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  {showAdvanced ? "Hide options" : "More options"}
+                </button>
+                {showAdvanced && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Description (optional)</Label>
+                    <Input
+                      placeholder="What this project does"
+                      value={newRepoDesc}
+                      onChange={(e) => setNewRepoDesc(e.target.value)}
+                      className="h-7 text-xs"
+                    />
+                  </div>
+                )}
+
+                <Button
+                  size="sm"
+                  onClick={handleCreateAndPush}
+                  disabled={isCreating || !newRepoName.trim()}
+                  className="w-full h-8 text-xs gap-2"
+                >
+                  {isCreating
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Creating &amp; pushing…</>
+                    : <><Github className="w-3.5 h-3.5" />Create repo &amp; push</>}
+                </Button>
+                <p className="text-[10px] text-muted-foreground">
+                  Creates <code className="bg-muted px-1 rounded">{newRepoName.trim() || "my-project"}</code> on GitHub and pushes all project files to it.
+                </p>
+              </div>
+            )}
+
+            {/* ── Connect existing repo ─────────────────────────── */}
+            {activeTab === "connect" && (
+              <div className="space-y-2">
+                <Label className="text-xs">Repository URL</Label>
+                <Input
+                  placeholder="https://github.com/owner/repo"
+                  value={connectUrl}
+                  onChange={(e) => setConnectUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleConnect(); }}
+                  className="h-7 text-xs"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Branch (main)"
+                    value={connectBranch}
+                    onChange={(e) => setConnectBranch(e.target.value)}
+                    className="h-7 text-xs w-28 shrink-0"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleConnect}
+                    disabled={isConnecting || !connectUrl.trim()}
+                    className="h-7 text-xs gap-1 flex-1"
+                  >
+                    {isConnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                    Connect
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* ── Connected state ───────────────────────────────────── */}
@@ -329,8 +456,7 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
                 <Github className="w-3.5 h-3.5 text-primary" />
                 <a
                   href={`https://github.com/${status!.githubRepo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target="_blank" rel="noopener noreferrer"
                   className="text-xs font-medium text-primary hover:underline truncate"
                 >
                   {status!.githubRepo}
@@ -357,30 +483,15 @@ export function GitHubPanel({ projectId, onSynced }: Props) {
               </div>
             )}
 
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handlePull}
-              disabled={isPulling}
-              className="w-full h-8 text-xs gap-2"
-            >
+            <Button size="sm" variant="outline" onClick={handlePull} disabled={isPulling} className="w-full h-8 text-xs gap-2">
               {isPulling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               Pull latest from GitHub
             </Button>
 
             <div className="space-y-1.5">
               <Label className="text-xs">Commit message</Label>
-              <Input
-                value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                className="h-7 text-xs"
-              />
-              <Button
-                size="sm"
-                onClick={handlePush}
-                disabled={isPushing || !hasToken}
-                className="w-full h-8 text-xs gap-2"
-              >
+              <Input value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)} className="h-7 text-xs" />
+              <Button size="sm" onClick={handlePush} disabled={isPushing || !hasToken} className="w-full h-8 text-xs gap-2">
                 {isPushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                 Push to GitHub
               </Button>

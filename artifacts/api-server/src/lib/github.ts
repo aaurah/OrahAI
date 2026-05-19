@@ -249,6 +249,40 @@ export function getMimeType(path: string): string {
   return map[ext] ?? "text/plain";
 }
 
+/**
+ * Enable GitHub Pages for a repo, sourcing from the given branch at "/".
+ * Gracefully handles 409 (already enabled) and 422 (already configured).
+ * Returns true if Pages was freshly enabled, false if it was already on.
+ */
+export async function enablePages(owner: string, repo: string, branch: string, token: string): Promise<boolean> {
+  const body = JSON.stringify({ source: { branch, path: "/" } });
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/vnd.github.v3+json",
+    "Authorization": `Bearer ${token}`,
+    "User-Agent": "OrahAI/1.0",
+  };
+
+  // Try to create Pages (will 409 if already exists)
+  const createRes = await fetch(`${GH_API}/repos/${owner}/${repo}/pages`, {
+    method: "POST", headers, body,
+  });
+  if (createRes.status === 201) return true;
+  if (createRes.status === 409 || createRes.status === 422) {
+    // Already enabled — update the source branch to make sure it's gh-pages
+    await fetch(`${GH_API}/repos/${owner}/${repo}/pages`, {
+      method: "PUT", headers, body,
+    });
+    return false;
+  }
+  // Non-critical failure (e.g. private repo on free plan) — don't throw,
+  // just let the caller surface a helpful message.
+  const errBody = await createRes.json().catch(() => ({})) as { message?: string };
+  const err = new Error(errBody.message ?? `GitHub Pages API error ${createRes.status}`) as Error & { statusCode: number };
+  err.statusCode = createRes.status;
+  throw err;
+}
+
 export const LANGUAGE_MAP: Record<string, string> = {
   JavaScript: "nodejs", TypeScript: "typescript",
   Python: "python", HTML: "html", CSS: "html",
