@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Rocket, Github, Download, ExternalLink, Loader2, CheckCircle2,
   XCircle, Globe, ChevronDown, ChevronUp, Monitor,
-  AlertCircle, Smartphone, Copy, Check, RefreshCw, Link2,
+  AlertCircle, Smartphone, Copy, Check, RefreshCw, Link2, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -94,7 +94,7 @@ function CmdBlock({ cmd }: { cmd: string }) {
 
 export function DeployPanel({ project, onProjectUpdate }: Props) {
   const slugified = project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const [deployTab, setDeployTab] = useState<"publish" | "domains" | "github" | "download" | "mobile">("publish");
+  const [deployTab, setDeployTab] = useState<"publish" | "domains" | "vercel" | "netlify" | "github" | "download" | "mobile">("publish");
 
   // GitHub state
   const [deploying, setDeploying] = useState(false);
@@ -174,6 +174,8 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
         {([
           { id: "publish",  label: "Publish",  icon: Globe },
           { id: "domains",  label: "Domains",  icon: Link2 },
+          { id: "vercel",   label: "Vercel",   icon: Zap },
+          { id: "netlify",  label: "Netlify",  icon: Rocket },
           { id: "mobile",   label: "Mobile",   icon: Smartphone },
           { id: "github",   label: "GitHub",   icon: Github },
           { id: "download", label: "Download", icon: Download },
@@ -285,6 +287,146 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
         {/* ── DOMAINS TAB ─────────────────────────────────────────────── */}
         {deployTab === "domains" && (
           <DomainsPanel project={project} />
+        )}
+
+        {/* ── VERCEL TAB ──────────────────────────────────────────────── */}
+        {deployTab === "vercel" && (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-foreground flex items-center justify-center shrink-0">
+                <svg viewBox="0 0 76 65" className="w-5 h-5 fill-background" aria-hidden="true"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" /></svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Deploy to Vercel</p>
+                <p className="text-xs text-muted-foreground">Serverless, edge-optimised global deployment</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Option 1 — Vercel CLI</p>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-muted-foreground">Install CLI globally</p>
+                <CmdBlock cmd="npm install -g vercel" />
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-muted-foreground">Download your project (Download tab), then run:</p>
+                <CmdBlock cmd="cd {project-folder} && vercel --prod" />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Option 2 — GitHub → Vercel</p>
+              <ol className="space-y-2">
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">1.</span>
+                  Push to GitHub using the <button onClick={() => setDeployTab("github")} className="text-primary underline hover:no-underline">GitHub tab</button>
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">2.</span>
+                  Go to <a href="https://vercel.com/new" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline inline-flex items-center gap-1">vercel.com/new <ExternalLink className="w-3 h-3" /></a>
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">3.</span>
+                  Import your repository — Vercel auto-detects the framework
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">4.</span>
+                  Click <strong className="text-foreground">Deploy</strong> — live URL in ~60 seconds
+                </li>
+              </ol>
+            </div>
+
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">Vercel Free tier includes</p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">✓ 100 GB bandwidth / month</p>
+                <p className="text-xs text-muted-foreground">✓ Serverless functions</p>
+                <p className="text-xs text-muted-foreground">✓ Automatic HTTPS + CDN</p>
+                <p className="text-xs text-muted-foreground">✓ Preview deployments on every push</p>
+              </div>
+            </div>
+
+            <a href="https://vercel.com/docs" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+              Vercel Docs <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        )}
+
+        {/* ── NETLIFY TAB ─────────────────────────────────────────────── */}
+        {deployTab === "netlify" && (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#00c7b7] flex items-center justify-center shrink-0">
+                <svg viewBox="0 0 40 40" className="w-5 h-5 fill-white" aria-hidden="true"><path d="M27.8 10.2l-1.7 1.7-5.3-5.3v18.3h-2.4V6.6l-5.3 5.3-1.7-1.7L20 2l7.8 8.2zM34 24.8l-7.8 8.2-7.8-8.2 1.7-1.7 5.3 5.3V10.1h2.4v18.3l5.3-5.3 1.9 1.7z"/></svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Deploy to Netlify</p>
+                <p className="text-xs text-muted-foreground">Continuous deployment with built-in CI/CD</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Option 1 — Drag &amp; Drop</p>
+              <ol className="space-y-2">
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">1.</span>
+                  Download your project ZIP using the <button onClick={() => setDeployTab("download")} className="text-primary underline hover:no-underline">Download tab</button>
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">2.</span>
+                  Unzip it locally and run your build (e.g. <span className="font-mono text-foreground">npm run build</span>)
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">3.</span>
+                  Drag the <span className="font-mono text-foreground">dist/</span> folder to <a href="https://app.netlify.com/drop" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline inline-flex items-center gap-1">app.netlify.com/drop <ExternalLink className="w-3 h-3" /></a>
+                </li>
+              </ol>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Option 2 — Netlify CLI</p>
+              <div className="space-y-1.5">
+                <CmdBlock cmd="npm install -g netlify-cli" />
+              </div>
+              <div className="space-y-1.5">
+                <CmdBlock cmd="netlify deploy --prod --dir=dist" />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Option 3 — GitHub → Netlify</p>
+              <ol className="space-y-2">
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">1.</span>
+                  Push to GitHub via the <button onClick={() => setDeployTab("github")} className="text-primary underline hover:no-underline">GitHub tab</button>
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">2.</span>
+                  Go to <a href="https://app.netlify.com" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline inline-flex items-center gap-1">app.netlify.com <ExternalLink className="w-3 h-3" /></a> → Add new site → Import from Git
+                </li>
+                <li className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
+                  <span className="font-mono text-primary shrink-0 font-bold">3.</span>
+                  Set build command + publish directory — Netlify detects most frameworks automatically
+                </li>
+              </ol>
+            </div>
+
+            <div className="rounded-xl border border-[#00c7b7]/20 bg-[#00c7b7]/5 p-3">
+              <p className="text-xs font-semibold text-[#00a89a] mb-1">Netlify Free tier includes</p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">✓ 100 GB bandwidth / month</p>
+                <p className="text-xs text-muted-foreground">✓ 300 build minutes / month</p>
+                <p className="text-xs text-muted-foreground">✓ Automatic HTTPS + CDN</p>
+                <p className="text-xs text-muted-foreground">✓ Form handling + serverless functions</p>
+              </div>
+            </div>
+
+            <a href="https://docs.netlify.com" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+              Netlify Docs <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
         )}
 
         {/* ── MOBILE TAB ──────────────────────────────────────────────── */}

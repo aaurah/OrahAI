@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/dashboard",   label: "Dashboard",   icon: LayoutDashboard },
   { href: "/explore",     label: "Explore",     icon: Globe           },
   { href: "/deployments", label: "Deployments", icon: Rocket          },
+  { href: "/vision",      label: "Vision",      icon: Code2           },
 ];
 
 const THEME_OPTS: { value: Theme; label: string; Icon: React.ElementType }[] = [

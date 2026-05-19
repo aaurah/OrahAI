@@ -429,11 +429,18 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          <Link href="/register">
-            <Button size="lg" className="px-10 h-12 text-base">
-              Join the future <ArrowRight className="ml-2 w-5 h-5" />
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/register">
+              <Button size="lg" className="px-10 h-12 text-base">
+                Join the future <ArrowRight className="ml-2 w-5 h-5" />
+              </Button>
+            </Link>
+            <Link href="/vision">
+              <Button size="lg" variant="outline" className="px-10 h-12 text-base">
+                See the roadmap
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
 

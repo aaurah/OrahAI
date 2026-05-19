@@ -17,6 +17,7 @@ import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { PreviewPanel } from "@/components/editor/PreviewPanel";
 import { SecretsPanel } from "@/components/editor/SecretsPanel";
 import { DeployPanel } from "@/components/editor/DeployPanel";
+import { DebugPanel } from "@/components/editor/DebugPanel";
 import { SetupBanner } from "@/components/editor/SetupBanner";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
@@ -28,7 +29,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
 type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
-type RightPanel = "chat" | "github" | "secrets" | "deploy" | "packages" | "settings" | null;
+type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | null;
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -57,6 +58,7 @@ export default function WorkspacePage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [secretsOpen, setSecretsOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,6 +81,7 @@ export default function WorkspacePage() {
     : githubOpen    ? "github"
     : secretsOpen   ? "secrets"
     : deployOpen    ? "deploy"
+    : debugOpen     ? "debug"
     : packagesOpen  ? "packages"
     : settingsOpen  ? "settings"
     : null;
@@ -88,6 +91,7 @@ export default function WorkspacePage() {
     setGithubOpen(p === "github");
     setSecretsOpen(p === "secrets");
     setDeployOpen(p === "deploy");
+    setDebugOpen(p === "debug");
     setPackagesOpen(p === "packages");
     setSettingsOpen(p === "settings");
   };
@@ -322,6 +326,7 @@ export default function WorkspacePage() {
     { id: "packages",  label: "Packages panel",          icon: <span>📦</span>, action: () => openRightPanel(packagesOpen ? null : "packages") },
     { id: "settings",  label: "Editor settings",         icon: <span>⚙️</span>, action: () => openRightPanel(settingsOpen ? null : "settings") },
     { id: "github",    label: "GitHub panel",            icon: <span>🐙</span>, action: () => openRightPanel(githubOpen ? null : "github") },
+    { id: "debug",   label: "AI Debugger",              icon: <span>🐛</span>, action: () => openRightPanel(debugOpen ? null : "debug") },
     ...(isProjectOwner ? [
       { id: "secrets", label: "Secrets panel",           icon: <span>🔑</span>, action: () => openRightPanel(secretsOpen ? null : "secrets") },
       { id: "deploy",  label: "Deploy panel",            icon: <span>🚀</span>, action: () => openRightPanel(deployOpen ? null : "deploy") },
@@ -476,6 +481,20 @@ export default function WorkspacePage() {
         {activeRightPanel === "deploy" && (
           <div className="w-80 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
             <DeployPanel project={project} onProjectUpdate={mutateProject} />
+          </div>
+        )}
+        {activeRightPanel === "debug" && (
+          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <DebugPanel
+              projectId={project.id}
+              activeFilePath={activeFile?.path}
+              onSendToChat={(prompt) => {
+                setChatOpen(true);
+                setDebugOpen(false);
+                setMobileTab("ai");
+                setTimeout(() => chatRef.current?.submit(prompt), 100);
+              }}
+            />
           </div>
         )}
         {activeRightPanel === "packages" && (

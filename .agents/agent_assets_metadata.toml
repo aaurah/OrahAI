@@ -1,0 +1,14 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "yIqb48m-o_TEEfFVpXepY"
+uri = "file://artifacts/orahai-pitch/public/hero-bg.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "Ci8d4Pfd7m3icWxN1hRpZ"
+uri = "file://artifacts/orahai-pitch/public/vision-bg.png"
+type = "image"
+title = "generated_image"
