@@ -258,7 +258,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         try {
           const stream = await openai.chat.completions.create({
             model: "gpt-5.1",
-            max_completion_tokens: 16000,
+            max_completion_tokens: 32000,
             messages: agentMessages,
             stream: true,
           });
@@ -277,6 +277,24 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           allContent += errMsg;
           send({ type: "delta", content: errMsg });
           break;
+        }
+
+        // ── Truncation detection — check for opened but unclosed WRITE blocks ──
+        const openCount = (stepContent.match(/<<<WRITE:[^\n>]+>>>/g) ?? []).length;
+        const closeCount = (stepContent.match(/<<<END>>>/g) ?? []).length;
+        const truncatedBlock = openCount > closeCount;
+        if (truncatedBlock && step < MAX_STEPS) {
+          // Find which file was being written when the stream cut off
+          const allOpens = [...stepContent.matchAll(/<<<WRITE:([^\n>]+)>>>/g)];
+          const lastOpen = allOpens[allOpens.length - 1]?.[1]?.trim() ?? "the file";
+          const continueMsg = `Your previous response was cut off mid-file while writing "${lastOpen}". `
+            + `You MUST now rewrite that file in its ENTIRETY from the very beginning — no truncation, no "// ... rest unchanged". `
+            + `Write the full working file and close it with <<<END>>>.`;
+          agentMessages.push({ role: "assistant", content: stepContent });
+          agentMessages.push({ role: "user", content: continueMsg });
+          send({ type: "delta", content: `\n\n⚠️ _Response was cut off — continuing automatically…_\n` });
+          allContent += `\n\n⚠️ _Response was cut off — continuing automatically…_\n`;
+          continue; // skip file ops for this step, let next step write the complete file
         }
 
         // ── File operations ──────────────────────────────────────────────────
@@ -922,10 +940,13 @@ function buildSystemPrompt(
     `❌ NEVER ask "which file", "where is X", "can you show me", "could you provide", or any clarifying question about the codebase.`,
     `❌ NEVER ask for permission. NEVER say "Should I…", "Do you want me to…", "Would you like…".`,
     `❌ NEVER show code in a markdown block and ask the user to copy it — use <<<WRITE>>> to apply it directly.`,
-    `❌ NEVER write partial files or use placeholders like "// ... existing code ..." or "// TODO". Write the FULL file.`,
+    `❌ NEVER write partial files or use placeholders like "// ... existing code ...", "// ... rest unchanged", "// TODO", or "// continues…". Write the FULL file every time.`,
+    `❌ NEVER truncate a file mid-way and close with <<<END>>>. An incomplete file causes crashes. If a file is long, take as many tokens as needed — do NOT stop early.`,
+    `❌ NEVER split one file across multiple <<<WRITE>>> blocks. One file = one WRITE block, complete, from top to bottom.`,
     `❌ NEVER explain what you're about to do before doing it. Act first, then give a brief summary at the end.`,
     ``,
-    `✅ ALWAYS write complete file contents in every <<<WRITE>>> block.`,
+    `✅ ALWAYS write complete file contents in every <<<WRITE>>> block — every import, every function, every closing brace.`,
+    `✅ If you have many large files to write, write them one at a time across multiple steps rather than truncating any single file.`,
     `✅ ALWAYS look at the existing code first — match its style, patterns, naming, and structure exactly.`,
     `✅ ALWAYS fix errors immediately without asking. Diagnose → fix → move on.`,
     `✅ When in doubt about a detail, make the best reasonable assumption and proceed.`,

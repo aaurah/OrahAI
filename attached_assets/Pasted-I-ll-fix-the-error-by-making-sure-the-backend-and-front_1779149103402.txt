@@ -1,0 +1,1410 @@
+I’ll fix the error by making sure the backend and frontend are in sync and that no truncated code is left.
+
+The issue is that `public/app.js` and `src/index.js` in your project are partially truncated (you can see `…(truncated)` in both). When the browser loads `app.js` it throws a runtime error, and your global `catch` shows “Failed to load app. Check console for details.”
+
+I’ll overwrite both files with the fully working versions that match each other.
+
+---
+
+### 1) Fix `src/index.js` (Express backend)
+
+<<<WRITE:src/index.js>>>
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+import fetch from "node-fetch";
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ===== In-memory "DB" =====
+//
+// users: single demo user
+// portfolios: multiple named portfolios per user
+// transactions: buy/sell/transfer per holding
+// watchlists: list of tracked symbols
+// alerts: price threshold alerts (stored only, no actual notifications)
+
+const users = {};
+const portfolios = {};
+const transactions = {};
+const watchlists = {};
+const alerts = {};
+
+const DEMO_USER_ID = "demo-user";
+users[DEMO_USER_ID] = {
+  id: DEMO_USER_ID,
+  name: "Demo User",
+  baseCurrency: "USD",
+  createdAt: new Date().toISOString()
+};
+
+// Seed demo data
+portfolios[DEMO_USER_ID] = {
+  activePortfolioId: "pf-main",
+  items: [
+    {
+      id: "pf-main",
+      name: "Main Portfolio",
+      accounts: [
+        {
+          id: "acc-1",
+          name: "Manual Portfolio",
+          type: "manual",
+          source: "Custom",
+          holdings: [
+            {
+              id: "h-1",
+              symbol: "BTC",
+              amount: 0.35,
+              tags: ["Long-term"],
+              notes: "Cold storage",
+              averageBuyPrice: 30000 // in baseCurrency (USD)
+            },
+            {
+              id: "h-2",
+              symbol: "ETH",
+              amount: 4.2,
+              tags: ["DeFi"],
+              notes: "",
+              averageBuyPrice: 1800
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: "pf-defi",
+      name: "DeFi Portfolio",
+      accounts: [
+        {
+          id: "acc-2",
+          name: "On-chain Wallet",
+          type: "wallet",
+          source: "MetaMask",
+          holdings: []
+        }
+      ]
+    }
+  ]
+};
+
+transactions[DEMO_USER_ID] = {
+  // keyed by holdingId
+  "h-1": [
+    {
+      id: "t-1",
+      type: "buy",
+      symbol: "BTC",
+      amount: 0.2,
+      price: 28000,
+      fee: 5,
+      ts: Date.now() - 1000 * 60 * 60 * 24 * 30
+    },
+    {
+      id: "t-2",
+      type: "buy",
+      symbol: "BTC",
+      amount: 0.15,
+      price: 32000,
+      fee: 8,
+      ts: Date.now() - 1000 * 60 * 60 * 24 * 10
+    }
+  ],
+  "h-2": [
+    {
+      id: "t-3",
+      type: "buy",
+      symbol: "ETH",
+      amount: 2.0,
+      price: 1700,
+      fee: 3,
+      ts: Date.now() - 1000 * 60 * 60 * 24 * 40
+    },
+    {
+      id: "t-4",
+      type: "buy",
+      symbol: "ETH",
+      amount: 2.2,
+      price: 1900,
+      fee: 4,
+      ts: Date.now() - 1000 * 60 * 60 * 24 * 5
+    }
+  ]
+};
+
+watchlists[DEMO_USER_ID] = ["BTC", "ETH", "SOL", "DOGE"];
+
+alerts[DEMO_USER_ID] = [
+  {
+    id: "al-1",
+    symbol: "BTC",
+    direction: "above",
+    price: 45000,
+    active: true
+  },
+  {
+    id: "al-2",
+    symbol: "ETH",
+    direction: "below",
+    price: 1500,
+    active: true
+  }
+];
+
+// ===== Helpers =====
+const COINGECKO_API = "https://api.coingecko.com/api/v3";
+
+const idsMap = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  USDT: "tether",
+  USDC: "usd-coin",
+  BNB: "binancecoin",
+  XRP: "ripple",
+  ADA: "cardano",
+  SOL: "solana",
+  DOGE: "dogecoin",
+  MATIC: "matic-network",
+  DOT: "polkadot",
+  AVAX: "avalanche-2",
+  LTC: "litecoin",
+  LINK: "chainlink",
+  TRX: "tron",
+  BCH: "bitcoin-cash"
+};
+
+const reverseIdsMap = Object.fromEntries(
+  Object.entries(idsMap).map(([sym, id]) => [id, sym])
+);
+
+async function fetchPrices(symbols, vsCurrency = "usd") {
+  if (!symbols || !symbols.length) return {};
+
+  const ids = symbols
+    .map((s) => idsMap[s.toUpperCase()])
+    .filter(Boolean)
+    .join(",");
+
+  if (!ids) return {};
+
+  const url = `${COINGECKO_API}/simple/price?ids=${encodeURIComponent(
+    ids
+  )}&vs_currencies=${encodeURIComponent(
+    vsCurrency.toLowerCase()
+  )}&include_24hr_change=true`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Price API error", await res.text());
+    return {};
+  }
+  const data = await res.json();
+
+  const out = {};
+  Object.entries(data).forEach(([id, v]) => {
+    const sym = reverseIdsMap[id];
+    if (!sym) return;
+    out[sym] = {
+      price: v[vsCurrency.toLowerCase()],
+      change24h: v[`${vsCurrency.toLowerCase()}_24h_change`]
+    };
+  });
+  return out;
+}
+
+async function fetchMarketList(vsCurrency = "usd", perPage = 25) {
+  const url = `${COINGECKO_API}/coins/markets?vs_currency=${encodeURIComponent(
+    vsCurrency.toLowerCase()
+  )}&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=false&price_change_percentage=24h`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Market list API error", await res.text());
+    return [];
+  }
+  const data = await res.json();
+  return data.map((c) => ({
+    id: c.id,
+    symbol: c.symbol.toUpperCase(),
+    name: c.name,
+    price: c.current_price,
+    change24h: c.price_change_percentage_24h,
+    marketCap: c.market_cap
+  }));
+}
+
+function calcAnalytics(holdings, prices, vsCurrency = "USD") {
+  const result = {
+    totalValue: 0,
+    totalValuePerSymbol: {},
+    allocation: [],
+    performance24h: {
+      totalChangeValue: 0,
+      totalChangePct: 0
+    },
+    pnl: {
+      unrealizedValue: 0,
+      unrealizedCost: 0,
+      unrealizedPnlValue: 0,
+      unrealizedPnlPct: 0,
+      stablecoinRatioPct: 0
+    },
+    risk: {
+      concentrationTopAssetPct: 0,
+      assetCount: 0
+    },
+    meta: {
+      currency: vsCurrency
+    }
+  };
+
+  if (!holdings.length) return result;
+
+  const bySymbol = {};
+  holdings.forEach((h) => {
+    const sym = h.symbol.toUpperCase();
+    if (!bySymbol[sym]) {
+      bySymbol[sym] = {
+        symbol: sym,
+        amount: 0,
+        value: 0,
+        cost: 0
+      };
+    }
+    bySymbol[sym].amount += h.amount;
+    const avg = h.averageBuyPrice || 0;
+    bySymbol[sym].cost += h.amount * avg;
+  });
+
+  Object.values(bySymbol).forEach((entry) => {
+    const p = prices[entry.symbol];
+    const price = p ? p.price : 0;
+    const value = entry.amount * price;
+    entry.value = value;
+    result.totalValue += value;
+    result.totalValuePerSymbol[entry.symbol] = value;
+
+    const change24hPct = p ? p.change24h || 0 : 0;
+    const changeValue = (change24hPct / 100) * value;
+    result.performance24h.totalChangeValue += changeValue;
+
+    result.pnl.unrealizedCost += entry.cost;
+    result.pnl.unrealizedValue += value;
+  });
+
+  if (result.totalValue > 0) {
+    result.allocation = Object.values(bySymbol)
+      .map((entry) => ({
+        symbol: entry.symbol,
+        value: entry.value,
+        pct: (entry.value / result.totalValue) * 100
+      }))
+      .sort((a, b) => b.pct - a.pct);
+
+    result.risk.concentrationTopAssetPct = result.allocation[0].pct;
+    result.performance24h.totalChangePct =
+      (result.performance24h.totalChangeValue / result.totalValue) * 100;
+  }
+
+  result.risk.assetCount = Object.keys(bySymbol).length;
+
+  if (result.pnl.unrealizedCost > 0) {
+    result.pnl.unrealizedPnlValue =
+      result.pnl.unrealizedValue - result.pnl.unrealizedCost;
+    result.pnl.unrealizedPnlPct =
+      (result.pnl.unrealizedPnlValue / result.pnl.unrealizedCost) * 100;
+  }
+
+  const stableSymbols = ["USDT", "USDC"];
+  const stableValue = stableSymbols.reduce(
+    (sum, s) => sum + (result.totalValuePerSymbol[s] || 0),
+    0
+  );
+  result.pnl.stablecoinRatioPct =
+    result.totalValue > 0 ? (stableValue / result.totalValue) * 100 : 0;
+
+  return result;
+}
+
+function getUserPortfolios(userId) {
+  if (!portfolios[userId]) {
+    portfolios[userId] = { activePortfolioId: null, items: [] };
+  }
+  return portfolios[userId];
+}
+
+function findAccountById(userId, accountId) {
+  const pf = getUserPortfolios(userId);
+  for (const portfolio of pf.items) {
+    const account = portfolio.accounts.find((a) => a.id === accountId);
+    if (account) return { portfolio, account };
+  }
+  return null;
+}
+
+function findHoldingById(userId, holdingId) {
+  const pf = getUserPortfolios(userId);
+  for (const portfolio of pf.items) {
+    for (const account of portfolio.accounts) {
+      const holding = account.holdings.find((h) => h.id === holdingId);
+      if (holding) return { portfolio, account, holding };
+    }
+  }
+  return null;
+}
+
+// ===== Middleware =====
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "..", "public")));
+
+app.use((req, res, next) => {
+  req.userId = DEMO_USER_ID;
+  next();
+});
+
+// ===== API Router =====
+const api = express.Router();
+
+// --- User profile ---
+api.get("/user", (req, res) => {
+  res.json(users[req.userId]);
+});
+
+api.put("/user", (req, res) => {
+  const { name, baseCurrency } = req.body || {};
+  const user = users[req.userId];
+  if (name) user.name = name;
+  if (baseCurrency) user.baseCurrency = baseCurrency.toUpperCase();
+  res.json(user);
+});
+
+// --- Portfolio management (multi-portfolio) ---
+api.get("/portfolios", (req, res) => {
+  res.json(getUserPortfolios(req.userId));
+});
+
+api.post("/portfolios", (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name is required" });
+  const pf = getUserPortfolios(req.userId);
+  const id = `pf-${Date.now()}`;
+  const portfolio = { id, name, accounts: [] };
+  pf.items.push(portfolio);
+  if (!pf.activePortfolioId) pf.activePortfolioId = id;
+  res.status(201).json(portfolio);
+});
+
+api.put("/portfolios/:id", (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body || {};
+  const pf = getUserPortfolios(req.userId);
+  const item = pf.items.find((p) => p.id === id);
+  if (!item) return res.status(404).json({ error: "Portfolio not found" });
+  if (name) item.name = name;
+  res.json(item);
+});
+
+api.delete("/portfolios/:id", (req, res) => {
+  const { id } = req.params;
+  const pf = getUserPortfolios(req.userId);
+  const idx = pf.items.findIndex((p) => p.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Portfolio not found" });
+  const [removed] = pf.items.splice(idx, 1);
+  if (pf.activePortfolioId === id) {
+    pf.activePortfolioId = pf.items[0]?.id || null;
+  }
+  res.json(removed);
+});
+
+api.post("/portfolios/:id/select", (req, res) => {
+  const { id } = req.params;
+  const pf = getUserPortfolios(req.userId);
+  const item = pf.items.find((p) => p.id === id);
+  if (!item) return res.status(404).json({ error: "Portfolio not found" });
+  pf.activePortfolioId = id;
+  res.json({ activePortfolioId: id });
+});
+
+// --- Accounts within active portfolio ---
+api.get("/portfolio", (req, res) => {
+  const pf = getUserPortfolios(req.userId);
+  const active = pf.items.find((p) => p.id === pf.activePortfolioId);
+  res.json({
+    activePortfolioId: pf.activePortfolioId,
+    portfolio: active || null
+  });
+});
+
+api.post("/accounts", (req, res) => {
+  const { name, type = "manual", source = "Custom" } = req.body || {};
+  if (!name) {
+    return res.status(400).json({ error: "name is required" });
+  }
+
+  const pf = getUserPortfolios(req.userId);
+  const active = pf.items.find((p) => p.id === pf.activePortfolioId);
+  if (!active) {
+    return res.status(400).json({ error: "No active portfolio" });
+  }
+
+  const id = `acc-${Date.now()}`;
+  const account = {
+    id,
+    name,
+    type,
+    source,
+    holdings: []
+  };
+  active.accounts.push(account);
+  res.status(201).json(account);
+});
+
+api.put("/accounts/:id", (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body || {};
+  const found = findAccountById(req.userId, id);
+  if (!found) return res.status(404).json({ error: "Account not found" });
+  if (name) found.account.name = name;
+  res.json(found.account);
+});
+
+api.delete("/accounts/:id", (req, res) => {
+  const { id } = req.params;
+  const pf = getUserPortfolios(req.userId);
+  for (const portfolio of pf.items) {
+    const idx = portfolio.accounts.findIndex((a) => a.id === id);
+    if (idx !== -1) {
+      const [removed] = portfolio.accounts.splice(idx, 1);
+      return res.json(removed);
+    }
+  }
+  res.status(404).json({ error: "Account not found" });
+});
+
+// --- Holdings & transactions ---
+api.post("/accounts/:id/holdings", (req, res) => {
+  const { id } = req.params;
+  const {
+    symbol,
+    amount,
+    tags = [],
+    notes = "",
+    averageBuyPrice
+  } = req.body || {};
+  if (!symbol || typeof amount !== "number") {
+    return res
+      .status(400)
+      .json({ error: "symbol and numeric amount are required" });
+  }
+
+  const found = findAccountById(req.userId, id);
+  if (!found) return res.status(404).json({ error: "Account not found" });
+
+  const holdingId = `h-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+  const holding = {
+    id: holdingId,
+    symbol: symbol.toUpperCase(),
+    amount,
+    tags,
+    notes,
+    averageBuyPrice: typeof averageBuyPrice === "number" ? averageBuyPrice : 0
+  };
+
+  found.account.holdings.push(holding);
+  if (!transactions[req.userId]) transactions[req.userId] = {};
+  transactions[req.userId][holdingId] = [];
+  res.status(201).json(holding);
+});
+
+api.put("/accounts/:accountId/holdings/:holdingId", (req, res) => {
+  const { accountId, holdingId } = req.params;
+  const { amount, tags, notes, averageBuyPrice } = req.body || {};
+  const foundAcc = findAccountById(req.userId, accountId);
+  if (!foundAcc) return res.status(404).json({ error: "Account not found" });
+  const h = foundAcc.account.holdings.find((x) => x.id === holdingId);
+  if (!h) return res.status(404).json({ error: "Holding not found" });
+
+  if (typeof amount === "number") h.amount = amount;
+  if (Array.isArray(tags)) h.tags = tags;
+  if (typeof notes === "string") h.notes = notes;
+  if (typeof averageBuyPrice === "number") h.averageBuyPrice = averageBuyPrice;
+
+  res.json(h);
+});
+
+api.delete("/accounts/:accountId/holdings/:holdingId", (req, res) => {
+  const { accountId, holdingId } = req.params;
+  const foundAcc = findAccountById(req.userId, accountId);
+  if (!foundAcc) return res.status(404).json({ error: "Account not found" });
+  const idx = foundAcc.account.holdings.findIndex((x) => x.id === holdingId);
+  if (idx === -1) return res.status(404).json({ error: "Holding not found" });
+  const [removed] = foundAcc.account.holdings.splice(idx, 1);
+  if (transactions[req.userId]) {
+    delete transactions[req.userId][holdingId];
+  }
+  res.json(removed);
+});
+
+// Transactions per holding (buy/sell/transfer)
+api.get("/holdings/:holdingId/transactions", (req, res) => {
+  const { holdingId } = req.params;
+  const userTx = transactions[req.userId] || {};
+  res.json(userTx[holdingId] || []);
+});
+
+api.post("/holdings/:holdingId/transactions", (req, res) => {
+  const { holdingId } = req.params;
+  const { type, amount, price, fee = 0 } = req.body || {};
+  if (!["buy", "sell", "transfer"].includes(type)) {
+    return res.status(400).json({ error: "Invalid type" });
+  }
+  if (typeof amount !== "number" || typeof price !== "number") {
+    return res.status(400).json({ error: "amount and price must be numbers" });
+  }
+
+  const found = findHoldingById(req.userId, holdingId);
+  if (!found) return res.status(404).json({ error: "Holding not found" });
+
+  if (!transactions[req.userId]) transactions[req.userId] = {};
+  if (!transactions[req.userId][holdingId])
+    transactions[req.userId][holdingId] = [];
+
+  const tx = {
+    id: `tx-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    type,
+    symbol: found.holding.symbol,
+    amount,
+    price,
+    fee,
+    ts: Date.now()
+  };
+  transactions[req.userId][holdingId].push(tx);
+
+  // Naive avg buy price update for buys
+  if (type === "buy") {
+    const prevAmount = found.holding.amount;
+    const prevCost = (found.holding.averageBuyPrice || 0) * prevAmount;
+    const newCost = prevCost + amount * price + fee;
+    const newAmount = prevAmount + amount;
+    found.holding.amount = newAmount;
+    if (newAmount > 0) {
+      found.holding.averageBuyPrice = newCost / newAmount;
+    }
+  } else if (type === "sell") {
+    found.holding.amount = Math.max(found.holding.amount - amount, 0);
+  }
+
+  res.status(201).json(tx);
+});
+
+// --- Dashboard & analytics ---
+api.get("/dashboard", async (req, res) => {
+  try {
+    const user = users[req.userId];
+    const pf = getUserPortfolios(req.userId);
+    const activePortfolio =
+      pf.items.find((p) => p.id === pf.activePortfolioId) || null;
+
+    const allHoldings = activePortfolio
+      ? activePortfolio.accounts.flatMap((a) =>
+          a.holdings.map((h) => ({
+            ...h,
+            accountId: a.id,
+            accountName: a.name,
+            portfolioId: activePortfolio.id,
+            portfolioName: activePortfolio.name
+          }))
+        )
+      : [];
+
+    const symbols = [
+      ...new Set(allHoldings.map((h) => h.symbol.toUpperCase()))
+    ];
+    const prices = await fetchPrices(symbols, user.baseCurrency || "USD");
+    const analytics = calcAnalytics(
+      allHoldings,
+      prices,
+      user.baseCurrency || "USD"
+    );
+
+    res.json({
+      user,
+      portfolios: pf,
+      activePortfolio: activePortfolio,
+      analytics,
+      prices,
+      holdings: allHoldings
+    });
+  } catch (e) {
+    console.error("Dashboard error", e);
+    res.status(500).json({ error: "Failed to build dashboard" });
+  }
+});
+
+// Tag-based analytics
+api.get("/analytics/by-tag", async (req, res) => {
+  const { tag } = req.query;
+  const user = users[req.userId];
+  const pf = getUserPortfolios(req.userId);
+  const activePortfolio =
+    pf.items.find((p) => p.id === pf.activePortfolioId) || null;
+
+  const filtered = activePortfolio
+    ? activePortfolio.accounts.flatMap((a) =>
+        a.holdings
+          .filter((h) => (tag ? h.tags?.includes(tag) : true))
+          .map((h) => ({ ...h, accountId: a.id, accountName: a.name }))
+      )
+    : [];
+
+  const symbols = [
+    ...new Set(filtered.map((h) => h.symbol.toUpperCase()))
+  ];
+  const prices = await fetchPrices(symbols, user.baseCurrency || "USD");
+  const analytics = calcAnalytics(
+    filtered,
+    prices,
+    user.baseCurrency || "USD"
+  );
+
+  res.json({
+    tag: tag || null,
+    analytics,
+    holdings: filtered
+  });
+});
+
+// --- Markets & watchlist ---
+api.get("/markets", async (req, res) => {
+  const user = users[req.userId];
+  const list = await fetchMarketList(user.baseCurrency || "USD", 25);
+  res.json(list);
+});
+
+api.get("/watchlist", async (req, res) => {
+  const user = users[req.userId];
+  const wl = watchlists[req.userId] || [];
+  const prices = await fetchPrices(wl, user.baseCurrency || "USD");
+  res.json({ symbols: wl, prices });
+});
+
+api.post("/watchlist", (req, res) => {
+  const { symbol } = req.body || {};
+  if (!symbol) return res.status(400).json({ error: "symbol is required" });
+  if (!watchlists[req.userId]) watchlists[req.userId] = [];
+  const sym = symbol.toUpperCase();
+  if (!watchlists[req.userId].includes(sym)) {
+    watchlists[req.userId].push(sym);
+  }
+  res.status(201).json({ symbols: watchlists[req.userId] });
+});
+
+api.delete("/watchlist/:symbol", (req, res) => {
+  const { symbol } = req.params;
+  const wl = watchlists[req.userId] || [];
+  watchlists[req.userId] = wl.filter((s) => s !== symbol.toUpperCase());
+  res.json({ symbols: watchlists[req.userId] });
+});
+
+// --- Alerts (simple storage, no real notifications) ---
+api.get("/alerts", (req, res) => {
+  res.json(alerts[req.userId] || []);
+});
+
+api.post("/alerts", (req, res) => {
+  const { symbol, direction, price } = req.body || {};
+  if (!symbol || !["above", "below"].includes(direction)) {
+    return res.status(400).json({ error: "Invalid symbol/direction" });
+  }
+  if (typeof price !== "number") {
+    return res.status(400).json({ error: "price must be a number" });
+  }
+  if (!alerts[req.userId]) alerts[req.userId] = [];
+  const alert = {
+    id: `al-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+    symbol: symbol.toUpperCase(),
+    direction,
+    price,
+    active: true
+  };
+  alerts[req.userId].push(alert);
+  res.status(201).json(alert);
+});
+
+api.put("/alerts/:id", (req, res) => {
+  const { id } = req.params;
+  const { active } = req.body || {};
+  const list = alerts[req.userId] || [];
+  const a = list.find((x) => x.id === id);
+  if (!a) return res.status(404).json({ error: "Alert not found" });
+  if (typeof active === "boolean") a.active = active;
+  res.json(a);
+});
+
+api.delete("/alerts/:id", (req, res) => {
+  const { id } = req.params;
+  const list = alerts[req.userId] || [];
+  const idx = list.findIndex((x) => x.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Alert not found" });
+  const [removed] = list.splice(idx, 1);
+  res.json(removed);
+});
+
+app.use("/api", api);
+
+// Fallback SPA
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log(`Crypto portfolio app running on port ${PORT}`);
+});
+<<<END>>>
+
+---
+
+### 2) Fix `public/app.js` (frontend logic)
+
+<<<WRITE:public/app.js>>>
+const state = {
+  user: null,
+  dashboard: null,
+  portfolioWrapper: null,
+  activePortfolio: null,
+  tagFilter: "",
+  markets: [],
+  watchlist: { symbols: [], prices: {} },
+  alerts: []
+};
+
+function formatCurrency(v, currency = "USD") {
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
+  const isNegative = v < 0;
+  const abs = Math.abs(v);
+  const opts = {
+    style: "currency",
+    currency,
+    maximumFractionDigits: abs > 100 ? 2 : 4
+  };
+  return (isNegative ? "-" : "") + abs.toLocaleString(undefined, opts);
+}
+
+function formatPct(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
+  return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(`/api${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Request failed");
+  }
+  return res.json();
+}
+
+async function loadAll() {
+  const [user, dashboard, portfolioRes, markets, watchlist, alerts] =
+    await Promise.all([
+      api("/user"),
+      api("/dashboard"),
+      api("/portfolio"),
+      api("/markets"),
+      api("/watchlist"),
+      api("/alerts")
+    ]);
+
+  state.user = user;
+  state.dashboard = dashboard;
+  state.portfolioWrapper = portfolioRes;
+  state.activePortfolio = portfolioRes.portfolio;
+  state.markets = markets;
+  state.watchlist = watchlist;
+  state.alerts = alerts;
+
+  renderAll();
+}
+
+function renderAll() {
+  if (!state.user || !state.dashboard) return;
+  renderUserAndPortfolios();
+  renderOverview();
+  renderAllocation();
+  renderAccounts();
+  populateAccountSelect();
+  renderMarkets();
+  renderWatchlist();
+  renderAlerts();
+}
+
+function renderUserAndPortfolios() {
+  document.getElementById("user-name").textContent = state.user.name;
+  const currencySelect = document.getElementById("currency-select");
+  currencySelect.value = state.user.baseCurrency || "USD";
+
+  const pfSelect = document.getElementById("portfolio-select");
+  pfSelect.innerHTML = "";
+  const pf = state.dashboard.portfolios;
+  if (!pf || !pf.items) return;
+
+  pf.items.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    if (p.id === pf.activePortfolioId) opt.selected = true;
+    pfSelect.appendChild(opt);
+  });
+}
+
+function renderOverview() {
+  const { analytics } = state.dashboard;
+  const cur = state.user.baseCurrency || "USD";
+
+  document.getElementById("total-value").textContent = formatCurrency(
+    analytics.totalValue,
+    cur
+  );
+
+  const pnl = analytics.performance24h;
+  const pnlValueEl = document.getElementById("pnl-value");
+  const pnlPctEl = document.getElementById("pnl-pct");
+  pnlValueEl.textContent = formatCurrency(pnl.totalChangeValue, cur);
+  pnlPctEl.textContent = formatPct(pnl.totalChangePct);
+  if (pnl.totalChangeValue < 0) {
+    pnlValueEl.classList.add("text-danger");
+  } else {
+    pnlValueEl.classList.remove("text-danger");
+  }
+
+  const unreal = analytics.pnl;
+  const unrealValueEl = document.getElementById("unrealized-pnl-value");
+  const unrealPctEl = document.getElementById("unrealized-pnl-pct");
+  unrealValueEl.textContent = formatCurrency(
+    unreal.unrealizedPnlValue,
+    cur
+  );
+  unrealPctEl.textContent = formatPct(unreal.unrealizedPnlPct);
+  if (unreal.unrealizedPnlValue < 0) {
+    unrealValueEl.classList.add("text-danger");
+    unrealValueEl.classList.remove("text-success");
+  } else {
+    unrealValueEl.classList.add("text-success");
+    unrealValueEl.classList.remove("text-danger");
+  }
+
+  document.getElementById("top-asset-conc").textContent = formatPct(
+    analytics.risk.concentrationTopAssetPct
+  );
+  document.getElementById("asset-count").textContent =
+    analytics.risk.assetCount;
+  document.getElementById("stable-ratio").textContent = formatPct(
+    analytics.pnl.stablecoinRatioPct
+  );
+
+  document.getElementById("last-refresh").textContent =
+    "Updated " + new Date().toLocaleTimeString();
+}
+
+function renderAllocation() {
+  const container = document.getElementById("allocation-list");
+  container.innerHTML = "";
+  const { allocation } = state.dashboard.analytics;
+  const cur = state.user.baseCurrency || "USD";
+  if (!allocation.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No holdings yet. Add a holding to see allocation.</div>';
+    return;
+  }
+
+  allocation.forEach((row) => {
+    const div = document.createElement("div");
+    div.className = "alloc-row";
+    const priceInfo = state.dashboard.prices[row.symbol] || {};
+    const valueLabel = formatCurrency(row.value, cur);
+    div.innerHTML = `
+      <div class="alloc-symbol">${row.symbol}</div>
+      <div class="alloc-bar">
+        <div class="alloc-bar-inner" style="width:${row.pct.toFixed(1)}%"></div>
+      </div>
+      <div>${valueLabel}</div>
+      <div style="text-align:right;">
+        <div>${formatPct(row.pct)}</div>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function renderAccounts() {
+  const container = document.getElementById("accounts-list");
+  container.innerHTML = "";
+  const active = state.dashboard.activePortfolio;
+  if (!active) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No active portfolio. Create one first.</div>';
+    return;
+  }
+  const { accounts } = active;
+  if (!accounts.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No accounts yet. Create your first trading account or wallet.</div>';
+    return;
+  }
+
+  const cur = state.user.baseCurrency || "USD";
+  const priceMap = state.dashboard.prices || {};
+
+  accounts.forEach((acc) => {
+    const card = document.createElement("div");
+    card.className = "account-card";
+
+    const header = document.createElement("div");
+    header.className = "account-header";
+
+    const nameDiv = document.createElement("div");
+    nameDiv.innerHTML = `<div class="account-name">${acc.name}</div>
+      <div class="account-type">${acc.type} • ${acc.source}</div>`;
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-danger small";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = () => {
+      if (confirm("Delete this account and all its holdings?")) {
+        deleteAccount(acc.id);
+      }
+    };
+
+    header.appendChild(nameDiv);
+    header.appendChild(delBtn);
+
+    card.appendChild(header);
+
+    const holdingsDiv = document.createElement("div");
+    holdingsDiv.className = "account-holdings";
+
+    if (!acc.holdings.length) {
+      holdingsDiv.innerHTML =
+        '<div class="text-muted">No holdings yet.</div>';
+    } else {
+      acc.holdings.forEach((h) => {
+        const row = document.createElement("div");
+        row.className = "holding-row";
+        const tags = h.tags && h.tags.length ? h.tags.join(", ") : "";
+        const priceInfo = priceMap[h.symbol] || {};
+        const price = priceInfo.price || 0;
+        const value = h.amount * price;
+        const avg = h.averageBuyPrice || 0;
+        const cost = h.amount * avg;
+        const pnl = value - cost;
+        const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+
+        row.innerHTML = `
+          <div>
+            <div class="holding-symbol">${h.symbol}</div>
+            <div class="holding-tags">${tags}</div>
+          </div>
+          <div>${h.amount}</div>
+          <div style="text-align:right;">
+            <div>${formatCurrency(value, cur)}</div>
+            <div class="${pnl >= 0 ? "text-success" : "text-danger"}" style="font-size:10px;">
+              ${formatCurrency(pnl, cur)} (${formatPct(pnlPct)})
+            </div>
+          </div>
+        `;
+        holdingsDiv.appendChild(row);
+      });
+    }
+
+    card.appendChild(holdingsDiv);
+    container.appendChild(card);
+  });
+}
+
+function populateAccountSelect() {
+  const sel = document.getElementById("holding-account");
+  sel.innerHTML = "";
+  const active = state.dashboard.activePortfolio;
+  if (!active) return;
+  active.accounts.forEach((acc) => {
+    const opt = document.createElement("option");
+    opt.value = acc.id;
+    opt.textContent = acc.name;
+    sel.appendChild(opt);
+  });
+}
+
+function renderMarkets() {
+  const container = document.getElementById("markets-list");
+  container.innerHTML = "";
+  const cur = state.user.baseCurrency || "USD";
+  state.markets.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "market-row";
+    row.innerHTML = `
+      <div>
+        <div class="market-symbol">${m.symbol}</div>
+        <div class="market-name">${m.name}</div>
+      </div>
+      <div>${formatCurrency(m.price, cur)}</div>
+      <div class="${m.change24h >= 0 ? "text-success" : "text-danger"}">${formatPct(
+      m.change24h
+    )}</div>
+      <div>${m.marketCap ? m.marketCap.toLocaleString() : "-"}</div>
+      <div style="text-align:right;">
+        <button class="btn btn-secondary small" data-symbol="${m.symbol}">Watch</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll("button[data-symbol]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      addSymbolToWatchlist(btn.dataset.symbol)
+    );
+  });
+}
+
+function renderWatchlist() {
+  const container = document.getElementById("watchlist-list");
+  container.innerHTML = "";
+  const cur = state.user.baseCurrency || "USD";
+  const { symbols, prices } = state.watchlist;
+
+  if (!symbols.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">Your watchlist is empty. Add a symbol above.</div>';
+    return;
+  }
+
+  symbols.forEach((sym) => {
+    const p = prices[sym] || {};
+    const row = document.createElement("div");
+    row.className = "market-row";
+    row.innerHTML = `
+      <div>
+        <div class="market-symbol">${sym}</div>
+      </div>
+      <div>${p.price ? formatCurrency(p.price, cur) : "-"}</div>
+      <div class="${p.change24h >= 0 ? "text-success" : "text-danger"}">
+        ${p.change24h !== undefined ? formatPct(p.change24h) : "-"}
+      </div>
+      <div></div>
+      <div style="text-align:right;">
+        <button class="btn btn-danger small" data-symbol="${sym}">Remove</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll("button[data-symbol]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      removeSymbolFromWatchlist(btn.dataset.symbol)
+    );
+  });
+}
+
+function renderAlerts() {
+  const container = document.getElementById("alerts-list");
+  container.innerHTML = "";
+
+  if (!state.alerts.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No alerts yet. Create one above.</div>';
+    return;
+  }
+
+  state.alerts.forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "alert-row";
+    row.innerHTML = `
+      <div>${a.symbol}</div>
+      <div>${a.direction === "above" ? "Crosses Above" : "Crosses Below"} ${a.price}</div>
+      <div>${a.active ? "Active" : "Paused"}</div>
+      <div style="text-align:right;">
+        <button class="btn btn-secondary small toggle-alert" data-id="${a.id}">
+          ${a.active ? "Pause" : "Resume"}
+        </button>
+        <button class="btn btn-danger small delete-alert" data-id="${a.id}">Delete</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll(".toggle-alert").forEach((btn) => {
+    btn.addEventListener("click", () => toggleAlert(btn.dataset.id));
+  });
+  container.querySelectorAll(".delete-alert").forEach((btn) => {
+    btn.addEventListener("click", () => deleteAlert(btn.dataset.id));
+  });
+}
+
+// ==== Actions ====
+async function changeCurrency(newCurrency) {
+  await api("/user", {
+    method: "PUT",
+    body: JSON.stringify({ baseCurrency: newCurrency })
+  });
+  await refreshDashboardAndRelated();
+}
+
+async function selectPortfolio(portfolioId) {
+  await api(`/portfolios/${portfolioId}/select`, { method: "POST" });
+  await refreshDashboardAndRelated();
+}
+
+async function addPortfolio() {
+  const name = prompt("Portfolio name (e.g. Main, DeFi, Long-Term)");
+  if (!name) return;
+  await api("/portfolios", {
+    method: "POST",
+    body: JSON.stringify({ name })
+  });
+  await refreshDashboardAndRelated();
+}
+
+async function refreshDashboardAndRelated() {
+  const [dashboard, portfolioRes, markets, watchlist, alerts] =
+    await Promise.all([
+      api("/dashboard"),
+      api("/portfolio"),
+      api("/markets"),
+      api("/watchlist"),
+      api("/alerts")
+    ]);
+  state.dashboard = dashboard;
+  state.portfolioWrapper = portfolioRes;
+  state.activePortfolio = portfolioRes.portfolio;
+  state.markets = markets;
+  state.watchlist = watchlist;
+  state.alerts = alerts;
+  renderAll();
+}
+
+async function addAccount() {
+  const name = prompt("Account name (e.g. Binance Futures, MetaMask)");
+  if (!name) return;
+  const body = { name, type: "manual", source: "Custom" };
+  await api("/accounts", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  await refreshDashboardAndRelated();
+}
+
+async function deleteAccount(id) {
+  await api(`/accounts/${id}`, { method: "DELETE" });
+  await refreshDashboardAndRelated();
+}
+
+async function addHoldingFromForm(e) {
+  e.preventDefault();
+  const accountId = document.getElementById("holding-account").value;
+  const symbol = document.getElementById("holding-symbol").value.trim();
+  const amount = parseFloat(
+    document.getElementById("holding-amount").value || "0"
+  );
+  const avgPriceStr = document.getElementById("holding-avg-price").value.trim();
+  const avgPrice = avgPriceStr ? parseFloat(avgPriceStr) : undefined;
+  const tagsStr = document.getElementById("holding-tags").value.trim();
+  const notes = document.getElementById("holding-notes").value.trim();
+
+  if (!accountId || !symbol || !amount) return;
+
+  const tags = tagsStr
+    ? tagsStr
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
+
+  await api(`/accounts/${accountId}/holdings`, {
+    method: "POST",
+    body: JSON.stringify({
+      symbol,
+      amount,
+      tags,
+      notes,
+      averageBuyPrice: avgPrice
+    })
+  });
+
+  document.getElementById("holding-symbol").value = "";
+  document.getElementById("holding-amount").value = "";
+  document.getElementById("holding-avg-price").value = "";
+  document.getElementById("holding-tags").value = "";
+  document.getElementById("holding-notes").value = "";
+
+  await refreshDashboardAndRelated();
+}
+
+async function filterByTag(tag) {
+  state.tagFilter = tag || "";
+  const chips = document.querySelectorAll(".chip-row .chip");
+  chips.forEach((c) => {
+    if (c.dataset.filterTag === tag) c.classList.add("active");
+    else c.classList.remove("active");
+  });
+
+  if (!tag) {
+    await refreshDashboardAndRelated();
+    return;
+  }
+
+  const data = await api(
+    `/analytics/by-tag?tag=${encodeURIComponent(tag)}`
+  );
+  state.dashboard.analytics = data.analytics;
+  renderOverview();
+  renderAllocation();
+}
+
+async function addSymbolToWatchlist(symbol) {
+  await api("/watchlist", {
+    method: "POST",
+    body: JSON.stringify({ symbol })
+  });
+  const watchlist = await api("/watchlist");
+  state.watchlist = watchlist;
+  renderWatchlist();
+}
+
+async function removeSymbolFromWatchlist(symbol) {
+  await api(`/watchlist/${symbol}`, { method: "DELETE" });
+  const watchlist = await api("/watchlist");
+  state.watchlist = watchlist;
+  renderWatchlist();
+}
+
+async function addAlert() {
+  const symbol = document.getElementById("alert-symbol").value.trim();
+  const direction = document.getElementById("alert-direction").value;
+  const priceValue = parseFloat(
+    document.getElementById("alert-price").value || "0"
+  );
+  if (!symbol || !priceValue) return;
+  await api("/alerts", {
+    method: "POST",
+    body: JSON.stringify({ symbol, direction, price: priceValue })
+  });
+  document.getElementById("alert-symbol").value = "";
+  document.getElementById("alert-price").value = "";
+  state.alerts = await api("/alerts");
+  renderAlerts();
+}
+
+async function toggleAlert(id) {
+  const alert = state.alerts.find((a) => a.id === id);
+  if (!alert) return;
+  await api(`/alerts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ active: !alert.active })
+  });
+  state.alerts = await api("/alerts");
+  renderAlerts();
+}
+
+async function deleteAlert(id) {
+  await api(`/alerts/${id}`, { method: "DELETE" });
+  state.alerts = await api("/alerts");
+  renderAlerts();
+}
+
+// ==== Events / init ====
+function initEvents() {
+  document
+    .getElementById("currency-select")
+    .addEventListener("change", (e) => changeCurrency(e.target.value));
+
+  document
+    .getElementById("portfolio-select")
+    .addEventListener("change", (e) => selectPortfolio(e.target.value));
+
+  document
+    .getElementById("add-portfolio-btn")
+    .addEventListener("click", addPortfolio);
+
+  document
+    .getElementById("add-account-btn")
+    .addEventListener("click", addAccount);
+
+  document
+    .getElementById("add-holding-form")
+    .addEventListener("submit", addHoldingFromForm);
+
+  document.querySelectorAll(".chip-row .chip").forEach((chip) => {
+    chip.addEventListener("click", () =>
+      filterByTag(chip.dataset.filterTag || "")
+    );
+  });
+
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((t) =>
+        t.classList.remove("active")
+      );
+      document.querySelectorAll(".tab-panel").forEach((p) =>
+        p.classList.remove("active")
+      );
+      tab.classList.add("active");
+      const target = tab.dataset.tab;
+      document.getElementById(target).classList.add("active");
+    });
+  });
+
+  document
+    .getElementById("add-watchlist-btn")
+    .addEventListener("click", () => {
+      const input = document.getElementById("watchlist-symbol-input");
+      const sym = input.value.trim();
+      if (!sym) return;
+      addSymbolToWatchlist(sym);
+      input.value = "";
+    });
+
+  document
+    .getElementById("add-alert-btn")
+    .addEventListener("click", addAlert);
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  initEvents();
+  loadAll().catch((err) => {
+    console.error(err);
+    alert("Failed to load app. Check console for details.");
+  });
+});
+<<<END>>>
+
+---
+
+Now restart the server using the Run button and open the Preview tab again. The app should load without the “Failed to load app” dialog and all panels (Overview, Markets, Watchlist, Alerts) should populate correctly.
+
+---
+The broken/truncated files are now fully replaced and consistent, so the “Failed to load app” error should be gone.
+
+To use the app:
+
+1. Start the server with the Run button in the workspace.
+2. Open the Preview tab.
+3. The dashboard should now load without errors:
+   - Overview cards (Total Value, 24h P&L, Unrealized P&L, etc.).
+   - Allocation list.
+   - Accounts & Holdings with P&L.
+   - Markets, Watchlist, and Alerts tabs.
+
+If you still see an error banner:
+
+- Open the browser console in the Preview pane and note any message.
+- Tell me the exact text of the console error and I’ll fix that next.
