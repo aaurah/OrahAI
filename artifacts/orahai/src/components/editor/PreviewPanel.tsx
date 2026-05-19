@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Globe, RefreshCw, ExternalLink, Monitor, Github, Loader2 } from "lucide-react";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Run } from "@/types";
 
@@ -22,19 +22,63 @@ export function PreviewPanel({
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const githubPagesUrl = githubRepo
     ? (() => { const [owner, repo] = githubRepo.split("/"); return `https://${owner}.github.io/${repo}/`; })()
     : null;
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("orahai_token") ?? "" : "";
   const BASE = API_BASE || "";
-  const localSrc = `${BASE}/api/preview/${projectId}?token=${encodeURIComponent(token)}&v=${refreshKey ?? iframeKey}`;
-  const activeSrc = mode === "local" ? localSrc : (githubPagesUrl ?? localSrc);
-  const displayUrl = mode === "local" ? `preview/${projectId}` : (githubPagesUrl ?? "preview");
 
-  const refresh = () => { setIframeKey((k) => k + 1); setLoading(true); setIframeError(false); };
+  const fetchPreviewToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
+      return token;
+    } catch {
+      return null;
+    }
+  }, [projectId]);
+
+  const loadLocalPreview = useCallback(async () => {
+    setLoading(true);
+    setIframeError(false);
+    setPreviewSrc(null);
+    const token = await fetchPreviewToken();
+    if (!token) {
+      setLoading(false);
+      setIframeError(true);
+      return;
+    }
+    const v = refreshKey ?? iframeKey;
+    setPreviewSrc(`${BASE}/api/preview/${projectId}?token=${encodeURIComponent(token)}&v=${v}`);
+  }, [projectId, fetchPreviewToken, refreshKey, iframeKey, BASE]);
+
+  useEffect(() => {
+    if (mode === "local") {
+      loadLocalPreview();
+    }
+  }, [mode, iframeKey, refreshKey, projectId]);
+
+  const refresh = () => {
+    if (mode === "local") {
+      setIframeKey((k) => k + 1);
+    } else {
+      setIframeKey((k) => k + 1);
+      setLoading(true);
+      setIframeError(false);
+    }
+  };
+
+  const openInNewTab = () => {
+    if (mode === "github" && githubPagesUrl) {
+      window.open(githubPagesUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const canOpenInNewTab = mode === "github" && !!githubPagesUrl;
+
+  const displayUrl = mode === "local" ? `preview/${projectId}` : (githubPagesUrl ?? "preview");
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -43,7 +87,7 @@ export function PreviewPanel({
         {/* Mode toggle */}
         <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5 shrink-0">
           <button
-            onClick={() => { setMode("local"); refresh(); }}
+            onClick={() => { setMode("local"); }}
             className={cn(
               "flex items-center gap-1 text-[10px] px-2 py-1 rounded transition-colors font-medium",
               mode === "local" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -74,10 +118,12 @@ export function PreviewPanel({
         <button onClick={refresh} title="Refresh preview" className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
           <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
         </button>
-        <a href={activeSrc} target="_blank" rel="noopener noreferrer" title="Open in new tab"
-          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
+        {canOpenInNewTab && (
+          <button onClick={openInNewTab} title="Open in new tab"
+            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
+            <ExternalLink className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* iframe — always shown; the server returns a helpful page when no index.html exists */}
@@ -106,9 +152,9 @@ export function PreviewPanel({
           <iframe
             key={`local-${iframeKey}`}
             ref={iframeRef}
-            src={localSrc}
+            src={previewSrc ?? undefined}
             className="w-full h-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+            sandbox="allow-scripts allow-forms allow-modals allow-popups"
             title="Local Preview"
             onLoad={() => setLoading(false)}
             onError={() => { setLoading(false); setIframeError(true); }}

@@ -12,8 +12,15 @@ export interface AuthenticatedRequest extends Request {
 interface JwtPayload {
   sub: string;
   email: string;
+  aud?: string | string[];
   iat?: number;
   exp?: number;
+}
+
+function isPreviewToken(payload: JwtPayload): boolean {
+  const { aud } = payload;
+  if (!aud) return false;
+  return Array.isArray(aud) ? aud.includes("preview") : aud === "preview";
 }
 
 export async function requireAuth(
@@ -35,6 +42,11 @@ export async function requireAuth(
     } catch (err) {
       const expired = (err as Error).name === "TokenExpiredError";
       next(createError(expired ? "Token expired" : "Invalid token", 401));
+      return;
+    }
+
+    if (isPreviewToken(payload)) {
+      next(createError("Preview tokens cannot be used for API access", 401));
       return;
     }
 
@@ -77,7 +89,9 @@ export async function optionalAuth(
   if (!header?.startsWith("Bearer ")) { next(); return; }
   try {
     const payload = jwt.verify(header.slice(7), config.auth.jwtSecret) as JwtPayload;
-    req.user = { id: payload.sub, email: payload.email };
+    if (!isPreviewToken(payload)) {
+      req.user = { id: payload.sub, email: payload.email, isAdmin: false, isFreeAccess: false };
+    }
   } catch { /* ignore */ }
   next();
 }

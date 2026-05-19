@@ -4,6 +4,7 @@ import { db, files, projects, memberships } from "@workspace/db";
 import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { config } from "../lib/config";
 import { createError } from "../middlewares/errorHandler";
+import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 
 const router = Router();
 
@@ -19,22 +20,47 @@ async function assertProjectAccess(projectId: string, userId: string) {
   return p;
 }
 
-// GET /api/preview/:projectId?token=JWT
-// Serves assembled HTML preview with inlined CSS & JS
+// POST /api/preview/:projectId/token
+// Issues a short-lived, preview-scoped JWT that only works for this preview route.
+// Requires the caller to be authenticated with a real session token.
+router.post("/:projectId/token", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params.projectId);
+    const userId = req.user!.id;
+
+    await assertProjectAccess(projectId, userId);
+
+    const previewToken = jwt.sign(
+      { sub: projectId },
+      config.auth.jwtSecret,
+      { audience: "preview", expiresIn: "5m" },
+    );
+
+    res.json({ token: previewToken });
+  } catch (err) { next(err); }
+});
+
+// GET /api/preview/:projectId?token=PREVIEW_JWT
+// Serves assembled HTML preview with inlined CSS & JS.
+// Only accepts short-lived preview-scoped tokens (aud: "preview", sub: projectId).
 router.get("/:projectId", async (req: any, res: Response, next: NextFunction) => {
   try {
     const token = String(req.query.token ?? "");
     if (!token) return next(createError("Missing preview token", 401));
 
-    let userId: string;
+    const projectId = String(req.params.projectId);
+
     try {
-      const payload = jwt.verify(token, config.auth.jwtSecret) as { sub: string };
-      userId = payload.sub;
+      jwt.verify(token, config.auth.jwtSecret, { audience: "preview", subject: projectId });
     } catch {
-      return next(createError("Invalid or expired token", 401));
+      return next(createError("Invalid or expired preview token", 401));
     }
 
-    const project = await assertProjectAccess(String(req.params.projectId), userId);
+    const [project] = await db.select().from(projects).where(and(
+      eq(projects.id, projectId),
+      isNull(projects.deletedAt),
+    )).limit(1);
+    if (!project) return next(createError("Project not found", 404));
 
     const projectFiles = await db
       .select({ path: files.path, content: files.content, mimeType: files.mimeType })
