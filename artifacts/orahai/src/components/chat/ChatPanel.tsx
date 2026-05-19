@@ -23,6 +23,7 @@ interface ChatPanelProps {
   activeFilePath?: string;
   activeFileContent?: string;
   onApplyCode?: (code: string) => void;
+  onApplyToPath?: (code: string, path: string) => void;
   onFileChange?: (path: string, action: "write" | "delete") => void;
   onStreamingChange?: (streaming: boolean) => void;
   autoDevEnabled?: boolean;
@@ -57,7 +58,7 @@ type ListItem =
   | (FileOpEvent & { _type: "fileop" });
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
-  { projectId, activeFilePath, activeFileContent, onApplyCode, onFileChange, onStreamingChange, autoDevEnabled, growthCount = 0 },
+  { projectId, activeFilePath, activeFileContent, onApplyCode, onApplyToPath, onFileChange, onStreamingChange, autoDevEnabled, growthCount = 0 },
   ref,
 ) {
   const [items, setItems] = useState<ListItem[]>([]);
@@ -414,6 +415,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       content={msg.content}
                       isAssistant={msg.role === "assistant"}
                       onApply={onApplyCode}
+                      onApplyToPath={onApplyToPath}
                       activeFilePath={activeFilePath}
                       projectId={projectId}
                     />
@@ -636,9 +638,23 @@ function RunCard({ event }: { event: RunEvent & { _type: "run" } }) {
 
 // ── Message Content ───────────────────────────────────────────────────────────
 
-function MsgContent({ content, isAssistant, onApply, activeFilePath, projectId }: {
+// Detect a file path mentioned in a text chunk (e.g. `public/app.js`, - src/index.ts)
+const FILE_PATH_RE = /`([\w.-]+(?:\/[\w./-]+)+\.\w+)`|([\w.-]+(?:\/[\w./-]+)+\.\w+)/g;
+function extractLastFilePath(text: string): string | undefined {
+  let last: string | undefined;
+  let m: RegExpExecArray | null;
+  FILE_PATH_RE.lastIndex = 0;
+  while ((m = FILE_PATH_RE.exec(text)) !== null) {
+    last = m[1] || m[2];
+  }
+  return last;
+}
+
+function MsgContent({ content, isAssistant, onApply, onApplyToPath, activeFilePath, projectId }: {
   content: string; isAssistant: boolean;
-  onApply?: (code: string) => void; activeFilePath?: string; projectId: string;
+  onApply?: (code: string) => void;
+  onApplyToPath?: (code: string, path: string) => void;
+  activeFilePath?: string; projectId: string;
 }) {
   // Strip file-op blocks from rendered content so they don't show as raw text
   const cleaned = content
@@ -647,6 +663,10 @@ function MsgContent({ content, isAssistant, onApply, activeFilePath, projectId }
     .trim();
 
   const parts = cleaned.split(/(```[\s\S]*?```)/g);
+
+  // Track the last filename seen in text parts so code blocks can infer their target
+  let lastSeenPath: string | undefined;
+
   return (
     <div className="space-y-1.5">
       {parts.map((p, i) => {
@@ -654,12 +674,19 @@ function MsgContent({ content, isAssistant, onApply, activeFilePath, projectId }
           const lines = p.split("\n");
           const lang = lines[0].slice(3).trim().toLowerCase();
           const code = lines.slice(1, -1).join("\n");
+          const inferredPath = lastSeenPath;
           return (
             <CodeBlock key={i} lang={lang} code={code}
-              showApply={isAssistant && !!onApply}
-              onApply={onApply} activeFilePath={activeFilePath} projectId={projectId} />
+              showApply={isAssistant && (!!onApply || !!onApplyToPath)}
+              onApply={onApply} onApplyToPath={onApplyToPath}
+              activeFilePath={activeFilePath} inferredPath={inferredPath}
+              projectId={projectId} />
           );
         }
+        // Update lastSeenPath from text before the next code block
+        const pathInText = extractLastFilePath(p);
+        if (pathInText) lastSeenPath = pathInText;
+
         const rendered = p.split("\n").map((line, li) => {
           if (line.trim().startsWith("$ ")) {
             return (
@@ -680,9 +707,11 @@ function MsgContent({ content, isAssistant, onApply, activeFilePath, projectId }
 
 const SHELL_LANGS = new Set(["bash", "sh", "shell", "zsh", "console", "terminal", "cmd"]);
 
-function CodeBlock({ lang, code, showApply, onApply, activeFilePath, projectId }: {
+function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePath, inferredPath, projectId }: {
   lang: string; code: string; showApply: boolean;
-  onApply?: (code: string) => void; activeFilePath?: string; projectId: string;
+  onApply?: (code: string) => void;
+  onApplyToPath?: (code: string, path: string) => void;
+  activeFilePath?: string; inferredPath?: string; projectId: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
@@ -696,12 +725,18 @@ function CodeBlock({ lang, code, showApply, onApply, activeFilePath, projectId }
   };
 
   const handleApply = () => {
-    if (!onApply) return;
-    if (!activeFilePath) {
-      toast({ title: "No file open", description: "Switch to the Editor tab and open a file first, then tap Apply." });
+    // Case 1: a file is already open in the editor — apply directly to it
+    if (activeFilePath && onApply) {
+      onApply(code); setApplied(true); setTimeout(() => setApplied(false), 2000);
       return;
     }
-    onApply(code); setApplied(true); setTimeout(() => setApplied(false), 2000);
+    // Case 2: no file open but we inferred the target from message context
+    if (inferredPath && onApplyToPath) {
+      onApplyToPath(code, inferredPath); setApplied(true); setTimeout(() => setApplied(false), 2000);
+      return;
+    }
+    // Case 3: no file open and no inferred path — can't apply
+    toast({ title: "No target file", description: "Open a file in the Editor tab first, then tap Apply." });
   };
 
   const handleRun = async () => {

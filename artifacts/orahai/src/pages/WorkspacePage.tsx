@@ -123,6 +123,28 @@ export default function WorkspacePage() {
     }
   }, [activeFile, project]);
 
+  const handleApplyToPath = useCallback(async (code: string, path: string) => {
+    if (!project) return;
+    try {
+      // Load the file so we have its mimeType, then apply
+      const res = await api.get<{ data: ProjectFile }>(`/api/files/${project.id}/read?path=${encodeURIComponent(path)}`);
+      const file = res.data;
+      if (!file) {
+        toast({ title: "File not found", description: path, variant: "destructive" });
+        return;
+      }
+      const updated = { ...file, content: code };
+      setActiveFile(updated);
+      setMobileTab("editor");
+      await api.put(`/api/files/${project.id}`, {
+        path: file.path, content: code, mimeType: file.mimeType,
+      });
+      toast({ title: `Applied to ${path}` });
+    } catch {
+      toast({ title: "Failed to apply code", description: path, variant: "destructive" });
+    }
+  }, [project]);
+
   const handleFileChange = useCallback(async (path: string, action: "write" | "delete") => {
     setFileRefreshKey((k) => k + 1);
     if (action === "write" && activeFile?.path === path && project) {
@@ -262,6 +284,7 @@ export default function WorkspacePage() {
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
+              onApplyToPath={handleApplyToPath}
               onFileChange={handleFileChange}
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
@@ -351,6 +374,7 @@ export default function WorkspacePage() {
               activeFilePath={activeFile?.path}
               activeFileContent={activeFile?.content}
               onApplyCode={handleApplyCode}
+              onApplyToPath={handleApplyToPath}
               onFileChange={handleFileChange}
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
