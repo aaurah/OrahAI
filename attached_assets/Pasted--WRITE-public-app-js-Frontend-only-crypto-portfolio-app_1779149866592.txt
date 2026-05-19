@@ -1,0 +1,1000 @@
+<<<WRITE:public/app.js>>>
+/**
+ * Frontend-only crypto portfolio app.
+ *
+ * - Uses CoinGecko public APIs for live prices/markets.
+ * - Stores all portfolio/watchlist/alerts data in localStorage.
+ * - No calls to /api/... at all (works in OrahAI Preview as a pure SPA).
+ */
+
+const STORAGE_KEYS = {
+  USER: "cp_user",
+  PORTFOLIOS: "cp_portfolios",
+  ACTIVE_PORTFOLIO_ID: "cp_active_portfolio_id",
+  WATCHLIST: "cp_watchlist",
+  ALERTS: "cp_alerts"
+};
+
+const state = {
+  user: null,
+  portfolios: null, // { activePortfolioId, items: [...] }
+  activePortfolio: null,
+  markets: [],
+  watchlist: { symbols: [], prices: {} },
+  alerts: [],
+  analytics: null,
+  prices: {},
+  tagFilter: ""
+};
+
+/* ========== Utilities ========== */
+
+function loadFromStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore quota errors in this context
+  }
+}
+
+function formatCurrency(v, currency = "USD") {
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
+  const isNegative = v < 0;
+  const abs = Math.abs(v);
+  const opts = {
+    style: "currency",
+    currency,
+    maximumFractionDigits: abs > 100 ? 2 : 4
+  };
+  return (isNegative ? "-" : "") + abs.toLocaleString(undefined, opts);
+}
+
+function formatPct(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "-";
+  return (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+}
+
+/* ========== CoinGecko helpers ========== */
+
+const COINGECKO_API = "https://api.coingecko.com/api/v3";
+
+// limited mapping for demo; for other symbols we try to infer via markets list
+const SYMBOL_TO_ID = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  USDT: "tether",
+  USDC: "usd-coin",
+  BNB: "binancecoin",
+  XRP: "ripple",
+  ADA: "cardano",
+  SOL: "solana",
+  DOGE: "dogecoin",
+  MATIC: "matic-network",
+  DOT: "polkadot",
+  AVAX: "avalanche-2",
+  LTC: "litecoin",
+  LINK: "chainlink",
+  TRX: "tron",
+  BCH: "bitcoin-cash"
+};
+
+const ID_TO_SYMBOL = Object.fromEntries(
+  Object.entries(SYMBOL_TO_ID).map(([sym, id]) => [id, sym])
+);
+
+async function fetchPricesForSymbols(symbols, vsCurrency = "USD") {
+  const unique = [...new Set(symbols.map((s) => s.toUpperCase()))].filter(
+    Boolean
+  );
+  if (!unique.length) return {};
+
+  // Try to map via SYMBOL_TO_ID first
+  let ids = unique
+    .map((s) => SYMBOL_TO_ID[s])
+    .filter(Boolean)
+    .join(",");
+
+  // If some symbols aren't in SYMBOL_TO_ID, we can't resolve them directly in this demo.
+  // We still call CoinGecko for known ids.
+  if (!ids) return {};
+
+  const url = `${COINGECKO_API}/simple/price?ids=${encodeURIComponent(
+    ids
+  )}&vs_currencies=${encodeURIComponent(
+    vsCurrency.toLowerCase()
+  )}&include_24hr_change=true`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Price API error", res.status, await res.text());
+    return {};
+  }
+  const data = await res.json();
+  const out = {};
+  Object.entries(data).forEach(([id, v]) => {
+    const sym = ID_TO_SYMBOL[id];
+    if (!sym) return;
+    out[sym] = {
+      price: v[vsCurrency.toLowerCase()],
+      change24h: v[`${vsCurrency.toLowerCase()}_24h_change`] ?? 0
+    };
+  });
+  return out;
+}
+
+async function fetchMarketList(vsCurrency = "USD", perPage = 20) {
+  const url = `${COINGECKO_API}/coins/markets?vs_currency=${encodeURIComponent(
+    vsCurrency.toLowerCase()
+  )}&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=false&price_change_percentage=24h`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Market list API error", res.status, await res.text());
+    return [];
+  }
+  const data = await res.json();
+  return data.map((c) => ({
+    id: c.id,
+    symbol: c.symbol.toUpperCase(),
+    name: c.name,
+    price: c.current_price,
+    change24h: c.price_change_percentage_24h ?? 0,
+    marketCap: c.market_cap
+  }));
+}
+
+/* ========== Analytics ========== */
+
+function computeAnalytics(portfolio, prices, currency) {
+  const result = {
+    totalValue: 0,
+    totalValuePerSymbol: {},
+    allocation: [],
+    performance24h: {
+      totalChangeValue: 0,
+      totalChangePct: 0
+    },
+    pnl: {
+      unrealizedValue: 0,
+      unrealizedCost: 0,
+      unrealizedPnlValue: 0,
+      unrealizedPnlPct: 0,
+      stablecoinRatioPct: 0
+    },
+    risk: {
+      concentrationTopAssetPct: 0,
+      assetCount: 0
+    },
+    meta: {
+      currency
+    }
+  };
+
+  if (!portfolio || !portfolio.accounts?.length) return result;
+
+  const holdings = portfolio.accounts.flatMap((a) => a.holdings || []);
+  if (!holdings.length) return result;
+
+  const bySymbol = {};
+  holdings.forEach((h) => {
+    const sym = h.symbol.toUpperCase();
+    if (!bySymbol[sym]) {
+      bySymbol[sym] = { symbol: sym, amount: 0, value: 0, cost: 0 };
+    }
+    bySymbol[sym].amount += h.amount;
+    const avg = h.averageBuyPrice || 0;
+    bySymbol[sym].cost += h.amount * avg;
+  });
+
+  Object.values(bySymbol).forEach((entry) => {
+    const p = prices[entry.symbol];
+    const price = p ? p.price : 0;
+    const value = entry.amount * price;
+    entry.value = value;
+
+    result.totalValue += value;
+    result.totalValuePerSymbol[entry.symbol] = value;
+
+    const change24hPct = p ? p.change24h || 0 : 0;
+    const changeValue = (change24hPct / 100) * value;
+    result.performance24h.totalChangeValue += changeValue;
+
+    result.pnl.unrealizedCost += entry.cost;
+    result.pnl.unrealizedValue += value;
+  });
+
+  if (result.totalValue > 0) {
+    result.allocation = Object.values(bySymbol)
+      .map((entry) => ({
+        symbol: entry.symbol,
+        value: entry.value,
+        pct: (entry.value / result.totalValue) * 100
+      }))
+      .sort((a, b) => b.pct - a.pct);
+
+    result.risk.concentrationTopAssetPct = result.allocation[0].pct;
+    result.performance24h.totalChangePct =
+      (result.performance24h.totalChangeValue / result.totalValue) * 100;
+  }
+
+  result.risk.assetCount = Object.keys(bySymbol).length;
+
+  if (result.pnl.unrealizedCost > 0) {
+    result.pnl.unrealizedPnlValue =
+      result.pnl.unrealizedValue - result.pnl.unrealizedCost;
+    result.pnl.unrealizedPnlPct =
+      (result.pnl.unrealizedPnlValue / result.pnl.unrealizedCost) * 100;
+  }
+
+  const stableSymbols = ["USDT", "USDC"];
+  const stableValue = stableSymbols.reduce(
+    (sum, s) => sum + (result.totalValuePerSymbol[s] || 0),
+    0
+  );
+  result.pnl.stablecoinRatioPct =
+    result.totalValue > 0 ? (stableValue / result.totalValue) * 100 : 0;
+
+  return result;
+}
+
+/* ========== Local state init ========== */
+
+function ensureDemoSeed() {
+  let user = loadFromStorage(STORAGE_KEYS.USER, null);
+  let portfolios = loadFromStorage(STORAGE_KEYS.PORTFOLIOS, null);
+  let activeId = loadFromStorage(STORAGE_KEYS.ACTIVE_PORTFOLIO_ID, null);
+
+  if (!user) {
+    user = {
+      name: "Demo User",
+      baseCurrency: "USD"
+    };
+    saveToStorage(STORAGE_KEYS.USER, user);
+  }
+
+  if (!portfolios || !portfolios.items?.length) {
+    portfolios = {
+      items: [
+        {
+          id: "pf-main",
+          name: "Main Portfolio",
+          accounts: [
+            {
+              id: "acc-1",
+              name: "Manual Portfolio",
+              type: "manual",
+              source: "Custom",
+              holdings: [
+                {
+                  id: "h-1",
+                  symbol: "BTC",
+                  amount: 0.35,
+                  tags: ["Long-term"],
+                  notes: "Cold storage",
+                  averageBuyPrice: 30000
+                },
+                {
+                  id: "h-2",
+                  symbol: "ETH",
+                  amount: 4.2,
+                  tags: ["DeFi"],
+                  notes: "",
+                  averageBuyPrice: 1800
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    activeId = "pf-main";
+    saveToStorage(STORAGE_KEYS.PORTFOLIOS, portfolios);
+    saveToStorage(STORAGE_KEYS.ACTIVE_PORTFOLIO_ID, activeId);
+  }
+
+  let watchlist = loadFromStorage(STORAGE_KEYS.WATCHLIST, null);
+  if (!watchlist) {
+    watchlist = { symbols: ["BTC", "ETH", "SOL", "DOGE"] };
+    saveToStorage(STORAGE_KEYS.WATCHLIST, watchlist);
+  }
+
+  let alerts = loadFromStorage(STORAGE_KEYS.ALERTS, null);
+  if (!alerts) {
+    alerts = [
+      {
+        id: "al-1",
+        symbol: "BTC",
+        direction: "above",
+        price: 45000,
+        active: true
+      },
+      {
+        id: "al-2",
+        symbol: "ETH",
+        direction: "below",
+        price: 1500,
+        active: true
+      }
+    ];
+    saveToStorage(STORAGE_KEYS.ALERTS, alerts);
+  }
+
+  state.user = user;
+  state.portfolios = portfolios;
+  state.activePortfolio =
+    portfolios.items.find((p) => p.id === activeId) || portfolios.items[0];
+  state.alerts = alerts;
+  state.watchlist = watchlist;
+}
+
+/* ========== Core load/refresh ========== */
+
+async function refreshAll() {
+  const cur = state.user.baseCurrency || "USD";
+
+  const holdings =
+    state.activePortfolio?.accounts?.flatMap((a) => a.holdings || []) || [];
+  const symbols = [...new Set(holdings.map((h) => h.symbol.toUpperCase()))];
+
+  // Parallel fetch: markets list & holdings prices & watchlist prices
+  const [markets, prices, wlPrices] = await Promise.all([
+    fetchMarketList(cur, 20),
+    fetchPricesForSymbols(symbols, cur),
+    fetchPricesForSymbols(state.watchlist.symbols || [], cur)
+  ]);
+
+  state.markets = markets;
+  state.prices = prices;
+  state.watchlist.prices = wlPrices;
+
+  state.analytics = computeAnalytics(
+    state.activePortfolio,
+    state.prices,
+    cur
+  );
+
+  renderAll();
+}
+
+/* ========== Rendering ========== */
+
+function renderAll() {
+  renderUserAndPortfolios();
+  renderOverview();
+  renderAllocation();
+  renderAccounts();
+  populateAccountSelect();
+  renderMarkets();
+  renderWatchlist();
+  renderAlerts();
+}
+
+function renderUserAndPortfolios() {
+  document.getElementById("user-name").textContent = state.user.name;
+
+  const currencySelect = document.getElementById("currency-select");
+  currencySelect.value = state.user.baseCurrency || "USD";
+
+  const pfSelect = document.getElementById("portfolio-select");
+  pfSelect.innerHTML = "";
+  if (!state.portfolios?.items) return;
+  state.portfolios.items.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    if (p.id === state.activePortfolio?.id) opt.selected = true;
+    pfSelect.appendChild(opt);
+  });
+}
+
+function renderOverview() {
+  const analytics = state.analytics;
+  const cur = state.user.baseCurrency || "USD";
+  if (!analytics) return;
+
+  document.getElementById("total-value").textContent = formatCurrency(
+    analytics.totalValue,
+    cur
+  );
+
+  const pnl = analytics.performance24h;
+  const pnlValueEl = document.getElementById("pnl-value");
+  const pnlPctEl = document.getElementById("pnl-pct");
+  pnlValueEl.textContent = formatCurrency(pnl.totalChangeValue, cur);
+  pnlPctEl.textContent = formatPct(pnl.totalChangePct);
+  if (pnl.totalChangeValue < 0) {
+    pnlValueEl.classList.add("text-danger");
+  } else {
+    pnlValueEl.classList.remove("text-danger");
+  }
+
+  const unreal = analytics.pnl;
+  const unrealValueEl = document.getElementById("unrealized-pnl-value");
+  const unrealPctEl = document.getElementById("unrealized-pnl-pct");
+  unrealValueEl.textContent = formatCurrency(
+    unreal.unrealizedPnlValue,
+    cur
+  );
+  unrealPctEl.textContent = formatPct(unreal.unrealizedPnlPct);
+  if (unreal.unrealizedPnlValue < 0) {
+    unrealValueEl.classList.add("text-danger");
+    unrealValueEl.classList.remove("text-success");
+  } else {
+    unrealValueEl.classList.add("text-success");
+    unrealValueEl.classList.remove("text-danger");
+  }
+
+  document.getElementById("top-asset-conc").textContent = formatPct(
+    analytics.risk.concentrationTopAssetPct
+  );
+  document.getElementById("asset-count").textContent =
+    analytics.risk.assetCount;
+  document.getElementById("stable-ratio").textContent = formatPct(
+    analytics.pnl.stablecoinRatioPct
+  );
+
+  document.getElementById("last-refresh").textContent =
+    "Updated " + new Date().toLocaleTimeString();
+}
+
+function renderAllocation() {
+  const container = document.getElementById("allocation-list");
+  container.innerHTML = "";
+  const analytics = state.analytics;
+  const cur = state.user.baseCurrency || "USD";
+  if (!analytics || !analytics.allocation.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No holdings yet. Add a holding to see allocation.</div>';
+    return;
+  }
+
+  // Tag filter: recalc from holdings if a tag is active
+  let allocation = analytics.allocation;
+  if (state.tagFilter) {
+    const holdings =
+      state.activePortfolio?.accounts?.flatMap((a) => a.holdings || []) || [];
+    const filtered = holdings.filter((h) =>
+      (h.tags || []).includes(state.tagFilter)
+    );
+    const prices = state.prices;
+    const filteredAnalytics = computeAnalytics(
+      { accounts: [{ holdings: filtered }] },
+      prices,
+      cur
+    );
+    allocation = filteredAnalytics.allocation;
+  }
+
+  allocation.forEach((row) => {
+    const div = document.createElement("div");
+    div.className = "alloc-row";
+    const valueLabel = formatCurrency(row.value, cur);
+    div.innerHTML = `
+      <div class="alloc-symbol">${row.symbol}</div>
+      <div class="alloc-bar">
+        <div class="alloc-bar-inner" style="width:${row.pct.toFixed(1)}%"></div>
+      </div>
+      <div>${valueLabel}</div>
+      <div style="text-align:right;">
+        <div>${formatPct(row.pct)}</div>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function renderAccounts() {
+  const container = document.getElementById("accounts-list");
+  container.innerHTML = "";
+  const active = state.activePortfolio;
+  if (!active) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No active portfolio. Create one first.</div>';
+    return;
+  }
+
+  const accounts = active.accounts || [];
+  if (!accounts.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No accounts yet. Create your first trading account or wallet.</div>';
+    return;
+  }
+
+  const cur = state.user.baseCurrency || "USD";
+  const priceMap = state.prices || {};
+
+  accounts.forEach((acc) => {
+    const card = document.createElement("div");
+    card.className = "account-card";
+
+    const header = document.createElement("div");
+    header.className = "account-header";
+
+    const nameDiv = document.createElement("div");
+    nameDiv.innerHTML = `<div class="account-name">${acc.name}</div>
+      <div class="account-type">${acc.type} • ${acc.source}</div>`;
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-danger small";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = () => {
+      if (confirm("Delete this account and all its holdings?")) {
+        deleteAccount(acc.id);
+      }
+    };
+
+    header.appendChild(nameDiv);
+    header.appendChild(delBtn);
+
+    card.appendChild(header);
+
+    const holdingsDiv = document.createElement("div");
+    holdingsDiv.className = "account-holdings";
+
+    if (!acc.holdings?.length) {
+      holdingsDiv.innerHTML =
+        '<div class="text-muted">No holdings yet.</div>';
+    } else {
+      acc.holdings.forEach((h) => {
+        const row = document.createElement("div");
+        row.className = "holding-row";
+        const tags = h.tags && h.tags.length ? h.tags.join(", ") : "";
+        const priceInfo = priceMap[h.symbol.toUpperCase()] || {};
+        const price = priceInfo.price || 0;
+        const value = h.amount * price;
+        const avg = h.averageBuyPrice || 0;
+        const cost = h.amount * avg;
+        const pnl = value - cost;
+        const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+
+        row.innerHTML = `
+          <div>
+            <div class="holding-symbol">${h.symbol}</div>
+            <div class="holding-tags">${tags}</div>
+          </div>
+          <div>${h.amount}</div>
+          <div style="text-align:right;">
+            <div>${formatCurrency(value, cur)}</div>
+            <div class="${pnl >= 0 ? "text-success" : "text-danger"}" style="font-size:10px;">
+              ${formatCurrency(pnl, cur)} (${formatPct(pnlPct)})
+            </div>
+          </div>
+        `;
+        holdingsDiv.appendChild(row);
+      });
+    }
+
+    card.appendChild(holdingsDiv);
+    container.appendChild(card);
+  });
+}
+
+function populateAccountSelect() {
+  const sel = document.getElementById("holding-account");
+  sel.innerHTML = "";
+  const active = state.activePortfolio;
+  if (!active) return;
+  (active.accounts || []).forEach((acc) => {
+    const opt = document.createElement("option");
+    opt.value = acc.id;
+    opt.textContent = acc.name;
+    sel.appendChild(opt);
+  });
+}
+
+function renderMarkets() {
+  const container = document.getElementById("markets-list");
+  container.innerHTML = "";
+  const cur = state.user.baseCurrency || "USD";
+  state.markets.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "market-row";
+    row.innerHTML = `
+      <div>
+        <div class="market-symbol">${m.symbol}</div>
+        <div class="market-name">${m.name}</div>
+      </div>
+      <div>${formatCurrency(m.price, cur)}</div>
+      <div class="${m.change24h >= 0 ? "text-success" : "text-danger"}">${formatPct(
+      m.change24h
+    )}</div>
+      <div>${m.marketCap ? m.marketCap.toLocaleString() : "-"}</div>
+      <div style="text-align:right;">
+        <button class="btn btn-secondary small" data-symbol="${m.symbol}">Watch</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll("button[data-symbol]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      addSymbolToWatchlist(btn.dataset.symbol)
+    );
+  });
+}
+
+function renderWatchlist() {
+  const container = document.getElementById("watchlist-list");
+  container.innerHTML = "";
+  const cur = state.user.baseCurrency || "USD";
+  const symbols = state.watchlist.symbols || [];
+  const prices = state.watchlist.prices || {};
+
+  if (!symbols.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">Your watchlist is empty. Add a symbol above.</div>';
+    return;
+  }
+
+  symbols.forEach((sym) => {
+    const p = prices[sym] || {};
+    const row = document.createElement("div");
+    row.className = "market-row";
+    row.innerHTML = `
+      <div>
+        <div class="market-symbol">${sym}</div>
+      </div>
+      <div>${p.price ? formatCurrency(p.price, cur) : "-"}</div>
+      <div class="${p.change24h >= 0 ? "text-success" : "text-danger"}">
+        ${p.change24h !== undefined ? formatPct(p.change24h) : "-"}
+      </div>
+      <div></div>
+      <div style="text-align:right;">
+        <button class="btn btn-danger small" data-symbol="${sym}">Remove</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll("button[data-symbol]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      removeSymbolFromWatchlist(btn.dataset.symbol)
+    );
+  });
+}
+
+function renderAlerts() {
+  const container = document.getElementById("alerts-list");
+  container.innerHTML = "";
+
+  if (!state.alerts.length) {
+    container.innerHTML =
+      '<div class="text-muted" style="font-size:12px;">No alerts yet. Create one above.</div>';
+    return;
+  }
+
+  state.alerts.forEach((a) => {
+    const row = document.createElement("div");
+    row.className = "alert-row";
+    row.innerHTML = `
+      <div>${a.symbol}</div>
+      <div>${a.direction === "above" ? "Crosses Above" : "Crosses Below"} ${
+      a.price
+    }</div>
+      <div>${a.active ? "Active" : "Paused"}</div>
+      <div style="text-align:right;">
+        <button class="btn btn-secondary small toggle-alert" data-id="${
+          a.id
+        }">
+          ${a.active ? "Pause" : "Resume"}
+        </button>
+        <button class="btn btn-danger small delete-alert" data-id="${
+          a.id
+        }">Delete</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll(".toggle-alert").forEach((btn) => {
+    btn.addEventListener("click", () => toggleAlert(btn.dataset.id));
+  });
+  container.querySelectorAll(".delete-alert").forEach((btn) => {
+    btn.addEventListener("click", () => deleteAlert(btn.dataset.id));
+  });
+}
+
+/* ========== Actions (no /api calls, pure local) ========== */
+
+async function changeCurrency(newCurrency) {
+  state.user.baseCurrency = newCurrency;
+  saveToStorage(STORAGE_KEYS.USER, state.user);
+  await refreshAll();
+}
+
+async function selectPortfolio(portfolioId) {
+  const pf = state.portfolios.items.find((p) => p.id === portfolioId);
+  if (!pf) return;
+  state.activePortfolio = pf;
+  saveToStorage(STORAGE_KEYS.ACTIVE_PORTFOLIO_ID, portfolioId);
+  await refreshAll();
+}
+
+async function addPortfolio() {
+  const name = prompt("Portfolio name (e.g. Main, DeFi, Long-Term)");
+  if (!name) return;
+  const id = `pf-${Date.now()}`;
+  const portfolio = {
+    id,
+    name,
+    accounts: []
+  };
+  state.portfolios.items.push(portfolio);
+  state.activePortfolio = portfolio;
+  saveToStorage(STORAGE_KEYS.PORTFOLIOS, state.portfolios);
+  saveToStorage(STORAGE_KEYS.ACTIVE_PORTFOLIO_ID, id);
+  await refreshAll();
+}
+
+async function addAccount() {
+  if (!state.activePortfolio) return;
+  const name = prompt("Account name (e.g. Binance, MetaMask)");
+  if (!name) return;
+  const account = {
+    id: `acc-${Date.now()}`,
+    name,
+    type: "manual",
+    source: "Custom",
+    holdings: []
+  };
+  state.activePortfolio.accounts.push(account);
+  saveToStorage(STORAGE_KEYS.PORTFOLIOS, state.portfolios);
+  await refreshAll();
+}
+
+async function deleteAccount(id) {
+  if (!state.activePortfolio) return;
+  state.activePortfolio.accounts = state.activePortfolio.accounts.filter(
+    (a) => a.id !== id
+  );
+  saveToStorage(STORAGE_KEYS.PORTFOLIOS, state.portfolios);
+  await refreshAll();
+}
+
+async function addHoldingFromForm(e) {
+  e.preventDefault();
+  if (!state.activePortfolio) return;
+
+  const accountId = document.getElementById("holding-account").value;
+  const symbol = document.getElementById("holding-symbol").value.trim();
+  const amount = parseFloat(
+    document.getElementById("holding-amount").value || "0"
+  );
+  const avgPriceStr = document
+    .getElementById("holding-avg-price")
+    .value.trim();
+  const avgPrice = avgPriceStr ? parseFloat(avgPriceStr) : 0;
+  const tagsStr = document.getElementById("holding-tags").value.trim();
+  const notes = document.getElementById("holding-notes").value.trim();
+
+  if (!accountId || !symbol || !amount) return;
+
+  const tags = tagsStr
+    ? tagsStr
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
+
+  const account = state.activePortfolio.accounts.find(
+    (a) => a.id === accountId
+  );
+  if (!account) return;
+
+  account.holdings.push({
+    id: `h-${Date.now()}`,
+    symbol: symbol.toUpperCase(),
+    amount,
+    tags,
+    notes,
+    averageBuyPrice: avgPrice
+  });
+
+  saveToStorage(STORAGE_KEYS.PORTFOLIOS, state.portfolios);
+
+  document.getElementById("holding-symbol").value = "";
+  document.getElementById("holding-amount").value = "";
+  document.getElementById("holding-avg-price").value = "";
+  document.getElementById("holding-tags").value = "";
+  document.getElementById("holding-notes").value = "";
+
+  await refreshAll();
+}
+
+async function filterByTag(tag) {
+  state.tagFilter = tag || "";
+  const chips = document.querySelectorAll(".chip-row .chip");
+  chips.forEach((c) => {
+    if (c.dataset.filterTag === tag) c.classList.add("active");
+    else c.classList.remove("active");
+  });
+  renderAllocation(); // allocation recalculates based on tag
+}
+
+async function addSymbolToWatchlist(symbol) {
+  const sym = symbol.toUpperCase();
+  if (!state.watchlist.symbols.includes(sym)) {
+    state.watchlist.symbols.push(sym);
+    saveToStorage(STORAGE_KEYS.WATCHLIST, {
+      symbols: state.watchlist.symbols
+    });
+    const cur = state.user.baseCurrency || "USD";
+    const prices = await fetchPricesForSymbols(state.watchlist.symbols, cur);
+    state.watchlist.prices = prices;
+    renderWatchlist();
+  }
+}
+
+async function removeSymbolFromWatchlist(symbol) {
+  const sym = symbol.toUpperCase();
+  state.watchlist.symbols = state.watchlist.symbols.filter(
+    (s) => s !== sym
+  );
+  saveToStorage(STORAGE_KEYS.WATCHLIST, {
+    symbols: state.watchlist.symbols
+  });
+  const cur = state.user.baseCurrency || "USD";
+  const prices = await fetchPricesForSymbols(state.watchlist.symbols, cur);
+  state.watchlist.prices = prices;
+  renderWatchlist();
+}
+
+async function addAlert() {
+  const symbol = document.getElementById("alert-symbol").value.trim();
+  const direction = document.getElementById("alert-direction").value;
+  const priceValue = parseFloat(
+    document.getElementById("alert-price").value || "0"
+  );
+  if (!symbol || !priceValue) return;
+
+  state.alerts.push({
+    id: `al-${Date.now()}`,
+    symbol: symbol.toUpperCase(),
+    direction,
+    price: priceValue,
+    active: true
+  });
+  saveToStorage(STORAGE_KEYS.ALERTS, state.alerts);
+
+  document.getElementById("alert-symbol").value = "";
+  document.getElementById("alert-price").value = "";
+
+  renderAlerts();
+}
+
+async function toggleAlert(id) {
+  const a = state.alerts.find((x) => x.id === id);
+  if (!a) return;
+  a.active = !a.active;
+  saveToStorage(STORAGE_KEYS.ALERTS, state.alerts);
+  renderAlerts();
+}
+
+async function deleteAlert(id) {
+  state.alerts = state.alerts.filter((x) => x.id !== id);
+  saveToStorage(STORAGE_KEYS.ALERTS, state.alerts);
+  renderAlerts();
+}
+
+/* ========== Events / init ========== */
+
+function initEvents() {
+  document
+    .getElementById("currency-select")
+    .addEventListener("change", (e) => changeCurrency(e.target.value));
+
+  document
+    .getElementById("portfolio-select")
+    .addEventListener("change", (e) => selectPortfolio(e.target.value));
+
+  document
+    .getElementById("add-portfolio-btn")
+    .addEventListener("click", addPortfolio);
+
+  document
+    .getElementById("add-account-btn")
+    .addEventListener("click", addAccount);
+
+  document
+    .getElementById("add-holding-form")
+    .addEventListener("submit", addHoldingFromForm);
+
+  document.querySelectorAll(".chip-row .chip").forEach((chip) => {
+    chip.addEventListener("click", () =>
+      filterByTag(chip.dataset.filterTag || "")
+    );
+  });
+
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((t) =>
+        t.classList.remove("active")
+      );
+      document.querySelectorAll(".tab-panel").forEach((p) =>
+        p.classList.remove("active")
+      );
+      tab.classList.add("active");
+      const target = tab.dataset.tab;
+      document.getElementById(target).classList.add("active");
+    });
+  });
+
+  document
+    .getElementById("add-watchlist-btn")
+    .addEventListener("click", () => {
+      const input = document.getElementById("watchlist-symbol-input");
+      const sym = input.value.trim();
+      if (!sym) return;
+      addSymbolToWatchlist(sym);
+      input.value = "";
+    });
+
+  document
+    .getElementById("add-alert-btn")
+    .addEventListener("click", addAlert);
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  ensureDemoSeed();
+  initEvents();
+  refreshAll().catch((err) => {
+    console.error(err);
+    alert("Failed to load data from CoinGecko. Please try again.");
+  });
+});
+<<<END>>>
+
+This new `public/app.js`:
+
+- Removes all `fetch("/api/...")` calls.
+- Uses CoinGecko directly for:
+  - Prices of your holdings.
+  - Markets list.
+  - Watchlist prices.
+- Stores user, portfolios, watchlist, and alerts in `localStorage`, so everything works entirely in the browser and persists between sessions in the same browser.
+
+---
+`public/app.js` is now fully converted to a frontend-only implementation:
+
+- No `fetch("/api/...")` calls remain.
+- Live crypto prices and market data come directly from CoinGecko:
+  - `simple/price` for holdings and watchlist symbols.
+  - `coins/markets` for the Markets tab.
+- All portfolio-related data is persisted in `localStorage`:
+  - User (`name`, `baseCurrency`).
+  - Portfolios, accounts, holdings.
+  - Active portfolio ID.
+  - Watchlist symbols.
+  - Alerts.
+
+How it behaves now:
+
+- On first load, it seeds a demo portfolio (BTC/ETH), a default watchlist, and a couple of alerts into localStorage.
+- Every refresh:
+  - Reads localStorage for portfolios and user.
+  - Fetches prices from CoinGecko in the selected base currency.
+  - Computes analytics locally (total value, P&L, allocation, risk metrics).
+  - Renders Overview, Allocation, Accounts & Holdings, Markets, Watchlist, and Alerts.
+
+To see it running:
+
+1. Open the Preview tab in the workspace (no backend server is required for this to work).
+2. Interact with the app:
+   - Add/edit portfolios, accounts, holdings.
+   - Change base currency (USD/EUR/GBP).
+   - Add/remove watchlist symbols.
+   - Create/pause/delete alerts.
+
+If you want, next I can:
+
+- Expand the SYMBOL_TO_ID map so more tickers get live prices.
+- Add simple per-coin charts using CoinGecko’s historical API.
