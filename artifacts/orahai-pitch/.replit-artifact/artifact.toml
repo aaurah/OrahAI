@@ -12,7 +12,7 @@ version = "1.0.0"
 [[services]]
 name = "web"
 paths = [ "/orahai-pitch/" ]
-localPort = 20177
+localPort = 8083
 
 [services.development]
 run = "pnpm --filter @workspace/orahai-pitch run dev"
@@ -27,5 +27,5 @@ from = "/*"
 to = "/index.html"
 
 [services.env]
-PORT = "20177"
+PORT = "8083"
 BASE_PATH = "/orahai-pitch/"
