@@ -61,9 +61,10 @@ export function GitHubImportDialog({ open, onOpenChange, onImported }: Props) {
         ...(patOverride ? { token: patOverride } : {}),
       });
       toast({ title: `Imported ${preview.name}`, description: res.message ?? `${res.data._count.files} files imported` });
+      localStorage.setItem("orahai_agent_mode", "power");
       onOpenChange(false);
       onImported?.();
-      navigate(`/workspace/${res.data.id}`);
+      navigate(`/workspace/${res.data.id}?setup=1`);
     } catch (err: unknown) {
       setError((err as Error).message ?? "Import failed");
     } finally {

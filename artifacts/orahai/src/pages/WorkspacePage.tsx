@@ -44,6 +44,7 @@ export default function WorkspacePage() {
 
   const isSetupMode = new URLSearchParams(search).get("setup") === "1";
   const initialPrompt = new URLSearchParams(search).get("prompt") ?? "";
+  const githubSetupFiredRef = useRef(false);
 
   // ── File tabs ────────────────────────────────────────────────────────────────
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
@@ -117,6 +118,23 @@ export default function WorkspacePage() {
     navigate(`/workspace/${id}`, { replace: true });
     setTimeout(() => chatRef.current?.submit(initialPrompt), 300);
   }, [project, initialPrompt]);
+
+  // Auto-show setup banner for GitHub-imported projects with no previewable HTML
+  const PREVIEW_HTML_PATHS = [
+    "index.html", "public/index.html", "src/index.html", "dist/index.html",
+    "client/index.html", "frontend/index.html", "web/index.html",
+    "app/index.html", "static/index.html", "www/index.html",
+  ];
+  useEffect(() => {
+    if (!project?.githubRepo || githubSetupFiredRef.current || allFiles.length === 0 || isSetupMode) return;
+    const filePaths = new Set(allFiles.map(f => f.path));
+    const hasPreview = PREVIEW_HTML_PATHS.some(p => filePaths.has(p));
+    if (!hasPreview) {
+      githubSetupFiredRef.current = true;
+      setShowSetupBanner(true);
+      setChatOpen(true);
+    }
+  }, [project?.githubRepo, allFiles.length, isSetupMode]);
 
   const dismissSetup = () => {
     setShowSetupBanner(false);

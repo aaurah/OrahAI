@@ -74,6 +74,12 @@ router.get("/:projectId", async (req: any, res: Response, next: NextFunction) =>
       fileMap.get("public/index.html") ??
       fileMap.get("src/index.html") ??
       fileMap.get("dist/index.html") ??
+      fileMap.get("client/index.html") ??
+      fileMap.get("frontend/index.html") ??
+      fileMap.get("web/index.html") ??
+      fileMap.get("app/index.html") ??
+      fileMap.get("static/index.html") ??
+      fileMap.get("www/index.html") ??
       null;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");

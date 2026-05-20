@@ -56,15 +56,32 @@ export function SetupBanner({ projectId, onDismiss, onAiSetup }: SetupBannerProp
   }, [projectId]);
 
   const handleAiSetup = () => {
-    if (!setup) return;
-    const scriptList = Object.entries(setup.scripts).map(([k, v]) => `  • ${k}: ${v}`).join("\n");
+    const framework = setup?.framework ?? "unknown";
+    const installCmd = setup?.installCmd ?? null;
+    const devCmd = setup?.devCmd ?? null;
+    const scriptList = setup ? Object.entries(setup.scripts).map(([k, v]) => `  • ${k}: ${v}`).join("\n") : "";
+    const envVars = setup?.envVarsNeeded ?? [];
+
     const prompt =
-      `I just imported this project. Please analyze all the files and help me get it running:\n\n` +
-      `Detected: ${setup.framework}${setup.installCmd ? `\nInstall: ${setup.installCmd}` : ""}` +
-      `${setup.devCmd ? `\nRun: ${setup.devCmd}` : ""}` +
-      (scriptList ? `\nScripts:\n${scriptList}` : "") +
-      (setup.envVarsNeeded.length ? `\nNeeds env vars: ${setup.envVarsNeeded.join(", ")}` : "") +
-      `\n\nPlease:\n1. Tell me what this project does\n2. List exact commands to install and run it\n3. Note any environment variables or config needed\n4. If it's a web app, explain how to see it in Preview`;
+      `[GITHUB IMPORT SETUP] I just imported this project into OrahAI. ` +
+      `Framework detected: ${framework}. ` +
+      (installCmd ? `Install command: ${installCmd}. ` : "") +
+      (devCmd ? `Dev command: ${devCmd}. ` : "") +
+      (scriptList ? `\nScripts:\n${scriptList}\n` : "") +
+      (envVars.length ? `Needs env vars: ${envVars.join(", ")}.\n` : "") +
+      `\nPlease do ALL of the following right now:\n` +
+      `1. Read ALL project files to understand what this project is and does\n` +
+      `2. Identify the framework, entry points, components, and styling\n` +
+      `3. Create a working static preview by writing these files:\n` +
+      `   - public/index.html — a complete, self-contained HTML page that visually represents this project. ` +
+      `Use CDN links for any libraries (React via CDN, Tailwind CDN, Chart.js, etc.) — NO build step. ` +
+      `Recreate the actual UI from the source files as faithfully as possible.\n` +
+      `   - If the project has CSS/JS files that can run without compilation, inline or reference them\n` +
+      `4. For backend/API-only projects: create public/index.html as a polished project overview showing ` +
+      `what the API does, its endpoints, tech stack, and how to run it locally\n` +
+      `5. After writing files, give a 2-sentence summary of what the project is\n\n` +
+      `Important: The preview can only serve static HTML/CSS/JS — no Node.js server. ` +
+      `Make the preview self-contained and functional. Do this now without asking.`;
     onAiSetup(prompt);
   };
 
