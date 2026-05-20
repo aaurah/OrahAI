@@ -209,11 +209,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       // Mode → capability settings
       const MODE_CONFIG = {
-        lite:    { maxTokens:  8000, maxSteps: 2 },
-        economy: { maxTokens: 16000, maxSteps: 4 },
-        power:   { maxTokens: 32000, maxSteps: 6 },
+        lite:    { maxTokens:  8000, maxSteps: 2, historyLimit: 20, fileCharLimit: 2000, totalFileChars: 30000 },
+        economy: { maxTokens: 16000, maxSteps: 4, historyLimit: 25, fileCharLimit: 5000, totalFileChars: 60000 },
+        power:   { maxTokens: 32000, maxSteps: 6, historyLimit: 20, fileCharLimit: 2500, totalFileChars: 50000 },
       } as const;
-      const { maxTokens, maxSteps } = MODE_CONFIG[mode];
+      const { maxTokens, maxSteps, historyLimit, fileCharLimit, totalFileChars } = MODE_CONFIG[mode];
 
       const allImages: { data: string; mimeType: string }[] = images?.length
         ? images
@@ -229,7 +229,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       const history = await db.select({ role: chatMessages.role, content: chatMessages.content })
         .from(chatMessages).where(eq(chatMessages.projectId, project.id))
-        .orderBy(desc(chatMessages.createdAt)).limit(30);
+        .orderBy(desc(chatMessages.createdAt)).limit(historyLimit);
       history.reverse();
 
       const userContent = message || "Please analyze these images.";
@@ -257,7 +257,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           ? "\n\nMODE: Power — think thoroughly, be exhaustive. Write complete, production-quality code. Take as many steps as needed."
           : "";
 
-      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext) + modeNote;
+      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext, fileCharLimit, totalFileChars) + modeNote;
 
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [{ type: "text", text: userContent }];
       for (const img of allImages) {
@@ -332,7 +332,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         const fileOpResults: FileOpResult[] = [];
         if (fileOps.length > 0) {
           send({ type: "file_ops_start", count: fileOps.length });
-          for (const op of fileOps) {
+          await Promise.all(fileOps.map(async (op) => {
             try {
               if (op.action === "write" && op.content !== undefined) {
                 const saved = await upsertFile(project.id, op.path, op.content);
@@ -349,7 +349,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
               send({ type: "file_op_error", path: op.path, action: op.action, error: errMsg });
               fileOpResults.push({ path: op.path, action: op.action, success: false, error: errMsg });
             }
-          }
+          }));
           send({ type: "file_ops_done" });
         }
 
@@ -955,6 +955,8 @@ function buildSystemPrompt(
   projectFiles: { path: string; content: string; mimeType: string }[],
   activeFilePath?: string,
   activeFileContent?: string,
+  fileCharLimit = 5000,
+  totalFileChars = 60000,
 ): string {
   const fileTree = projectFiles.map(f => `  ${f.path}`).join("\n") || "  (no files yet)";
 
@@ -1070,17 +1072,15 @@ function buildSystemPrompt(
     lines.push(`════════════════════════════════════════════`);
     lines.push(``);
     let totalChars = 0;
-    const MAX_TOTAL = 80000;
     for (const f of otherFiles) {
-      if (totalChars >= MAX_TOTAL) {
+      if (totalChars >= totalFileChars) {
         lines.push(`_(context limit reached — remaining file contents omitted, but paths are listed in the file tree above)_`);
         break;
       }
-      const limit = 8000;
-      const excerpt = f.content.slice(0, limit);
+      const excerpt = f.content.slice(0, fileCharLimit);
       lines.push(`--- ${f.path} ---`);
       lines.push(`\`\`\`${langFromPath(f.path)}`);
-      lines.push(excerpt + (f.content.length > limit ? "\n…(truncated)" : ""));
+      lines.push(excerpt + (f.content.length > fileCharLimit ? "\n…(truncated)" : ""));
       lines.push("```");
       lines.push("");
       totalChars += excerpt.length;
