@@ -86,6 +86,17 @@ function extractFileOps(content: string): FileOp[] {
   return ops;
 }
 
+// ── Extract @filename mentions from a user message ────────────────────────────
+function extractMentions(message: string): string[] {
+  const re = /@([\w./-]+)/g;
+  const paths: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(message)) !== null) {
+    paths.push(m[1]);
+  }
+  return [...new Set(paths)];
+}
+
 function mimeFromPath(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
@@ -227,6 +238,20 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         .orderBy(asc(files.path))
         .limit(80);
 
+      // Resolve @mentions → pin those files for full-content injection
+      const mentionedPaths = extractMentions(message);
+      const pinnedFiles: typeof projectFiles = [];
+      for (const mention of mentionedPaths) {
+        const lo = mention.toLowerCase();
+        const match = projectFiles.find(f =>
+          f.path === mention ||
+          f.path.toLowerCase() === lo ||
+          f.path.endsWith("/" + mention) ||
+          f.path.toLowerCase().endsWith("/" + lo),
+        );
+        if (match && !pinnedFiles.some(p => p.path === match.path)) pinnedFiles.push(match);
+      }
+
       const history = await db.select({ role: chatMessages.role, content: chatMessages.content })
         .from(chatMessages).where(eq(chatMessages.projectId, project.id))
         .orderBy(desc(chatMessages.createdAt)).limit(historyLimit);
@@ -257,7 +282,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           ? "\n\nMODE: Power — think thoroughly, be exhaustive. Write complete, production-quality code. Take as many steps as needed."
           : "";
 
-      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext, fileCharLimit, totalFileChars) + modeNote;
+      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext, fileCharLimit, totalFileChars, pinnedFiles) + modeNote;
 
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [{ type: "text", text: userContent }];
       for (const img of allImages) {
@@ -376,6 +401,51 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       next(err);
     }
   });
+
+// ── Code search across project files ─────────────────────────────────────────
+router.get("/search/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
+    const q = String(req.query.q ?? "").trim().toLowerCase();
+    const limit = Math.min(parseInt(String(req.query.limit ?? "20"), 10) || 20, 50);
+
+    if (q.length < 2) return res.json({ data: [] });
+
+    const projectFiles = await db
+      .select({ path: files.path, content: files.content })
+      .from(files)
+      .where(and(eq(files.projectId, project.id), isNull(files.deletedAt), eq(files.isDir, false)))
+      .limit(200);
+
+    const results: Array<{ path: string; lineNumber: number; line: string; context: string }> = [];
+
+    // Path-name matches first (highest relevance)
+    for (const f of projectFiles) {
+      if (results.length >= limit) break;
+      const fileName = f.path.split("/").pop() ?? f.path;
+      if (fileName.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)) {
+        results.push({ path: f.path, lineNumber: 0, line: f.path, context: "" });
+      }
+    }
+
+    // Content matches
+    for (const f of projectFiles) {
+      if (results.length >= limit) break;
+      if (!f.content) continue;
+      const lines = f.content.split("\n");
+      for (let i = 0; i < lines.length && results.length < limit; i++) {
+        if (lines[i].toLowerCase().includes(q)) {
+          const ctx = lines.slice(Math.max(0, i - 1), Math.min(lines.length, i + 3)).join("\n");
+          if (!results.some(r => r.path === f.path && r.lineNumber === i + 1)) {
+            results.push({ path: f.path, lineNumber: i + 1, line: lines[i].trim(), context: ctx });
+          }
+        }
+      }
+    }
+
+    res.json({ data: results.slice(0, limit) });
+  } catch (err) { next(err); }
+});
 
 // ── Background job status (used by client on tab-reopen) ─────────────────────
 router.get("/chat/:projectId/status", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
