@@ -1027,8 +1027,10 @@ function buildSystemPrompt(
   activeFileContent?: string,
   fileCharLimit = 5000,
   totalFileChars = 60000,
+  pinnedFiles: { path: string; content: string }[] = [],
 ): string {
   const fileTree = projectFiles.map(f => `  ${f.path}`).join("\n") || "  (no files yet)";
+  const pinnedPaths = new Set(pinnedFiles.map(f => f.path));
 
   const langGuide = buildLangGuide(language);
 
