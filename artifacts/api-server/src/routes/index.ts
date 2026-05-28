@@ -15,6 +15,7 @@ import domainsRouter from "./domains";
 import apiKeysRouter from "./apiKeys";
 import mcpRouter from "./mcp";
 import mcpServerRouter from "./mcpServer";
+import aiModelsRouter from "./aiModels";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,7 @@ router.use("/workspaces", workspacesRouter);
 router.use("/files", filesRouter);
 router.use("/runs", runsRouter);
 router.use("/ai", aiRouter);
+router.use("/ai", aiModelsRouter);
 router.use("/admin", adminRouter);
 router.use("/github", githubRouter);
 router.use("/preview", previewRouter);

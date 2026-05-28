@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   Bot, Code2, LayoutDashboard, Rocket, ChevronDown, LogOut, User, Shield,
-  Sun, Moon, Circle, Globe,
+  Sun, Moon, Circle, Globe, Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -146,6 +146,11 @@ export function Navbar() {
                 <DropdownMenuItem asChild>
                   <Link href="/settings/api-keys">
                     <Code2 className="w-4 h-4 mr-2" />API keys
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/ai-models">
+                    <Cpu className="w-4 h-4 mr-2" />AI Models
                   </Link>
                 </DropdownMenuItem>
                 {user.isAdmin && (

@@ -8,6 +8,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import WorkspacePage from "@/pages/WorkspacePage";
 import DeploymentsPage from "@/pages/DeploymentsPage";
 import SettingsPage from "@/pages/SettingsPage";
+import AiModelsPage from "@/pages/AiModelsPage";
 import AdminPage from "@/pages/AdminPage";
 import StaticPage from "@/pages/StaticPage";
 import ExplorePage from "@/pages/ExplorePage";
@@ -31,6 +32,7 @@ function Router() {
       <Route path="/settings/password" component={SettingsPage} />
       <Route path="/settings/api-keys"   component={SettingsPage} />
       <Route path="/settings/mcp-server" component={SettingsPage} />
+      <Route path="/ai-models" component={AiModelsPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/privacy">{() => <StaticPage page="privacy" />}</Route>
       <Route path="/terms">{() => <StaticPage page="terms" />}</Route>

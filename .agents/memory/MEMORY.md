@@ -1,0 +1,2 @@
+- [Ollama setup](ollama-setup.md) — installed via Nix (not direct download, CDN blocked); workflow name "Ollama AI Service"; uses port 11434
+- [Express 5 route patterns](express5-route-patterns.md) — path-to-regexp v8 rejects legacy `(*)`/`(.*)` — use query params for values with special chars
