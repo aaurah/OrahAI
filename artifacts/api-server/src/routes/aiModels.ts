@@ -54,6 +54,23 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
       probeOllama("remote"),
     ]);
 
+    const groqKey = !!(process.env.GROQ_API_KEY);
+    let groqModels: string[] = [];
+    if (groqKey) {
+      try {
+        const groqRes = await fetch("https://api.groq.com/openai/v1/models", {
+          headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (groqRes.ok) {
+          const data = await groqRes.json() as { data?: Array<{ id: string }> };
+          groqModels = (data.data ?? []).map(m => m.id).filter(id =>
+            ["llama", "mixtral", "gemma", "deepseek", "qwen", "whisper"].some(prefix => id.includes(prefix))
+          );
+        }
+      } catch { /* ignore */ }
+    }
+
     const providers: Record<string, unknown> = {
       openai: {
         available: !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY),
@@ -62,6 +79,10 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
       anthropic: {
         available: !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY),
         models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-3-5"],
+      },
+      groq: {
+        available: groqKey,
+        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
       },
       ollama: {
         available: serverProbe.available,

@@ -37,6 +37,12 @@ function makeOllamaRemoteClient(): OpenAI | null {
   return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
 }
 
+function makeGroqClient(): OpenAI | null {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ baseURL: "https://api.groq.com/openai/v1", apiKey });
+}
+
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
   return msgs
     .filter(m => m.role !== "system")
@@ -470,6 +476,14 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             llmClient = remoteClient;
           } else if (provider === "ollama") {
             llmClient = makeOllamaClient();
+          } else if (provider === "groq") {
+            const groqClient = makeGroqClient();
+            if (!groqClient) {
+              const errMsg = "Groq not configured. Add your GROQ_API_KEY in Replit Secrets (free at console.groq.com).";
+              stepContent = errMsg; allContent += errMsg;
+              send({ type: "delta", content: errMsg }); break;
+            }
+            llmClient = groqClient;
           } else {
             llmClient = openai;
           }

@@ -4,7 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import {
   Bot, Cpu, Cloud, CheckCircle2, XCircle, Download, Trash2,
   RefreshCw, ChevronDown, ChevronUp, Eye, Server, Zap, ExternalLink,
-  AlertCircle, StopCircle, Wifi, WifiOff, Link,
+  AlertCircle, StopCircle, Wifi, WifiOff, Link, Sparkles, Key, Copy, Laptop,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, API_BASE } from "@/lib/api";
@@ -31,6 +31,7 @@ interface ProviderStatus {
 interface ProvidersData {
   openai: ProviderStatus;
   anthropic: ProviderStatus;
+  groq: ProviderStatus;
   ollama: ProviderStatus;
   "ollama-remote": ProviderStatus;
 }
@@ -260,6 +261,28 @@ function InstalledSection({ label, icon, models, available, emptyNote, onDelete,
   );
 }
 
+// ── Colab Cell ────────────────────────────────────────────────────────────────
+
+function ColabCell({ label, code }: { label: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    void navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <div className="rounded-lg bg-background border border-border/40 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40 border-b border-border/40">
+        <span className="text-[10px] text-muted-foreground font-medium">{label}</span>
+        <button onClick={copy} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+          {copied ? <CheckCircle2 className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+        </button>
+      </div>
+      <pre className="px-3 py-2 text-[10px] font-mono text-foreground overflow-x-auto whitespace-pre">{code}</pre>
+    </div>
+  );
+}
+
 // ── Filter bar ────────────────────────────────────────────────────────────────
 
 const FILTER_TAGS = ["all", "general", "code", "vision", "fast", "powerful", "embed"];
@@ -417,17 +440,21 @@ export default function AiModelsPage() {
         <section className="mb-8">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Provider Status</h2>
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-pulse">
-              {[0,1,2,3].map(i => <div key={i} className="h-20 rounded-xl bg-muted" />)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-pulse">
+              {[0,1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-muted" />)}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <ProviderCard name="OpenAI" icon={<Cloud className="w-4 h-4" />}
                 available={providers?.openai?.available ?? false}
                 note="gpt-4.1, gpt-4o, o3-mini" models={providers?.openai?.models} />
-              <ProviderCard name="Anthropic" icon={<Zap className="w-4 h-4" />}
+              <ProviderCard name="Anthropic — Claude" icon={<Zap className="w-4 h-4" />}
                 available={providers?.anthropic?.available ?? false}
                 note="Set ANTHROPIC_API_KEY secret" models={providers?.anthropic?.models} />
+              <ProviderCard name="Groq — Free" icon={<Sparkles className="w-4 h-4" />}
+                available={providers?.groq?.available ?? false}
+                note={providers?.groq?.available ? "Llama 3.3, Mixtral, DeepSeek R1 + more" : "Free — set GROQ_API_KEY secret"}
+                models={providers?.groq?.models} />
               <ProviderCard name="Ollama — Server" icon={<Server className="w-4 h-4" />}
                 available={serverAvailable}
                 version={providers?.ollama?.version}
@@ -444,6 +471,113 @@ export default function AiModelsPage() {
                 models={providers?.["ollama-remote"]?.models} />
             </div>
           )}
+        </section>
+
+        {/* Groq setup */}
+        <section className="mb-8 rounded-xl border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            Groq — Free Cloud AI
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-bold">FREE</span>
+          </h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Groq runs open-source models (Llama 3.3 70B, Mixtral, DeepSeek R1) on their custom LPU chips — <strong className="text-foreground">faster than most paid APIs</strong>, with a generous free tier. No server needed.
+          </p>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">1</span>
+                Get a free API key
+              </p>
+              <p className="text-muted-foreground pl-5">
+                Go to{" "}
+                <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
+                  className="text-primary hover:underline inline-flex items-center gap-0.5">
+                  console.groq.com/keys <ExternalLink className="w-2.5 h-2.5" />
+                </a>{" "}
+                → sign up free → create an API key
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">2</span>
+                Add it to Replit Secrets
+              </p>
+              <p className="text-muted-foreground pl-5">In your Replit project → <strong>Tools → Secrets</strong> → add:</p>
+              <div className="pl-5 flex items-center gap-2">
+                <Key className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <code className="bg-background rounded px-2 py-1 font-mono text-foreground flex-1">GROQ_API_KEY = gsk_...</code>
+              </div>
+            </div>
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">3</span>
+                Restart the API server — Groq models appear in the chat picker instantly
+              </p>
+            </div>
+          </div>
+          {providers?.groq?.available ? (
+            <div className="flex items-center gap-1.5 text-green-400 text-xs font-medium mt-3">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Connected — {(providers.groq.models ?? []).length} models available
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs mt-3">
+              <XCircle className="w-3.5 h-3.5" /> Not configured — add GROQ_API_KEY to enable free cloud AI
+            </div>
+          )}
+        </section>
+
+        {/* Google Colab guide */}
+        <section className="mb-8 rounded-xl border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
+            <Laptop className="w-4 h-4 text-primary" />
+            Google Colab — Free GPU for Ollama
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-bold">FREE</span>
+          </h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Run Ollama on a free T4 GPU (16 GB VRAM) in Google Colab, then connect it to OrahAI.
+            Lets you run 7B–13B models for free — sessions last 4–12 hours.
+          </p>
+
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">1</span>
+                Open a new Colab notebook with GPU runtime
+              </p>
+              <p className="text-muted-foreground pl-5">
+                Go to{" "}
+                <a href="https://colab.new" target="_blank" rel="noopener noreferrer"
+                  className="text-primary hover:underline inline-flex items-center gap-0.5">
+                  colab.new <ExternalLink className="w-2.5 h-2.5" />
+                </a>{" "}
+                → Runtime → Change runtime type → <strong>T4 GPU</strong>
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">2</span>
+                Paste and run these cells
+              </p>
+              <div className="space-y-2 pl-5">
+                <ColabCell label="Cell 1 — Install Ollama + ngrok" code={`!curl -fsSL https://ollama.com/install.sh | sh\n!pip install pyngrok -q`} />
+                <ColabCell label="Cell 2 — Start Ollama + pull a model" code={`import subprocess, time\nsubprocess.Popen(["ollama", "serve"])\ntime.sleep(3)\n!ollama pull llama3.1:8b`} />
+                <ColabCell label="Cell 3 — Create public tunnel" code={`from pyngrok import ngrok\n# Get free token at dashboard.ngrok.com\nngrok.set_auth_token("YOUR_NGROK_TOKEN")\ntunnel = ngrok.connect(11434)\nprint("OLLAMA_REMOTE_URL =", tunnel.public_url)`} />
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs space-y-2">
+              <p className="font-medium text-foreground flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">3</span>
+                Copy the printed URL → set as <code className="bg-background px-1 rounded font-mono">OLLAMA_REMOTE_URL</code> in Replit Secrets → restart API
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-xs text-amber-400/90">
+            ⚡ <strong>Tip:</strong> Groq is easier for everyday use. Use Colab when you need a specific large model, vision support (LLaVA), or want zero API rate limits.
+          </div>
         </section>
 
         {/* Remote Ollama configuration */}
