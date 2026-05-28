@@ -519,6 +519,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               toast({ title: `⚡ Switched to ${label}`, description: `Auto-fallback (${reasonLabel})` });
               setAiModel(evt.to);
               localStorage.setItem("orahai_ai_model", evt.to);
+              // Auto-confirm paid models that the server switched to — user saw the toast
+              if (isPaidModel(evt.to)) confirmedPaidModels.current.add(evt.to);
 
             } else if (evt.type === "agent_step" && evt.step) {
               setAgentStep(evt.step);
