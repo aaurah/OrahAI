@@ -2,7 +2,7 @@ import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { db, chatMessages, projects, memberships, files, mcpServers } from "@workspace/db";
+import { db, chatMessages, projects, memberships, files, mcpServers, projectSecrets } from "@workspace/db";
 import { eq, and, or, isNull, asc, desc, sql } from "drizzle-orm";
 import { discoverAllMcpTools, callMcpTool, type McpTool, type McpServerConfig } from "../lib/mcpClient";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
@@ -366,8 +366,23 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       // ── Load enabled MCP servers & discover their tools ───────────────────
       const enabledMcpServers = await db.select().from(mcpServers)
         .where(and(eq(mcpServers.projectId, project.id), eq(mcpServers.enabled, true)));
+
+      // Resolve $SECRET_NAME placeholders in authToken from project secrets
+      let resolvedSecrets: Record<string, string> = {};
+      const needsResolution = enabledMcpServers.some(s => s.authToken?.includes("$"));
+      if (needsResolution) {
+        const secrets = await db.select({ key: projectSecrets.key, value: projectSecrets.value })
+          .from(projectSecrets).where(eq(projectSecrets.projectId, project.id));
+        resolvedSecrets = Object.fromEntries(secrets.map(s => [s.key, s.value]));
+      }
+      function resolveToken(token: string | null): string | null {
+        if (!token) return token;
+        return token.replace(/\$([A-Z0-9_]+)/g, (_, key: string) => resolvedSecrets[key] ?? `$${key}`);
+      }
+
       const mcpServerConfigs: McpServerConfig[] = enabledMcpServers.map(s => ({
-        id: s.id, name: s.name, url: s.url, transport: s.transport, authToken: s.authToken,
+        id: s.id, name: s.name, url: s.url, transport: s.transport,
+        authToken: resolveToken(s.authToken),
       }));
       let discoveredMcpTools: McpTool[] = [];
       if (mcpServerConfigs.length > 0) {

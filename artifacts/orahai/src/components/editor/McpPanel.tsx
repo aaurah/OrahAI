@@ -1,6 +1,6 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { Plus, Trash2, PlugZap, Unplug, Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { Plus, Trash2, PlugZap, Unplug, Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle, RefreshCw, Wand2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/api";
 
@@ -20,6 +20,71 @@ interface TestResult {
   tools: { name: string; description: string }[];
 }
 
+interface McpTemplate {
+  name: string;
+  label: string;
+  url: string;
+  transport: McpServer["transport"];
+  description: string;
+  needsAuth: boolean;
+  authHint?: string;
+}
+
+const MCP_TEMPLATES: McpTemplate[] = [
+  {
+    name: "github",
+    label: "GitHub",
+    url: "https://api.githubcopilot.com/mcp",
+    transport: "http",
+    description: "Search repos, read files, manage issues & PRs",
+    needsAuth: true,
+    authHint: "$GITHUB_TOKEN or a PAT",
+  },
+  {
+    name: "web-search",
+    label: "Web Search",
+    url: "https://search.mcp.run/sse",
+    transport: "sse",
+    description: "Search the web and fetch page content",
+    needsAuth: false,
+  },
+  {
+    name: "filesystem",
+    label: "Filesystem",
+    url: "http://localhost:3100/sse",
+    transport: "sse",
+    description: "Read & write local files (self-hosted)",
+    needsAuth: false,
+  },
+  {
+    name: "postgres",
+    label: "PostgreSQL",
+    url: "http://localhost:3200/sse",
+    transport: "sse",
+    description: "Query your Postgres database (self-hosted)",
+    needsAuth: true,
+    authHint: "$DATABASE_URL",
+  },
+  {
+    name: "slack",
+    label: "Slack",
+    url: "https://mcp.slack.com/sse",
+    transport: "sse",
+    description: "Send messages and read Slack channels",
+    needsAuth: true,
+    authHint: "$SLACK_BOT_TOKEN",
+  },
+  {
+    name: "linear",
+    label: "Linear",
+    url: "https://mcp.linear.app/sse",
+    transport: "sse",
+    description: "Manage issues, projects and cycles in Linear",
+    needsAuth: true,
+    authHint: "$LINEAR_API_KEY",
+  },
+];
+
 interface Props {
   projectId: string;
 }
@@ -35,11 +100,23 @@ function useServers(projectId: string) {
 export function McpPanel({ projectId }: Props) {
   const { servers, loading, mutate } = useServers(projectId);
   const [adding, setAdding] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [form, setForm] = useState({ name: "", url: "", transport: "sse" as McpServer["transport"], authToken: "" });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, TestResult & { loading?: boolean }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const openAdd = (template?: McpTemplate) => {
+    if (template) {
+      setForm({ name: template.name, url: template.url, transport: template.transport, authToken: template.authHint ?? "" });
+    } else {
+      setForm({ name: "", url: "", transport: "sse", authToken: "" });
+    }
+    setShowTemplates(false);
+    setAdding(true);
+    setFormError(null);
+  };
 
   const handleAdd = async () => {
     if (!form.name || !form.url) { setFormError("Name and URL are required"); return; }
@@ -87,23 +164,76 @@ export function McpPanel({ projectId }: Props) {
     }
   };
 
+  const existingNames = new Set(servers.map(s => s.name));
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between px-3 h-10 border-b border-border shrink-0">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">MCP Servers</span>
-        <button
-          onClick={() => { setAdding(a => !a); setFormError(null); }}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-        >
-          <Plus className="w-3 h-3" />
-          Add
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => { setShowTemplates(t => !t); setAdding(false); }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+            title="Browse templates"
+          >
+            <Wand2 className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => openAdd()}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+          >
+            <Plus className="w-3 h-3" />
+            Add
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* Template gallery */}
+        {showTemplates && (
+          <div className="border-b border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-foreground">Quick-add a server</p>
+              <button onClick={() => setShowTemplates(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {MCP_TEMPLATES.map(t => {
+                const alreadyAdded = existingNames.has(t.name);
+                return (
+                  <button
+                    key={t.name}
+                    onClick={() => !alreadyAdded && openAdd(t)}
+                    disabled={alreadyAdded}
+                    className={cn(
+                      "text-left p-2 rounded border transition-colors text-xs",
+                      alreadyAdded
+                        ? "border-border/40 opacity-40 cursor-not-allowed"
+                        : "border-border hover:border-primary/40 hover:bg-muted/50 cursor-pointer",
+                    )}
+                  >
+                    <div className="font-medium text-foreground">{t.label}</div>
+                    <div className="text-muted-foreground text-[10px] leading-tight mt-0.5 line-clamp-2">{t.description}</div>
+                    {t.needsAuth && (
+                      <div className="text-[10px] text-amber-500/70 mt-0.5">🔑 needs token</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Add server form */}
         {adding && (
           <div className="border-b border-border p-3 bg-muted/30 space-y-2">
-            <p className="text-xs font-medium text-foreground">New MCP Server</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-foreground">New MCP Server</p>
+              <button onClick={() => setAdding(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
             <input
               className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Name (e.g. github, filesystem)"
@@ -126,13 +256,18 @@ export function McpPanel({ projectId }: Props) {
               <option value="sse">SSE (Server-Sent Events)</option>
               <option value="http">Streamable HTTP</option>
             </select>
-            <input
-              className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder="Auth token (optional)"
-              type="password"
-              value={form.authToken}
-              onChange={e => setForm(f => ({ ...f, authToken: e.target.value }))}
-            />
+            <div className="space-y-0.5">
+              <input
+                className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Auth token — or use $MY_SECRET"
+                type="password"
+                value={form.authToken}
+                onChange={e => setForm(f => ({ ...f, authToken: e.target.value }))}
+              />
+              <p className="text-[10px] text-muted-foreground/60 px-0.5">
+                Tip: use <code className="font-mono">$SECRET_NAME</code> to reference a project secret
+              </p>
+            </div>
             {formError && <p className="text-xs text-destructive">{formError}</p>}
             <div className="flex gap-2">
               <button
@@ -159,13 +294,19 @@ export function McpPanel({ projectId }: Props) {
           </div>
         )}
 
-        {!loading && servers.length === 0 && !adding && (
+        {!loading && servers.length === 0 && !adding && !showTemplates && (
           <div className="p-6 text-center">
             <PlugZap className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
             <p className="text-xs text-muted-foreground">No MCP servers configured.</p>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
               Connect external tools so the AI can query databases, search the web, read files, and more.
             </p>
+            <button
+              onClick={() => setShowTemplates(true)}
+              className="mt-3 text-xs text-primary hover:underline flex items-center gap-1 mx-auto"
+            >
+              <Wand2 className="w-3 h-3" /> Browse templates
+            </button>
           </div>
         )}
 
@@ -261,7 +402,7 @@ export function McpPanel({ projectId }: Props) {
       <div className="px-3 py-2 border-t border-border shrink-0">
         <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
           Enabled servers give the AI access to external tools during chat. Use{" "}
-          <code className="font-mono text-[9px]">{"<<<MCP_CALL:name:tool>>>"}</code> format.
+          <code className="font-mono text-[9px]">$SECRET_NAME</code> in the auth token to reference a project secret.
         </p>
       </div>
     </div>

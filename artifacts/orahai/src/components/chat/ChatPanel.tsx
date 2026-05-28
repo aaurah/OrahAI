@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
-  Zap, Scale, Flame, Pencil,
+  Zap, Scale, Flame, Pencil, PlugZap,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -77,10 +77,19 @@ interface FileOpEvent {
   error?: string;
 }
 
+interface McpCallEvent {
+  id: string;
+  serverName: string;
+  toolName: string;
+  status: "running" | "done" | "error";
+  error?: string;
+}
+
 type ListItem =
   | (ChatMessage & { pending?: boolean; queued?: boolean; images?: AttachedImage[] })
   | (RunEvent & { _type: "run" })
-  | (FileOpEvent & { _type: "fileop" });
+  | (FileOpEvent & { _type: "fileop" })
+  | (McpCallEvent & { _type: "mcp" });
 
 interface QueuedEntry {
   text: string;
@@ -340,6 +349,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               status?: string; exitCode?: number;
               path?: string; action?: string; size?: number; error?: string;
               step?: number; maxSteps?: number;
+              count?: number; serverName?: string; toolName?: string;
             };
 
             if (evt.type === "agent_step" && evt.step) {
@@ -402,6 +412,30 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 };
                 return exists ? prev : [...prev, newItem];
               });
+
+            } else if (evt.type === "mcp_call_done" && evt.serverName && evt.toolName) {
+              const mid = `mcp-${evt.serverName}-${evt.toolName}-${assistantId}`;
+              setItems((prev) => {
+                const existing = prev.find((i) => "_type" in i && i._type === "mcp" && i.id === mid);
+                const newItem: McpCallEvent & { _type: "mcp" } = {
+                  _type: "mcp", id: mid, serverName: evt.serverName!, toolName: evt.toolName!, status: "done",
+                };
+                if (existing) return prev.map(i => "_type" in i && i._type === "mcp" && i.id === mid ? newItem : i);
+                return [...prev, newItem];
+              });
+              scrollBottom();
+
+            } else if (evt.type === "mcp_call_error" && evt.serverName && evt.toolName) {
+              const mid = `mcp-err-${evt.serverName}-${evt.toolName}-${assistantId}`;
+              setItems((prev) => {
+                const existing = prev.find((i) => "_type" in i && i._type === "mcp" && i.id === mid);
+                const newItem: McpCallEvent & { _type: "mcp" } = {
+                  _type: "mcp", id: mid, serverName: evt.serverName!, toolName: evt.toolName!, status: "error", error: evt.error,
+                };
+                if (existing) return prev.map(i => "_type" in i && i._type === "mcp" && i.id === mid ? newItem : i);
+                return [...prev, newItem];
+              });
+              scrollBottom();
             }
           } catch { /* skip */ }
         }
@@ -572,6 +606,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           }
           if ("_type" in item && item._type === "fileop") {
             return <FileOpCard key={item.id} event={item as FileOpEvent & { _type: "fileop" }} />;
+          }
+          if ("_type" in item && item._type === "mcp") {
+            return <McpCallCard key={item.id} event={item as McpCallEvent & { _type: "mcp" }} />;
           }
           const msg = item as ChatMessage & { pending?: boolean; queued?: boolean; images?: AttachedImage[] };
           const isPending = !!(msg as { pending?: boolean }).pending;
@@ -1011,6 +1048,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     </div>
   );
 });
+
+// ── MCP Call Card ──────────────────────────────────────────────────────────────
+
+function McpCallCard({ event }: { event: McpCallEvent & { _type: "mcp" } }) {
+  const isDone  = event.status === "done";
+  const isError = event.status === "error";
+  return (
+    <div className={cn(
+      "ml-8 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-mono",
+      isDone  && "bg-violet-950/30 border-violet-500/20 text-violet-300",
+      isError && "bg-yellow-950/30 border-yellow-500/20 text-yellow-400",
+      !isDone && !isError && "bg-muted/30 border-border text-muted-foreground",
+    )}>
+      {isDone  && <CheckCircle2 className="w-3.5 h-3.5 text-violet-400 shrink-0" />}
+      {isError && <XCircle      className="w-3.5 h-3.5 text-yellow-400 shrink-0" />}
+      {!isDone && !isError && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+      <PlugZap className="w-3 h-3 opacity-60 shrink-0" />
+      <span className="flex-1 truncate">
+        <span className="opacity-60">{event.serverName}/</span>
+        <span className="font-semibold">{event.toolName}</span>
+      </span>
+      {isError && event.error && (
+        <span className="text-yellow-400/70 truncate max-w-[140px]" title={event.error}>{event.error}</span>
+      )}
+    </div>
+  );
+}
 
 // ── File Op Card ──────────────────────────────────────────────────────────────
 
