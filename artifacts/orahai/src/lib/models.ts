@@ -46,7 +46,7 @@ export const MODEL_GROUPS: ModelGroup[] = [
     models: [
       { id: "groq:llama-3.3-70b-versatile",        name: "Llama 3.3 70B",        provider: "groq", badge: "Best",   description: "Top-quality Llama on Groq's LPU — free tier" },
       { id: "groq:llama-3.1-8b-instant",            name: "Llama 3.1 8B Instant", provider: "groq", badge: "Fast",   description: "Blazing fast, great for quick tasks" },
-      { id: "groq:deepseek-r1-distill-llama-70b",   name: "DeepSeek R1 70B",      provider: "groq", badge: "Reason", description: "Strong reasoning model — free on Groq" },
+      { id: "groq:deepseek-r1-distill-qwen-32b",    name: "DeepSeek R1 32B",      provider: "groq", badge: "Reason", description: "Strong reasoning model — free on Groq" },
       { id: "groq:qwen-qwq-32b",                    name: "Qwen QwQ 32B",         provider: "groq", badge: "Reason", description: "Alibaba reasoning model" },
       { id: "groq:mixtral-8x7b-32768",              name: "Mixtral 8×7B",         provider: "groq", badge: "MoE",    description: "Mixture-of-experts, 32k context" },
       { id: "groq:gemma2-9b-it",                    name: "Gemma 2 9B",           provider: "groq", description: "Google Gemma 2 — fast and capable" },

@@ -317,7 +317,15 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         economy: { maxTokens: 16000, maxSteps: 4, historyLimit: 25, fileCharLimit: 5000, totalFileChars: 60000 },
         power:   { maxTokens: 32000, maxSteps: 6, historyLimit: 20, fileCharLimit: 2500, totalFileChars: 50000 },
       } as const;
-      const { maxTokens, maxSteps, historyLimit, fileCharLimit, totalFileChars } = MODE_CONFIG[mode];
+      let { maxTokens, maxSteps, historyLimit, fileCharLimit, totalFileChars } = MODE_CONFIG[mode];
+
+      // Groq free tier has tight per-request token limits — apply conservative overrides
+      if (provider === "groq") {
+        maxTokens      = Math.min(maxTokens, 3000);
+        fileCharLimit  = Math.min(fileCharLimit, 800);
+        totalFileChars = Math.min(totalFileChars, 3000);
+        historyLimit   = Math.min(historyLimit, 6);
+      }
 
       const allImages: { data: string; mimeType: string }[] = images?.length
         ? images
