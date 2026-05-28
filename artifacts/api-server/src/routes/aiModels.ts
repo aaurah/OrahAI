@@ -98,6 +98,7 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
       },
     };
 
+    res.set("Cache-Control", "no-store");
     res.json({ providers });
   } catch (err) { next(err); }
 });
