@@ -15,6 +15,18 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
 
+// Maps a code-block language hint to a sensible default filename when no file is open
+const LANG_TO_PATH: Record<string, string> = {
+  env: ".env",
+  dotenv: ".env",
+  dockerfile: "Dockerfile",
+  makefile: "Makefile",
+  nginx: "nginx.conf",
+  gitignore: ".gitignore",
+  dockerignore: ".dockerignore",
+  "docker-compose": "docker-compose.yml",
+};
+
 // ── Agent Modes ───────────────────────────────────────────────────────────────
 
 type AgentMode = "lite" | "economy" | "power";
@@ -927,11 +939,20 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
   const [applied, setApplied] = useState(false);
   const [run, setRun] = useState<{ status: "idle" | "running" | "success" | "error"; output?: string; exitCode?: number | null }>({ status: "idle" });
   const [outputOpen, setOutputOpen] = useState(true);
+  const [showPathInput, setShowPathInput] = useState(false);
+  const [pathInputValue, setPathInputValue] = useState("");
   const isShell = SHELL_LANGS.has(lang);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(code).catch(() => undefined);
     setCopied(true); setTimeout(() => setCopied(false), 1500);
+  };
+
+  const doApply = (path: string) => {
+    if (!onApplyToPath) return;
+    onApplyToPath(code, path);
+    setApplied(true); setShowPathInput(false);
+    setTimeout(() => setApplied(false), 2000);
   };
 
   const handleApply = () => {
@@ -940,13 +961,18 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
       onApply(code); setApplied(true); setTimeout(() => setApplied(false), 2000);
       return;
     }
-    // Case 2: no file open but we inferred the target from message context
+    // Case 2: inferred from surrounding message text
     if (inferredPath && onApplyToPath) {
-      onApplyToPath(code, inferredPath); setApplied(true); setTimeout(() => setApplied(false), 2000);
-      return;
+      doApply(inferredPath); return;
     }
-    // Case 3: no file open and no inferred path — can't apply
-    toast({ title: "No target file", description: "Open a file in the Editor tab first, then tap Apply." });
+    // Case 3: infer target from language hint (e.g. env → .env)
+    const langPath = LANG_TO_PATH[lang.toLowerCase()];
+    if (langPath && onApplyToPath) {
+      doApply(langPath); return;
+    }
+    // Case 4: ask the user to name the file inline
+    setPathInputValue(langPath ?? "");
+    setShowPathInput(true);
   };
 
   const handleRun = async () => {
@@ -993,6 +1019,12 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
               <span>{applied ? "Applied!" : "Apply"}</span>
             </button>
           )}
+          {showPathInput && !applied && (
+            <button onClick={() => setShowPathInput(false)}
+              className="text-[10px] px-1 py-0.5 rounded hover:bg-muted/60 text-muted-foreground transition-colors">
+              <X className="w-3 h-3" />
+            </button>
+          )}
           {isShell && (
             <button onClick={handleRun} disabled={run.status === "running"}
               className={cn(
@@ -1007,6 +1039,25 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
           )}
         </div>
       </div>
+      {showPathInput && (
+        <form
+          className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border/20 bg-muted/20"
+          onSubmit={e => { e.preventDefault(); const p = pathInputValue.trim(); if (p) doApply(p); }}
+        >
+          <FileCode2 className="w-3 h-3 text-muted-foreground shrink-0" />
+          <input
+            autoFocus
+            value={pathInputValue}
+            onChange={e => setPathInputValue(e.target.value)}
+            placeholder="e.g. src/app.py"
+            className="flex-1 bg-transparent text-[11px] font-mono text-foreground placeholder:text-muted-foreground/60 outline-none min-w-0"
+          />
+          <button type="submit" disabled={!pathInputValue.trim()}
+            className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-medium disabled:opacity-40 transition-opacity">
+            Save
+          </button>
+        </form>
+      )}
       <pre className="p-2.5 text-xs overflow-x-auto font-mono"><code>{code}</code></pre>
       {run.status !== "idle" && (
         <div className="border-t border-border/20">
