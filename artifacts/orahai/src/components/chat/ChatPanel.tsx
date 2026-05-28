@@ -5,16 +5,24 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
-  Zap, Scale, Flame, Pencil, PlugZap, Cpu,
+  Zap, Scale, Flame, Pencil, PlugZap, Cpu, DollarSign,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { API_BASE, api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
 import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, makeOllamaRemoteModelDef, type ModelDef } from "@/lib/models";
+
+// Models that may incur API costs — require a one-time-per-session confirmation
+const isPaidModel = (model: string) =>
+  model.startsWith("openai:") || model.startsWith("anthropic:");
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -128,6 +136,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const parallelAbortMap = useRef<Map<string, AbortController>>(new Map());
   const [parallelCount, setParallelCount] = useState(0);
   const [queueCount, setQueueCount] = useState(0);
+  const [paidConfirmOpen, setPaidConfirmOpen] = useState(false);
+  const pendingPaidSubmit = useRef<{ text: string; imgs: AttachedImage[] } | null>(null);
+  const confirmedPaidModels = useRef<Set<string>>(new Set());
   const [bgJobActive, setBgJobActive] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -338,6 +349,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     e?.preventDefault();
     const text = input.trim();
     if (!text && !attachedImages.length) return;
+
+    // Gate on paid model — show confirmation once per model per session
+    if (isPaidModel(aiModel) && !confirmedPaidModels.current.has(aiModel)) {
+      pendingPaidSubmit.current = { text, imgs: attachedImages };
+      setPaidConfirmOpen(true);
+      return;
+    }
+
     setInput("");
     const imgs = attachedImages;
     setAttachedImages([]);
@@ -356,6 +375,33 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       return;
     }
 
+    await handleSubmitCore(text, imgs, null);
+  };
+
+  const confirmPaidSend = async () => {
+    const pending = pendingPaidSubmit.current;
+    if (!pending) return;
+    pendingPaidSubmit.current = null;
+    confirmedPaidModels.current.add(aiModel);
+    setPaidConfirmOpen(false);
+
+    setInput("");
+    setAttachedImages([]);
+
+    const { text, imgs } = pending;
+    if (isStreaming) {
+      const displayId = `queued-${crypto.randomUUID()}`;
+      setItems((prev) => [...prev, {
+        id: displayId, projectId, userId: null,
+        role: "user" as const, content: text || "(images)",
+        createdAt: new Date().toISOString(),
+        images: imgs.length ? imgs : undefined,
+        queued: true,
+      }]);
+      queueRef.current.push({ text, imgs, displayId });
+      setQueueCount(queueRef.current.length);
+      return;
+    }
     await handleSubmitCore(text, imgs, null);
   };
 
@@ -1174,6 +1220,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             >
               <Bot className="w-3 h-3" />
               <span className="max-w-[72px] truncate">{getModelShortName(aiModel)}</span>
+              {isPaidModel(aiModel) && (
+                <DollarSign className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+              )}
               <ChevronDown className={cn("w-2.5 h-2.5 transition-transform", modelPickerOpen && "rotate-180")} />
             </button>
 
@@ -1336,6 +1385,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
         onChange={(e) => { if (e.target.files?.length) handleImageFiles(e.target.files); e.target.value = ""; }} />
+
+      {/* Paid model confirmation — Radix portals to body so nesting here is fine */}
+      <AlertDialog open={paidConfirmOpen} onOpenChange={(open) => {
+        if (!open) pendingPaidSubmit.current = null;
+        setPaidConfirmOpen(open);
+      }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-amber-400" />
+              Paid model
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{getModelShortName(aiModel)}</strong> may incur API costs.
+              Send this message using it?
+              <br />
+              <span className="text-[11px] text-muted-foreground/70">
+                You won&apos;t be asked again this session for this model.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPaidSend}>
+              Send anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });
