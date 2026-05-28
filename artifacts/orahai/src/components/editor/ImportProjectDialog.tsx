@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import {
   X, Github, Upload, Loader2, Star, GitFork, Lock, Globe,
-  FileCode2, AlertCircle, FolderOpen, ExternalLink, ChevronRight, CheckCircle2,
+  FileCode2, AlertCircle, FolderOpen, ExternalLink, ChevronRight, CheckCircle2, ArrowLeft,
 } from "lucide-react";
 import { Decompress, unzip } from "fflate";
 import { Button } from "@/components/ui/Button";
@@ -213,11 +213,18 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
     finally { setIsPreviewing(false); }
   };
 
+  const ensureWorkspace = async (): Promise<string> => {
+    const existing = localWorkspace || workspaces[0]?.id;
+    if (existing) return existing;
+    const res = await api.post<{ data: { id: string } }>("/api/workspaces", { name: "My Workspace" });
+    return res.data.id;
+  };
+
   const handleGhImport = async () => {
     if (!preview) return;
-    const ws = localWorkspace || workspaces[0]?.id;
-    if (!ws) { setError("Please select a workspace"); return; }
     setIsGhImporting(true); setError(null);
+    let ws: string;
+    try { ws = await ensureWorkspace(); } catch { setError("Failed to create workspace"); setIsGhImporting(false); return; }
     try {
       const res = await api.post<ApiResponse<ProjectWithCounts>>("/api/github/import", {
         repoUrl: repoUrl.trim(),
@@ -319,9 +326,9 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
 
   const handleLocalImport = async () => {
     if (!localFiles.length || !localName.trim()) return;
-    const ws = localWorkspace || workspaces[0]?.id;
-    if (!ws) { setError("Please select a workspace"); return; }
     setIsLocalImporting(true); setError(null);
+    let ws: string;
+    try { ws = await ensureWorkspace(); } catch { setError("Failed to create workspace"); setIsLocalImporting(false); return; }
     try {
       const res = await api.post<ApiResponse<ProjectWithCounts>>("/api/projects/import/files", {
         workspaceId: ws, name: localName.trim(),
@@ -339,7 +346,7 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
     <div className="space-y-1.5">
       <Label>Workspace</Label>
       {workspaces.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No workspaces found.</p>
+        <p className="text-xs text-muted-foreground italic">A workspace will be created automatically.</p>
       ) : (
         <select value={value || workspaces[0]?.id || ""} onChange={(e) => onChange(e.target.value)}
           className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
@@ -431,18 +438,25 @@ export function ImportProjectDialog({ onOpenChange, onImported }: Props) {
 
               {preview && (
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-                  <div className="flex items-start gap-2">
-                    {preview.private ? <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" /> : <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />}
-                    <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setPreview(null); setError(null); }}
+                      className="p-1 -ml-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                      title="Back"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {preview.private ? <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" /> : <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
                       <p className="font-semibold text-sm truncate">{preview.fullName}</p>
-                      {preview.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{preview.description}</p>}
                     </div>
+                    <span className="ml-auto text-primary font-medium text-xs shrink-0">{preview.importableFiles} files</span>
                   </div>
+                  {preview.description && <p className="text-xs text-muted-foreground line-clamp-2">{preview.description}</p>}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                     {preview.language && <span className="flex items-center gap-1"><FileCode2 className="w-3 h-3" />{preview.language}</span>}
                     <span className="flex items-center gap-1"><Star className="w-3 h-3" />{preview.stars.toLocaleString()}</span>
                     <span className="flex items-center gap-1"><GitFork className="w-3 h-3" />{preview.forks.toLocaleString()}</span>
-                    <span className="ml-auto text-primary font-medium">{preview.importableFiles} files</span>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Branch</Label>
