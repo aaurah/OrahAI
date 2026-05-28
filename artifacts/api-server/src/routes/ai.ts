@@ -574,18 +574,41 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             break; // ← success, exit retry loop
 
           } catch (e) {
-            const errStatus = (e as { status?: number })?.status;
-            const isRateLimit = errStatus === 429 || errStatus === 413;
+            // Groq SDK streaming errors use status_code; OpenAI SDK uses status
+            const errStatus =
+              (e as { status?: number })?.status ??
+              (e as { status_code?: number })?.status_code;
+            const errMessage = (e as Error)?.message ?? "";
+            const isRateLimit =
+              errStatus === 429 ||
+              errStatus === 413 ||
+              errMessage.toLowerCase().includes("rate limit") ||
+              errMessage.toLowerCase().includes("rate_limit");
 
             if (isRateLimit) {
+              // If it's a daily (TPD) limit, all remaining models on the same provider
+              // share the same quota — skip them all at once.
+              const isDailyLimit =
+                errMessage.includes("tokens per day") ||
+                errMessage.includes("TPD") ||
+                errMessage.includes("per day");
+              const exhaustedProvider = activeProvider;
+
               // Try next untried model in the fallback chain
-              const nextModel = activeFallbacks.find(m => !attemptedModels.has(m));
+              const nextModel = activeFallbacks.find(m => {
+                if (attemptedModels.has(m)) return false;
+                if (isDailyLimit) {
+                  const p = m.slice(0, m.indexOf(":"));
+                  if (p === exhaustedProvider) return false; // skip whole provider
+                }
+                return true;
+              });
               if (nextModel) {
                 const prevKey = curModelKey;
                 const ci = nextModel.indexOf(":");
                 activeProvider = nextModel.slice(0, ci);
                 activeModelName = nextModel.slice(ci + 1);
-                const reason = errStatus === 413 ? "too_large" : "rate_limit";
+                const reason = errStatus === 413 ? "too_large" : isDailyLimit ? "daily_limit" : "rate_limit";
                 logger.warn({ from: prevKey, to: nextModel, reason }, "AI auto-fallback");
                 send({ type: "model_switch", from: prevKey, to: nextModel, reason });
                 continue fallbackLoop;

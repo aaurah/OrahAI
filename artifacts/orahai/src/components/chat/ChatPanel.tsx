@@ -515,7 +515,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
             if (evt.type === "model_switch" && evt.to) {
               const label = evt.to.includes(":") ? evt.to.split(":")[1] : evt.to;
-              const reasonLabel = evt.reason === "too_large" ? "request too large" : "rate limit";
+              const reasonLabel = evt.reason === "too_large" ? "request too large" : evt.reason === "daily_limit" ? "daily limit reached" : "rate limit";
               toast({ title: `⚡ Switched to ${label}`, description: `Auto-fallback (${reasonLabel})` });
               setAiModel(evt.to);
               localStorage.setItem("orahai_ai_model", evt.to);
