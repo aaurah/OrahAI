@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Globe, RefreshCw, ExternalLink, Monitor, Github,
-  Loader2, Plus, X, AlertCircle, Server, Shield,
+  Loader2, Plus, X, AlertCircle,
 } from "lucide-react";
 import { API_BASE, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ interface PreviewTab {
   id: string;
   kind: TabKind;
   label: string;
-  icon: "monitor" | "server" | "shield" | "github" | "globe";
+  icon: "monitor" | "github" | "globe";
   url?: string;          // for url/github kinds
   iframeKey: number;
   pinned?: boolean;      // preset tabs can't be closed
@@ -129,8 +129,6 @@ function EmptyState({ onRetry, message }: { onRetry: () => void; message?: strin
 function TabIcon({ icon, className }: { icon: PreviewTab["icon"]; className?: string }) {
   const cls = cn("w-3 h-3 shrink-0", className);
   if (icon === "monitor") return <Monitor className={cls} />;
-  if (icon === "server")  return <Server className={cls} />;
-  if (icon === "shield")  return <Shield className={cls} />;
   if (icon === "github")  return <Github className={cls} />;
   return <Globe className={cls} />;
 }
@@ -144,15 +142,8 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
     ? (() => { const [owner, repo] = githubRepo.split("/"); return `https://${owner}.github.io/${repo}/`; })()
     : null;
 
-  // Backend tab points to the API health endpoint
-  const backendUrl = `${BASE}/api/healthz`;
-  // Admin panel tab points to the /admin route of this app (same origin → shares localStorage/JWT)
-  const adminUrl = `${window.location.origin}${import.meta.env.BASE_URL}admin`;
-
   const buildPresetTabs = (): PreviewTab[] => [
     { id: "frontend",  kind: "local",   label: "Frontend",    icon: "monitor", iframeKey: 0, pinned: true },
-    { id: "backend",   kind: "url",     label: "Backend",     icon: "server",  iframeKey: 0, pinned: true, url: backendUrl },
-    { id: "admin",     kind: "url",     label: "Admin Panel", icon: "shield",  iframeKey: 0, pinned: true, url: adminUrl },
     ...(githubPagesUrl ? [{ id: "live", kind: "github" as TabKind, label: "Live", icon: "github" as const, iframeKey: 0, pinned: true, url: githubPagesUrl }] : []),
   ];
 
@@ -247,8 +238,6 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
             >
               <TabIcon icon={tab.icon}
                 className={active ? (
-                  tab.icon === "shield" ? "text-amber-400" :
-                  tab.icon === "server" ? "text-emerald-400" :
                   tab.icon === "monitor" ? "text-sky-400" :
                   tab.icon === "github" ? "text-violet-400" : ""
                 ) : ""}
