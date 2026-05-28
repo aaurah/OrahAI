@@ -34,9 +34,9 @@ export const MODEL_GROUPS: ModelGroup[] = [
     provider: "anthropic",
     note: "Requires ANTHROPIC_API_KEY in project or environment secrets",
     models: [
-      { id: "anthropic:claude-opus-4-5",   name: "Claude Opus 4",    provider: "anthropic", badge: "Powerful", vision: true },
-      { id: "anthropic:claude-sonnet-4-5", name: "Claude Sonnet 4",  provider: "anthropic", vision: true },
-      { id: "anthropic:claude-haiku-3-5",  name: "Claude Haiku 3.5", provider: "anthropic", badge: "Fast" },
+      { id: "anthropic:claude-opus-4-5",   name: "Claude Opus 4.5",    provider: "anthropic", badge: "Powerful", vision: true },
+      { id: "anthropic:claude-sonnet-4-5", name: "Claude Sonnet 4.5",  provider: "anthropic", badge: "Best", vision: true },
+      { id: "anthropic:claude-haiku-3-5",  name: "Claude Haiku 3.5",   provider: "anthropic", badge: "Fast" },
     ],
   },
   {
