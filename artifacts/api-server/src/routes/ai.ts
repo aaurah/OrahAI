@@ -500,19 +500,42 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             llmClient = openai;
           }
           try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const stream = await (llmClient.chat.completions.create as any)({
-              model: modelName,
-              messages: agentMessages,
-              stream: true,
-              ...(isOllama ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens }),
-            });
-            for await (const chunk of stream) {
+            if (provider === "ollama-remote") {
+              // ngrok free tier buffers SSE streams — use non-streaming call and
+              // forward the full response as a single delta so the client still
+              // sees progressive output once the response arrives.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const delta = (chunk as any).choices?.[0]?.delta?.content;
-              if (delta) {
-                stepContent += delta; allContent += delta;
-                send({ type: "delta", content: delta });
+              const resp = await (llmClient.chat.completions.create as any)({
+                model: modelName,
+                messages: agentMessages,
+                stream: false,
+                max_tokens: maxTokens,
+              });
+              const text: string = resp.choices?.[0]?.message?.content ?? "";
+              if (text) {
+                // Stream word-by-word so the UI feels live rather than a wall-of-text pop-in
+                const words = text.split(/(?<=\s)/);
+                for (const word of words) {
+                  stepContent += word; allContent += word;
+                  send({ type: "delta", content: word });
+                  await new Promise(r => setTimeout(r, 12));
+                }
+              }
+            } else {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const stream = await (llmClient.chat.completions.create as any)({
+                model: modelName,
+                messages: agentMessages,
+                stream: true,
+                ...(isOllama ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens }),
+              });
+              for await (const chunk of stream) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const delta = (chunk as any).choices?.[0]?.delta?.content;
+                if (delta) {
+                  stepContent += delta; allContent += delta;
+                  send({ type: "delta", content: delta });
+                }
               }
             }
           } catch (e) {
