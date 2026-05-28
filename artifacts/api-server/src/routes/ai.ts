@@ -523,8 +523,8 @@ router.get("/search/:projectId", requireAuth, async (req: AuthenticatedRequest, 
       }
     }
 
-    res.json({ data: results.slice(0, limit) });
-  } catch (err) { next(err); }
+    return res.json({ data: results.slice(0, limit) });
+  } catch (err) { next(err); return; }
 });
 
 // ── Background job status (used by client on tab-reopen) ─────────────────────

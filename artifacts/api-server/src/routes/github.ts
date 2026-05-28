@@ -130,7 +130,7 @@ router.get("/oauth/callback", async (req: any, res: Response, next: NextFunction
       .where(eq(users.id, userId));
 
     return res.send(oauthCallbackHtml("success", ghUser.login));
-  } catch (err) { next(err); }
+  } catch (err) { next(err); return; }
 });
 
 function oauthCallbackHtml(status: "success" | "error", detail: string): string {
