@@ -34,7 +34,7 @@ function makeOllamaClient(): OpenAI {
 function makeOllamaRemoteClient(): OpenAI | null {
   const base = (process.env.OLLAMA_REMOTE_URL ?? "").replace(/\/$/, "");
   if (!base) return null;
-  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
+  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama", timeout: 120_000 });
 }
 
 function makeGroqClient(): OpenAI | null {
@@ -517,8 +517,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             }
           } catch (e) {
             logger.warn({ err: e }, "AI error");
+            const isTimeout = (e as Error)?.message?.includes("timed out") || (e as Error)?.message?.includes("timeout") || (e as NodeJS.ErrnoException)?.code === "ETIMEDOUT";
             const errMsg = provider === "ollama-remote"
-              ? "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine."
+              ? isTimeout
+                ? "⏱ Remote Ollama timed out. Your Colab session may be idle or Ollama is stuck. In Colab: run `pkill -f ollama` then restart the Ollama serve cell, then re-run the inference test cell."
+                : "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine. Also make sure Ollama is started with OLLAMA_ORIGINS=* in Colab."
               : provider === "ollama"
                 ? "Ollama error. Make sure the Ollama service is running and the model is installed."
                 : "AI service temporarily unavailable. Please try again.";
