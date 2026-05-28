@@ -162,6 +162,16 @@ function LibraryCard({ model, serverInstalled, remoteInstalled, pullingServer, p
   onPull: (id: string, endpoint: OllamaEndpoint) => void;
   remoteConfigured: boolean;
 }) {
+  const [showLocal, setShowLocal] = useState(false);
+  const [copiedLocal, setCopiedLocal] = useState(false);
+  const localCmd = `ollama pull ${model.id}`;
+
+  function copyLocal() {
+    void navigator.clipboard.writeText(localCmd);
+    setCopiedLocal(true);
+    setTimeout(() => setCopiedLocal(false), 1500);
+  }
+
   return (
     <div className={cn(
       "rounded-xl border p-4 flex flex-col gap-2",
@@ -219,7 +229,31 @@ function LibraryCard({ model, serverInstalled, remoteInstalled, pullingServer, p
             </button>
           )
         )}
+
+        {/* Local machine button */}
+        <button onClick={() => setShowLocal(v => !v)}
+          className="flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 transition-colors bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20">
+          <Laptop className="w-3 h-3" /> Local
+        </button>
       </div>
+
+      {/* Local pull drawer */}
+      {showLocal && (
+        <div className="rounded-lg bg-muted/50 border border-amber-500/20 p-2.5 space-y-1.5 text-xs">
+          <p className="text-muted-foreground">Run this on <strong className="text-foreground">your machine</strong> (requires <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Ollama</a>):</p>
+          <div className="flex items-center gap-1.5 bg-background rounded px-2 py-1.5 border border-border/40">
+            <code className="font-mono flex-1 text-foreground text-[11px]">{localCmd}</code>
+            <button onClick={copyLocal} className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Copy">
+              {copiedLocal ? <CheckCircle2 className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+          {!remoteConfigured && (
+            <p className="text-muted-foreground text-[10px]">
+              After pulling, expose it via ngrok and set <code className="bg-background rounded px-1">OLLAMA_REMOTE_URL</code> to connect it here.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -308,15 +342,15 @@ export default function AiModelsPage() {
   const refresh = useCallback(async () => {
     try {
       const [provRes, serverRes, remoteRes] = await Promise.all([
-        api.get<{ data: ProvidersData }>("/api/ai/providers"),
-        api.get<{ data: InstalledModelsResponse }>("/api/ai/models?endpoint=server"),
-        api.get<{ data: InstalledModelsResponse }>("/api/ai/models?endpoint=remote"),
+        api.get<{ providers: ProvidersData }>("/api/ai/providers"),
+        api.get<InstalledModelsResponse>("/api/ai/models?endpoint=server"),
+        api.get<InstalledModelsResponse>("/api/ai/models?endpoint=remote"),
       ]);
-      setProviders(provRes.data);
-      setServerModels(serverRes.data.models ?? []);
-      setServerAvailable(serverRes.data.ollamaAvailable);
-      setRemoteModels(remoteRes.data.models ?? []);
-      setRemoteAvailable(remoteRes.data.ollamaAvailable);
+      setProviders(provRes.providers);
+      setServerModels(serverRes.models ?? []);
+      setServerAvailable(serverRes.ollamaAvailable);
+      setRemoteModels(remoteRes.models ?? []);
+      setRemoteAvailable(remoteRes.ollamaAvailable);
     } catch {
       toast({ title: "Failed to load AI providers", variant: "destructive" });
     } finally {
@@ -720,6 +754,18 @@ export default function AiModelsPage() {
               className="text-xs text-primary hover:underline flex items-center gap-1">
               Browse all <ExternalLink className="w-3 h-3" />
             </a>
+          </div>
+
+          {/* Disk space tip */}
+          <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400/90 flex gap-2.5 items-start">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <div>
+              <strong className="text-amber-300">Server disk is limited.</strong> Each card has three pull options:
+              {" "}<span className="text-foreground font-medium">Server</span> (Replit, limited space) ·{" "}
+              <span className="text-foreground font-medium">Remote</span> (your connected machine) ·{" "}
+              <span className="text-foreground font-medium">Local</span> (copy command to run on your own computer — no quota).
+              Use <strong>Local</strong> or <strong>Remote</strong> if the server is full.
+            </div>
           </div>
 
           <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
