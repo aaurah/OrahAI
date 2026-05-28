@@ -14,6 +14,7 @@ import mobileRouter from "./mobile";
 import domainsRouter from "./domains";
 import apiKeysRouter from "./apiKeys";
 import mcpRouter from "./mcp";
+import mcpServerRouter from "./mcpServer";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use("/mobile", mobileRouter);
 router.use("/projects", domainsRouter);
 router.use("/user/api-keys", apiKeysRouter);
 router.use("/projects", mcpRouter);
+router.use("/mcp", mcpServerRouter);
 
 export default router;

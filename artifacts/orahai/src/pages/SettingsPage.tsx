@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Navbar } from "@/components/layout/Navbar";
-import { User, Key, Building2, Lock, Plus, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
+import { User, Key, Building2, Lock, Plus, Trash2, Copy, Check, Eye, EyeOff, PlugZap, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
@@ -9,10 +9,11 @@ import { useAuth } from "@/hooks/useAuth";
 import type { ApiResponse, WorkspaceWithRole } from "@/types";
 
 const TABS = [
-  { path: "/settings/profile",   label: "Profile",    icon: User },
-  { path: "/settings/workspace", label: "Workspace",  icon: Building2 },
-  { path: "/settings/password",  label: "Password",   icon: Lock },
-  { path: "/settings/api-keys",  label: "API Keys",   icon: Key },
+  { path: "/settings/profile",    label: "Profile",     icon: User },
+  { path: "/settings/workspace",  label: "Workspace",   icon: Building2 },
+  { path: "/settings/password",   label: "Password",    icon: Lock },
+  { path: "/settings/api-keys",   label: "API Keys",    icon: Key },
+  { path: "/settings/mcp-server", label: "MCP Server",  icon: PlugZap },
 ];
 
 // ── Profile tab ───────────────────────────────────────────────────────────────
@@ -576,6 +577,149 @@ function ApiKeysTab() {
   );
 }
 
+// ── MCP Server tab ────────────────────────────────────────────────────────────
+function CodeBlock({ code, label }: { code: string; label: string }) {
+  return (
+    <div className="rounded-lg border border-border overflow-hidden text-xs">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/40">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        <CopyButton text={code} />
+      </div>
+      <pre className="p-3 overflow-x-auto text-foreground leading-relaxed whitespace-pre">{code}</pre>
+    </div>
+  );
+}
+
+function McpServerTab() {
+  const baseUrl = typeof window !== "undefined"
+    ? window.location.origin
+    : "https://orahai.replit.app";
+
+  const httpUrl = `${baseUrl}/api/mcp`;
+  const sseUrl  = `${baseUrl}/api/mcp/sse`;
+
+  const claudeConfig = JSON.stringify({
+    mcpServers: {
+      orahai: {
+        type: "http",
+        url: httpUrl,
+        headers: { Authorization: "Bearer YOUR_API_KEY" },
+      },
+    },
+  }, null, 2);
+
+  const cursorConfig = JSON.stringify({
+    mcpServers: {
+      orahai: {
+        url: httpUrl,
+        headers: { Authorization: "Bearer YOUR_API_KEY" },
+      },
+    },
+  }, null, 2);
+
+  const windsurfConfig = JSON.stringify({
+    mcpServers: {
+      orahai: {
+        serverUrl: sseUrl,
+        headers: { Authorization: "Bearer YOUR_API_KEY" },
+      },
+    },
+  }, null, 2);
+
+  const TOOLS = [
+    { name: "list_projects",  desc: "List all your accessible projects" },
+    { name: "list_files",     desc: "List files in a project" },
+    { name: "read_file",      desc: "Read a file's content" },
+    { name: "write_file",     desc: "Create or overwrite a file" },
+    { name: "delete_file",    desc: "Soft-delete a file" },
+    { name: "search_files",   desc: "Search text across all files in a project" },
+  ];
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold">Connect OrahAI as an MCP Server</h2>
+        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+          Give any MCP-compatible AI (Claude, Cursor, Windsurf, …) direct access to your OrahAI projects — read files, write code, and search across your workspace.
+        </p>
+      </div>
+
+      {/* Step 1 — API key */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">1</span>
+          <h3 className="font-medium">Generate an API key</h3>
+        </div>
+        <p className="text-sm text-muted-foreground ml-7">
+          API keys are used instead of your password so external tools can authenticate securely.
+        </p>
+        <div className="ml-7">
+          <a
+            href="/settings/api-keys"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+          >
+            <Key className="w-3.5 h-3.5" />
+            Go to API Keys settings
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      </div>
+
+      {/* Step 2 — Endpoints */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">2</span>
+          <h3 className="font-medium">Server endpoints</h3>
+        </div>
+        <div className="ml-7 space-y-2">
+          {[
+            { label: "Streamable HTTP (modern clients)", url: httpUrl },
+            { label: "SSE transport (legacy clients)", url: sseUrl },
+          ].map(({ label, url }) => (
+            <div key={url} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 bg-muted/20">
+              <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+              <code className="text-xs font-mono flex-1 truncate">{url}</code>
+              <CopyButton text={url} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Step 3 — Client configs */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">3</span>
+          <h3 className="font-medium">Add to your AI client</h3>
+        </div>
+        <p className="text-sm text-muted-foreground ml-7">
+          Replace <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">YOUR_API_KEY</code> with your actual key.
+        </p>
+        <div className="ml-7 space-y-4">
+          <CodeBlock label="Claude Desktop  (claude_desktop_config.json)" code={claudeConfig} />
+          <CodeBlock label="Cursor  (.cursor/mcp.json)" code={cursorConfig} />
+          <CodeBlock label="Windsurf  (mcp_config.json)" code={windsurfConfig} />
+        </div>
+      </div>
+
+      {/* Available tools */}
+      <div className="space-y-3">
+        <h3 className="font-medium">Available tools</h3>
+        <div className="rounded-lg border border-border divide-y divide-border">
+          {TOOLS.map(t => (
+            <div key={t.name} className="flex items-start gap-3 px-4 py-2.5">
+              <PlugZap className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+              <div>
+                <code className="text-xs font-mono font-semibold">{t.name}</code>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main settings page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [pathname, navigate] = useLocation();
@@ -610,10 +754,11 @@ export default function SettingsPage() {
           })}
         </div>
 
-        {activeTab.path === "/settings/profile"   && <ProfileTab />}
-        {activeTab.path === "/settings/workspace" && <WorkspaceTab />}
-        {activeTab.path === "/settings/password"  && <PasswordTab />}
-        {activeTab.path === "/settings/api-keys"  && <ApiKeysTab />}
+        {activeTab.path === "/settings/profile"     && <ProfileTab />}
+        {activeTab.path === "/settings/workspace"  && <WorkspaceTab />}
+        {activeTab.path === "/settings/password"   && <PasswordTab />}
+        {activeTab.path === "/settings/api-keys"   && <ApiKeysTab />}
+        {activeTab.path === "/settings/mcp-server" && <McpServerTab />}
       </main>
     </div>
   );

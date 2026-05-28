@@ -29,7 +29,8 @@ function Router() {
       <Route path="/settings/profile" component={SettingsPage} />
       <Route path="/settings/workspace" component={SettingsPage} />
       <Route path="/settings/password" component={SettingsPage} />
-      <Route path="/settings/api-keys" component={SettingsPage} />
+      <Route path="/settings/api-keys"   component={SettingsPage} />
+      <Route path="/settings/mcp-server" component={SettingsPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/privacy">{() => <StaticPage page="privacy" />}</Route>
       <Route path="/terms">{() => <StaticPage page="terms" />}</Route>
