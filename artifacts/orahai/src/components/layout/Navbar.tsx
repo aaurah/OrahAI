@@ -95,6 +95,20 @@ export function Navbar() {
               </Link>
             );
           })}
+          {user?.isAdmin && (
+            <Link
+              href="/admin"
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
+            >
+              <Shield className="w-4 h-4" />
+              <span className="hidden sm:block">Admin</span>
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
