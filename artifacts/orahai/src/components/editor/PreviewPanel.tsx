@@ -70,13 +70,17 @@ export function PreviewPanel({
     }
   };
 
-  const openInNewTab = () => {
+  const openInNewTab = async () => {
     if (mode === "github" && githubPagesUrl) {
       window.open(githubPagesUrl, "_blank", "noopener,noreferrer");
+    } else {
+      const token = await fetchPreviewToken();
+      if (token) {
+        const v = refreshKey ?? iframeKey;
+        window.open(`${BASE}/api/preview/${projectId}?token=${encodeURIComponent(token)}&v=${v}`, "_blank", "noopener,noreferrer");
+      }
     }
   };
-
-  const canOpenInNewTab = mode === "github" && !!githubPagesUrl;
 
   const displayUrl = mode === "local" ? `preview/${projectId}` : (githubPagesUrl ?? "preview");
 
@@ -118,12 +122,10 @@ export function PreviewPanel({
         <button onClick={refresh} title="Refresh preview" className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
           <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
         </button>
-        {canOpenInNewTab && (
-          <button onClick={openInNewTab} title="Open in new tab"
-            className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
-        )}
+        <button onClick={openInNewTab} title="Open preview in new tab"
+          className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* iframe — always shown; the server returns a helpful page when no index.html exists */}
