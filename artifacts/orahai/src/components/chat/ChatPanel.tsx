@@ -14,6 +14,7 @@ import { API_BASE, api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
+import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName } from "@/lib/models";
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -102,6 +103,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [agentMode, setAgentMode] = useState<AgentMode>(() => {
     return (localStorage.getItem("orahai_agent_mode") as AgentMode | null) ?? "economy";
   });
+  const [aiModel, setAiModel] = useState<string>(() => {
+    return localStorage.getItem("orahai_ai_model") ?? DEFAULT_MODEL;
+  });
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -308,6 +313,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           fileContext: activeFileContent?.slice(0, 8000),
           images: imgs.map((img) => ({ data: img.dataUrl.split(",")[1], mimeType: img.mimeType })),
           mode: agentMode,
+          model: aiModel,
         }),
         signal: abortRef.current.signal,
       });
@@ -878,9 +884,69 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               </button>
             );
           })}
-          <span className="ml-auto text-[10px] text-muted-foreground hidden sm:block">
-            {AGENT_MODES.find(m => m.id === agentMode)?.desc}
-          </span>
+          {/* Model picker */}
+          <div className="ml-auto relative">
+            <button
+              type="button"
+              onClick={() => setModelPickerOpen(v => !v)}
+              disabled={isStreaming}
+              title="Change AI model"
+              className={cn(
+                "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors disabled:opacity-40",
+                modelPickerOpen
+                  ? "border-primary/40 text-primary bg-primary/10"
+                  : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border",
+              )}
+            >
+              <Bot className="w-3 h-3" />
+              <span className="max-w-[72px] truncate">{getModelShortName(aiModel)}</span>
+              <ChevronDown className={cn("w-2.5 h-2.5 transition-transform", modelPickerOpen && "rotate-180")} />
+            </button>
+
+            {modelPickerOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
+                <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                  <div className="max-h-72 overflow-y-auto">
+                    {MODEL_GROUPS.map(group => (
+                      <div key={group.label}>
+                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
+                          {group.note && (
+                            <span className="text-[8px] text-amber-500/90 font-medium truncate max-w-[110px]">{group.note}</span>
+                          )}
+                        </div>
+                        {group.models.map(model => (
+                          <button
+                            key={model.id}
+                            onClick={() => {
+                              setAiModel(model.id);
+                              localStorage.setItem("orahai_ai_model", model.id);
+                              setModelPickerOpen(false);
+                            }}
+                            className={cn(
+                              "w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left",
+                              aiModel === model.id && "text-primary bg-primary/5",
+                            )}
+                          >
+                            <span className="flex-1 font-medium">{model.name}</span>
+                            {model.vision && (
+                              <span className="text-[9px] text-sky-400 font-medium">Vision</span>
+                            )}
+                            {model.badge && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground font-medium border border-border/40">
+                                {model.badge}
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="relative">

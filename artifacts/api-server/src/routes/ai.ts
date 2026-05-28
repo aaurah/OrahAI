@@ -1,6 +1,7 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { db, chatMessages, projects, memberships, files } from "@workspace/db";
 import { eq, and, or, isNull, asc, desc, sql } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
@@ -15,6 +16,45 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
+
+function getAnthropicClient(): Anthropic | null {
+  const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
+  if (!apiKey && !baseURL) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new Anthropic({ ...(baseURL ? { baseURL } : {}), apiKey: apiKey ?? "dummy" } as any);
+}
+
+function makeOllamaClient(): OpenAI {
+  const base = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, "");
+  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
+}
+
+function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
+  return msgs
+    .filter(m => m.role !== "system")
+    .map(m => {
+      const role = m.role as "user" | "assistant";
+      if (typeof m.content === "string") return { role, content: m.content };
+      if (!Array.isArray(m.content)) return { role, content: String(m.content ?? "") };
+      const blocks = (m.content as OpenAI.ChatCompletionContentPart[]).map(p => {
+        if (p.type === "text") return { type: "text", text: p.text };
+        if (p.type === "image_url") {
+          const url = p.image_url.url;
+          if (url.startsWith("data:")) {
+            const sep = url.indexOf(",");
+            const header = url.slice(0, sep);
+            const data = url.slice(sep + 1);
+            const mediaType = (header.match(/data:([^;]+)/) ?? [])[1] ?? "image/jpeg";
+            return { type: "image", source: { type: "base64", media_type: mediaType, data } };
+          }
+          return { type: "text", text: url };
+        }
+        return { type: "text", text: "" };
+      });
+      return { role, content: blocks };
+    });
+}
 
 // ── In-memory background job tracker ─────────────────────────────────────────
 // Keeps a record of in-flight AI requests so clients can re-subscribe after
@@ -211,12 +251,16 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         imageMimeType: z.string().optional(),
         images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
         mode: z.enum(["lite", "economy", "power"]).default("economy"),
+        model: z.string().max(100).optional().default("openai:gpt-4.1"),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
-      const { message, fileContext, filePath, imageData, imageMimeType, images, mode } = parsed.data;
+      const { message, fileContext, filePath, imageData, imageMimeType, images, mode, model: modelField } = parsed.data;
+      const colonIdx = (modelField ?? "").indexOf(":");
+      const provider = colonIdx >= 0 ? (modelField ?? "").slice(0, colonIdx) : "openai";
+      const modelName = colonIdx >= 0 ? (modelField ?? "").slice(colonIdx + 1) : (modelField ?? "gpt-4.1");
 
       // Mode → capability settings
       const MODE_CONFIG = {
@@ -310,28 +354,64 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         }
 
         let stepContent = "";
-        try {
-          const stream = await openai.chat.completions.create({
-            model: "gpt-5.1",
-            max_completion_tokens: maxTokens,
-            messages: agentMessages,
-            stream: true,
-          });
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content;
-            if (delta) {
-              stepContent += delta;
-              allContent += delta;
-              send({ type: "delta", content: delta });
-            }
+        if (provider === "anthropic") {
+          const anthropicClient = getAnthropicClient();
+          if (!anthropicClient) {
+            const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
+            stepContent = errMsg; allContent += errMsg;
+            send({ type: "delta", content: errMsg }); break;
           }
-        } catch (e) {
-          logger.warn({ err: e }, "OpenAI error");
-          const errMsg = "AI service is temporarily unavailable. Please try again.";
-          stepContent = errMsg;
-          allContent += errMsg;
-          send({ type: "delta", content: errMsg });
-          break;
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stream = await (anthropicClient.messages.create as any)({
+              model: modelName,
+              max_tokens: maxTokens,
+              system: systemPrompt,
+              messages: toAnthropicMessages(agentMessages),
+              stream: true,
+            });
+            for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+              const delta = event.delta as Record<string, unknown> | undefined;
+              if (event.type === "content_block_delta" && delta?.type === "text_delta") {
+                const t = String(delta.text ?? "");
+                stepContent += t; allContent += t;
+                send({ type: "delta", content: t });
+              }
+            }
+          } catch (e) {
+            logger.warn({ err: e }, "Anthropic error");
+            const errMsg = "Anthropic error. Check your ANTHROPIC_API_KEY in project secrets.";
+            stepContent = errMsg; allContent += errMsg;
+            send({ type: "delta", content: errMsg }); break;
+          }
+        } else {
+          const llmClient = provider === "ollama" ? makeOllamaClient() : openai;
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stream = await (llmClient.chat.completions.create as any)({
+              model: modelName,
+              messages: agentMessages,
+              stream: true,
+              ...(provider === "ollama"
+                ? { max_tokens: maxTokens }
+                : { max_completion_tokens: maxTokens }),
+            });
+            for await (const chunk of stream) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const delta = (chunk as any).choices?.[0]?.delta?.content;
+              if (delta) {
+                stepContent += delta; allContent += delta;
+                send({ type: "delta", content: delta });
+              }
+            }
+          } catch (e) {
+            logger.warn({ err: e }, "AI error");
+            const errMsg = provider === "ollama"
+              ? "Ollama error. Make sure OLLAMA_BASE_URL is set and the model is running."
+              : "AI service temporarily unavailable. Please try again.";
+            stepContent = errMsg; allContent += errMsg;
+            send({ type: "delta", content: errMsg }); break;
+          }
         }
 
         // ── Truncation detection — check for opened but unclosed WRITE blocks ──

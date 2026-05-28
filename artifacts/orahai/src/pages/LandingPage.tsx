@@ -405,6 +405,103 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* AI Models showcase */}
+      <section className="py-20 border-t border-border/40">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-primary/10 text-primary rounded-full px-4 py-1.5 text-sm font-medium mb-6 border border-primary/20">
+              <Bot className="w-3.5 h-3.5" />
+              Multi-Model AI
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+              Your AI, your choice
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+              Switch between the world's best models in one click — no config, no API keys, no friction.
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* OpenAI */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-[#10a37f]/15 flex items-center justify-center text-[#10a37f] font-bold text-xs">AI</div>
+                <div>
+                  <div className="font-semibold text-sm">OpenAI</div>
+                  <div className="text-[10px] text-emerald-400">Built in · no key needed</div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {[
+                  { name: "GPT-4.1",     badge: "Default", color: "bg-primary/10 text-primary border-primary/20" },
+                  { name: "GPT-4o",      badge: "Vision",  color: "bg-sky-500/10 text-sky-400 border-sky-500/20" },
+                  { name: "GPT-4o Mini", badge: "Fast",    color: "bg-muted text-muted-foreground border-border/50" },
+                  { name: "o3-mini",     badge: "Reason",  color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+                ].map(m => (
+                  <div key={m.name} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-muted/30 border border-border/30">
+                    <span className="text-sm font-medium">{m.name}</span>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${m.color}`}>{m.badge}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Anthropic */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-500/15 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-orange-400" />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Anthropic — Claude</div>
+                  <div className="text-[10px] text-muted-foreground">Add your API key</div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {[
+                  { name: "Claude Opus 4",   badge: "Powerful", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+                  { name: "Claude Sonnet 4", badge: "Balanced", color: "bg-muted text-muted-foreground border-border/50" },
+                  { name: "Claude Haiku 4",  badge: "Fast",     color: "bg-muted text-muted-foreground border-border/50" },
+                ].map(m => (
+                  <div key={m.name} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-muted/30 border border-border/30">
+                    <span className="text-sm font-medium">{m.name}</span>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${m.color}`}>{m.badge}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Ollama */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                  <Cpu className="w-4 h-4 text-violet-400" />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Ollama — Local</div>
+                  <div className="text-[10px] text-muted-foreground">Self-hosted, fully private</div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {[
+                  { name: "Llama 3.2",       badge: "Meta" },
+                  { name: "LLaVA",           badge: "Vision" },
+                  { name: "CodeLlama",       badge: "Code" },
+                  { name: "Mistral 7B",      badge: "Open" },
+                  { name: "DeepSeek Coder",  badge: "Code" },
+                  { name: "Qwen 2.5 Coder",  badge: "Code" },
+                ].map(m => (
+                  <div key={m.name} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-muted/30 border border-border/30">
+                    <span className="text-sm font-medium">{m.name}</span>
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20">{m.badge}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Vision banner */}
       <section className="py-24 bg-primary/5 border-y border-primary/10">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
