@@ -14,7 +14,7 @@ import { API_BASE, api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
-import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, type ModelDef } from "@/lib/models";
+import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, makeOllamaRemoteModelDef, type ModelDef } from "@/lib/models";
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -117,6 +117,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [liveOllamaModels, setLiveOllamaModels] = useState<ModelDef[]>([]);
+  const [liveRemoteModels, setLiveRemoteModels] = useState<ModelDef[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -130,19 +131,27 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editQueuedText, setEditQueuedText] = useState("");
 
-  // Fetch live Ollama models when the model picker opens
+  // Fetch live Ollama models (both endpoints) when the model picker opens
   useEffect(() => {
     if (!modelPickerOpen) return;
     setOllamaLoading(true);
-    api.get<{ data: { models: Array<{ name: string }>; ollamaAvailable: boolean } }>("/api/ai/models")
-      .then(res => {
-        if (res.data?.ollamaAvailable) {
-          setLiveOllamaModels((res.data.models ?? []).map(m => makeOllamaModelDef(m.name)));
-        } else {
-          setLiveOllamaModels([]);
-        }
+    Promise.all([
+      api.get<{ data: { models: Array<{ name: string }>; ollamaAvailable: boolean } }>("/api/ai/models?endpoint=server"),
+      api.get<{ data: { models: Array<{ name: string }>; ollamaAvailable: boolean } }>("/api/ai/models?endpoint=remote"),
+    ])
+      .then(([serverRes, remoteRes]) => {
+        setLiveOllamaModels(
+          serverRes.data?.ollamaAvailable
+            ? (serverRes.data.models ?? []).map(m => makeOllamaModelDef(m.name))
+            : []
+        );
+        setLiveRemoteModels(
+          remoteRes.data?.ollamaAvailable
+            ? (remoteRes.data.models ?? []).map(m => makeOllamaRemoteModelDef(m.name))
+            : []
+        );
       })
-      .catch(() => setLiveOllamaModels([]))
+      .catch(() => { setLiveOllamaModels([]); setLiveRemoteModels([]); })
       .finally(() => setOllamaLoading(false));
   }, [modelPickerOpen]);
 
@@ -963,30 +972,36 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
                 <div className="absolute bottom-full right-0 mb-1.5 w-72 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
                   <div className="max-h-80 overflow-y-auto">
-                    {/* Live Ollama models (installed) */}
-                    {(liveOllamaModels.length > 0 || ollamaLoading) && (
+                    {/* Ollama Server models */}
+                    {(liveOllamaModels.length > 0 || (ollamaLoading && liveOllamaModels.length === 0)) && (
                       <div>
                         <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Ollama — Installed</span>
-                          {ollamaLoading && (
-                            <span className="text-[8px] text-muted-foreground">Loading…</span>
-                          )}
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Ollama — Server</span>
+                          {ollamaLoading && <span className="text-[8px] text-muted-foreground">Loading…</span>}
                         </div>
                         {liveOllamaModels.map(model => (
-                          <button
-                            key={model.id}
-                            onClick={() => {
-                              setAiModel(model.id);
-                              localStorage.setItem("orahai_ai_model", model.id);
-                              setModelPickerOpen(false);
-                            }}
-                            className={cn(
-                              "w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left",
-                              aiModel === model.id && "text-primary bg-primary/5",
-                            )}
-                          >
+                          <button key={model.id}
+                            onClick={() => { setAiModel(model.id); localStorage.setItem("orahai_ai_model", model.id); setModelPickerOpen(false); }}
+                            className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === model.id && "text-primary bg-primary/5")}>
                             <span className="flex-1 font-mono font-medium truncate">{model.name}</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Local</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Server</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Ollama Remote models */}
+                    {(liveRemoteModels.length > 0) && (
+                      <div>
+                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Ollama — Remote</span>
+                        </div>
+                        {liveRemoteModels.map(model => (
+                          <button key={model.id}
+                            onClick={() => { setAiModel(model.id); localStorage.setItem("orahai_ai_model", model.id); setModelPickerOpen(false); }}
+                            className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === model.id && "text-primary bg-primary/5")}>
+                            <span className="flex-1 font-mono font-medium truncate">{model.name}</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium shrink-0">Remote</span>
                           </button>
                         ))}
                       </div>

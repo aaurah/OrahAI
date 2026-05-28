@@ -31,6 +31,12 @@ function makeOllamaClient(): OpenAI {
   return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
 }
 
+function makeOllamaRemoteClient(): OpenAI | null {
+  const base = (process.env.OLLAMA_REMOTE_URL ?? "").replace(/\/$/, "");
+  if (!base) return null;
+  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
+}
+
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
   return msgs
     .filter(m => m.role !== "system")
@@ -452,16 +458,28 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             send({ type: "delta", content: errMsg }); break;
           }
         } else {
-          const llmClient = provider === "ollama" ? makeOllamaClient() : openai;
+          const isOllama = provider === "ollama" || provider === "ollama-remote";
+          let llmClient: OpenAI;
+          if (provider === "ollama-remote") {
+            const remoteClient = makeOllamaRemoteClient();
+            if (!remoteClient) {
+              const errMsg = "Remote Ollama not configured. Set OLLAMA_REMOTE_URL in your environment secrets.";
+              stepContent = errMsg; allContent += errMsg;
+              send({ type: "delta", content: errMsg }); break;
+            }
+            llmClient = remoteClient;
+          } else if (provider === "ollama") {
+            llmClient = makeOllamaClient();
+          } else {
+            llmClient = openai;
+          }
           try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const stream = await (llmClient.chat.completions.create as any)({
               model: modelName,
               messages: agentMessages,
               stream: true,
-              ...(provider === "ollama"
-                ? { max_tokens: maxTokens }
-                : { max_completion_tokens: maxTokens }),
+              ...(isOllama ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens }),
             });
             for await (const chunk of stream) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -473,9 +491,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
             }
           } catch (e) {
             logger.warn({ err: e }, "AI error");
-            const errMsg = provider === "ollama"
-              ? "Ollama error. Make sure OLLAMA_BASE_URL is set and the model is running."
-              : "AI service temporarily unavailable. Please try again.";
+            const errMsg = provider === "ollama-remote"
+              ? "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine."
+              : provider === "ollama"
+                ? "Ollama error. Make sure the Ollama service is running and the model is installed."
+                : "AI service temporarily unavailable. Please try again.";
             stepContent = errMsg; allContent += errMsg;
             send({ type: "delta", content: errMsg }); break;
           }

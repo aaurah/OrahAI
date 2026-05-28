@@ -1,4 +1,4 @@
-export type ModelProvider = "openai" | "anthropic" | "ollama";
+export type ModelProvider = "openai" | "anthropic" | "ollama" | "ollama-remote";
 
 export interface ModelDef {
   id: string;
@@ -79,11 +79,11 @@ export function getModelShortName(id: string): string {
 }
 
 export function makeOllamaModelDef(name: string): ModelDef {
-  return {
-    id: `ollama:${name}`,
-    name,
-    provider: "ollama",
-  };
+  return { id: `ollama:${name}`, name, provider: "ollama" };
+}
+
+export function makeOllamaRemoteModelDef(name: string): ModelDef {
+  return { id: `ollama-remote:${name}`, name, provider: "ollama-remote" };
 }
 
 export const DEFAULT_MODEL = "openai:gpt-4.1";
