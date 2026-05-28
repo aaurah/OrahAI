@@ -293,14 +293,14 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const schema = z.object({
-        message: z.string().min(1).max(32000),
+        message: z.string().min(1).max(500_000),
         fileContext: z.string().optional(),
         filePath: z.string().optional(),
         imageData: z.string().optional(),
         imageMimeType: z.string().optional(),
         images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
         mode: z.enum(["lite", "economy", "power"]).default("economy"),
-        model: z.string().max(100).optional().default("groq:llama-3.3-70b-versatile"),
+        model: z.string().max(200).optional().default("groq:llama-3.3-70b-versatile"),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
@@ -487,6 +487,25 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           const curMaxTokens = activeProvider === "groq" ? Math.min(maxTokens, 3000) : maxTokens;
           const isOllama = activeProvider === "ollama" || activeProvider === "ollama-remote";
 
+          // Per-provider user-message char limit: prevents long pastes from blowing
+          // the model's context window. Stored message is always the full original.
+          const MSG_CHAR_LIMIT: Record<string, number> = {
+            groq:          20_000,
+            openai:       400_000,
+            anthropic:    400_000,
+            ollama:       100_000,
+            "ollama-remote": 100_000,
+          };
+          const msgLimit = MSG_CHAR_LIMIT[activeProvider] ?? 100_000;
+          // Build a messages copy with the last user message truncated to msgLimit
+          const curMessages: OpenAI.ChatCompletionMessageParam[] = agentMessages.map((m, i) => {
+            if (i === agentMessages.length - 1 && m.role === "user" && typeof m.content === "string" && m.content.length > msgLimit) {
+              const truncated = m.content.slice(0, msgLimit);
+              return { ...m, content: truncated + `\n\n[… message truncated to ${msgLimit.toLocaleString()} chars for this model]` };
+            }
+            return m;
+          });
+
           try {
             if (activeProvider === "anthropic") {
               const anthropicClient = getAnthropicClient();
@@ -500,7 +519,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
                 model: activeModelName,
                 max_tokens: curMaxTokens,
                 system: systemPrompt,
-                messages: toAnthropicMessages(agentMessages),
+                messages: toAnthropicMessages(curMessages),
                 stream: true,
               });
               for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
@@ -540,7 +559,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const resp = await (llmClient.chat.completions.create as any)({
                   model: activeModelName,
-                  messages: agentMessages,
+                  messages: curMessages,
                   stream: false,
                   max_tokens: curMaxTokens,
                 });
@@ -557,7 +576,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const stream = await (llmClient.chat.completions.create as any)({
                   model: activeModelName,
-                  messages: agentMessages,
+                  messages: curMessages,
                   stream: true,
                   ...(isOllama ? { max_tokens: curMaxTokens } : { max_completion_tokens: curMaxTokens }),
                 });

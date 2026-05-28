@@ -118,7 +118,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [feedback, setFeedback] = useState<Record<string, "good" | "bad">>({});
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState<AgentMode>(() => {
-    return (localStorage.getItem("orahai_agent_mode") as AgentMode | null) ?? "economy";
+    const saved = localStorage.getItem("orahai_agent_mode");
+    return (["lite", "economy", "power"] as const).includes(saved as AgentMode)
+      ? (saved as AgentMode)
+      : "economy";
   });
   const [aiModel, setAiModel] = useState<string>(() => {
     return localStorage.getItem("orahai_ai_model") ?? DEFAULT_MODEL;

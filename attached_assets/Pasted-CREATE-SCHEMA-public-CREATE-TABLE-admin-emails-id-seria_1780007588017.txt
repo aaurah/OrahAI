@@ -1,0 +1,978 @@
+CREATE SCHEMA "public";
+CREATE TABLE "admin_emails" (
+	"id" serial PRIMARY KEY,
+	"folder" text DEFAULT 'inbox' NOT NULL,
+	"from_address" text NOT NULL,
+	"to_address" text NOT NULL,
+	"subject" text NOT NULL,
+	"body" text NOT NULL,
+	"is_read" boolean DEFAULT false NOT NULL,
+	"is_starred" boolean DEFAULT false NOT NULL,
+	"category" text DEFAULT 'general' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "alert_events" (
+	"id" text PRIMARY KEY,
+	"severity" text NOT NULL,
+	"category" text NOT NULL,
+	"message" text NOT NULL,
+	"detail" text,
+	"ts" bigint NOT NULL,
+	"resolved" boolean DEFAULT false NOT NULL,
+	"resolved_at" bigint
+);
+CREATE TABLE "bsv_deposits_credited" (
+	"bsv_address" text PRIMARY KEY,
+	"user_wallet" text NOT NULL,
+	"total_satoshis" bigint DEFAULT 0 NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now()
+);
+CREATE TABLE "bsv_intent_sessions" (
+	"id" text PRIMARY KEY,
+	"intent_hash" text NOT NULL,
+	"nonce" text NOT NULL,
+	"user_address" text NOT NULL,
+	"solver_address" text,
+	"token_in" text DEFAULT 'BSV' NOT NULL,
+	"token_out" text NOT NULL,
+	"amount_in_sat" integer NOT NULL,
+	"min_amount_out" text NOT NULL,
+	"destination_chain" text NOT NULL,
+	"destination_address" text NOT NULL,
+	"deadline_ts" integer NOT NULL,
+	"deadline_blocks" integer NOT NULL,
+	"secret" text NOT NULL,
+	"secret_hash" text NOT NULL,
+	"redeem_script" text NOT NULL,
+	"htlc_address" text NOT NULL,
+	"funding_txid" text,
+	"funding_vout" integer,
+	"funding_confirmed" boolean DEFAULT false NOT NULL,
+	"confirmations" integer DEFAULT 0 NOT NULL,
+	"solver_payment_txid" text,
+	"fill_note" text,
+	"claim_txid" text,
+	"refund_txid" text,
+	"audit_txid" text,
+	"status" text DEFAULT 'PENDING_FUNDING' NOT NULL,
+	"terminal_at" timestamp,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"expires_at" timestamp NOT NULL
+);
+CREATE TABLE "candles" (
+	"id" text PRIMARY KEY,
+	"symbol" text NOT NULL,
+	"interval" text NOT NULL,
+	"time" numeric(20, 0) NOT NULL,
+	"open" numeric(20, 8) NOT NULL,
+	"high" numeric(20, 8) NOT NULL,
+	"low" numeric(20, 8) NOT NULL,
+	"close" numeric(20, 8) NOT NULL,
+	"volume" numeric(30, 8) NOT NULL
+);
+CREATE TABLE "cex_accounts" (
+	"id" serial PRIMARY KEY,
+	"exchange" varchar(50) NOT NULL,
+	"label" varchar(100) NOT NULL,
+	"api_key_enc" text NOT NULL,
+	"api_secret_enc" text NOT NULL,
+	"passphrase_enc" text,
+	"status" varchar(20) DEFAULT 'untested' NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"permissions" jsonb,
+	"last_tested_at" timestamp with time zone,
+	"last_test_result" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE "coin_holdings" (
+	"id" text PRIMARY KEY,
+	"coin_creator" text NOT NULL UNIQUE,
+	"holder" text NOT NULL UNIQUE,
+	"amount" numeric(30, 8) DEFAULT '0',
+	"avg_buy_price_bsv" numeric(30, 12) DEFAULT '0',
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "coin_holdings_coin_creator_holder_key" UNIQUE("coin_creator","holder")
+);
+CREATE TABLE "coin_nominations" (
+	"id" serial PRIMARY KEY,
+	"symbol" text NOT NULL,
+	"name" text NOT NULL,
+	"logo_url" text,
+	"contract_address" text,
+	"chain" text,
+	"website" text,
+	"description" text,
+	"votes" integer DEFAULT 0 NOT NULL,
+	"nominated_by" text,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"created_at" timestamp DEFAULT now()
+);
+CREATE TABLE "coin_trades" (
+	"id" text PRIMARY KEY,
+	"coin_creator" text NOT NULL,
+	"trader" text NOT NULL,
+	"trade_type" text NOT NULL,
+	"bsv_amount" numeric(30, 8),
+	"token_amount" numeric(30, 8),
+	"price_bsv" numeric(30, 12),
+	"price_usd" numeric(30, 8),
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "coin_vote_logs" (
+	"id" serial PRIMARY KEY,
+	"nomination_id" integer NOT NULL,
+	"voter_ip" text,
+	"voter_address" text,
+	"created_at" timestamp DEFAULT now()
+);
+CREATE TABLE "conversations" (
+	"id" serial PRIMARY KEY,
+	"title" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE "copy_vault_positions" (
+	"id" text PRIMARY KEY,
+	"vault_id" text NOT NULL,
+	"follower_wallet" text NOT NULL,
+	"shares_owned" numeric(30, 8) NOT NULL,
+	"deposit_amount_usdt" numeric(30, 8) NOT NULL,
+	"entry_share_price" numeric(20, 8) NOT NULL,
+	"current_value" numeric(30, 8) NOT NULL,
+	"unrealized_pnl" numeric(30, 8) DEFAULT '0' NOT NULL,
+	"unrealized_pnl_pct" numeric(10, 4) DEFAULT '0' NOT NULL,
+	"realized_pnl" numeric(30, 8) DEFAULT '0' NOT NULL,
+	"fees_paid" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"withdrawn_at" timestamp
+);
+CREATE TABLE "copy_vault_trades" (
+	"id" text PRIMARY KEY,
+	"vault_id" text NOT NULL,
+	"leader_order_id" text,
+	"symbol" text NOT NULL,
+	"side" text NOT NULL,
+	"price" numeric(20, 8) NOT NULL,
+	"quantity" numeric(20, 8) NOT NULL,
+	"total" numeric(30, 8) NOT NULL,
+	"pnl" numeric(30, 8),
+	"pnl_pct" numeric(10, 4),
+	"txid" text,
+	"status" text DEFAULT 'executed' NOT NULL,
+	"executed_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "copy_vaults" (
+	"id" text PRIMARY KEY,
+	"leader_wallet" text NOT NULL,
+	"leader_name" text NOT NULL,
+	"leader_avatar" text,
+	"name" text NOT NULL,
+	"description" text,
+	"trading_pairs" text DEFAULT 'BSV-USDT' NOT NULL,
+	"fee_rate" numeric(6, 4) DEFAULT '0.10' NOT NULL,
+	"min_deposit" numeric(20, 8) DEFAULT '10' NOT NULL,
+	"max_capacity" numeric(20, 8),
+	"tvl" numeric(30, 8) DEFAULT '0' NOT NULL,
+	"total_shares" numeric(30, 8) DEFAULT '0' NOT NULL,
+	"share_price" numeric(20, 8) DEFAULT '1' NOT NULL,
+	"total_pnl" numeric(30, 8) DEFAULT '0' NOT NULL,
+	"total_pnl_pct" numeric(10, 4) DEFAULT '0' NOT NULL,
+	"month_pnl_pct" numeric(10, 4) DEFAULT '0' NOT NULL,
+	"total_trades" integer DEFAULT 0 NOT NULL,
+	"win_rate" numeric(6, 4) DEFAULT '0' NOT NULL,
+	"followers" integer DEFAULT 0 NOT NULL,
+	"is_public" boolean DEFAULT true NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "creator_coins" (
+	"creator_address" text PRIMARY KEY,
+	"symbol" text,
+	"name" text,
+	"virtual_bsv" numeric(30, 8) DEFAULT '0',
+	"virtual_tokens" numeric(30, 8) DEFAULT '0',
+	"price_bsv" numeric(30, 12) DEFAULT '0',
+	"price_usd" numeric(30, 8) DEFAULT '0',
+	"market_cap_usd" numeric(30, 2) DEFAULT '0',
+	"ath_usd" numeric(30, 8) DEFAULT '0',
+	"volume_24h_usd" numeric(30, 2) DEFAULT '0',
+	"holder_count" integer DEFAULT 0,
+	"circulating_supply" numeric(30, 8) DEFAULT '0',
+	"total_supply" numeric(30, 8) DEFAULT '0',
+	"trade_count" integer DEFAULT 0,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "creator_profiles" (
+	"address" text PRIMARY KEY,
+	"username" text,
+	"bio" text,
+	"avatar_url" text,
+	"cover_url" text,
+	"website" text,
+	"twitter" text,
+	"instagram" text,
+	"is_verified" boolean DEFAULT false,
+	"follower_count" integer DEFAULT 0,
+	"following_count" integer DEFAULT 0,
+	"post_count" integer DEFAULT 0,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "crypto_orders" (
+	"id" text PRIMARY KEY,
+	"stripe_payment_intent_id" text CONSTRAINT "crypto_orders_stripe_payment_intent_id_key" UNIQUE,
+	"wallet_address" text NOT NULL,
+	"coin_symbol" text NOT NULL,
+	"fiat_amount_cents" integer NOT NULL,
+	"fiat_currency" text DEFAULT 'usd' NOT NULL,
+	"crypto_amount" text NOT NULL,
+	"exchange_rate" text NOT NULL,
+	"fee_usd" text DEFAULT '0' NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"payment_method" text,
+	"error_message" text,
+	"created_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now(),
+	"user_wallet" text,
+	"le_transaction_id" text,
+	"le_deposit_address" text,
+	"le_deposit_extra_id" text,
+	"le_status" text,
+	"fulfilled_at" timestamp with time zone,
+	"provider" text,
+	"ss_transaction_id" text,
+	"ss_deposit_address" text,
+	"ss_deposit_extra_id" text,
+	"ss_status" text
+);
+CREATE TABLE "evm_deposits_verified" (
+	"tx_hash" text,
+	"chain_id" integer,
+	"user_wallet" text NOT NULL,
+	"asset" text NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"verified_at" timestamp with time zone DEFAULT now(),
+	CONSTRAINT "evm_deposits_verified_pkey" PRIMARY KEY("tx_hash","chain_id")
+);
+CREATE TABLE "evm_htlc_sessions" (
+	"id" text PRIMARY KEY,
+	"trade_id" text NOT NULL,
+	"pair" text NOT NULL,
+	"chain_id" integer NOT NULL,
+	"contract_address" text NOT NULL,
+	"secret" text NOT NULL,
+	"secret_hash" text NOT NULL,
+	"seller_address" text NOT NULL,
+	"buyer_address" text NOT NULL,
+	"seller_asset" text NOT NULL,
+	"seller_amount" text NOT NULL,
+	"seller_token" text,
+	"buyer_asset" text NOT NULL,
+	"buyer_amount" text NOT NULL,
+	"buyer_token" text,
+	"seller_lock_id" text NOT NULL,
+	"buyer_lock_id" text NOT NULL,
+	"seller_timelock_unix" integer NOT NULL,
+	"buyer_timelock_unix" integer NOT NULL,
+	"seller_lock_txid" text,
+	"buyer_lock_txid" text,
+	"reveal_seller_txid" text,
+	"reveal_buyer_txid" text,
+	"seller_locked" boolean DEFAULT false NOT NULL,
+	"buyer_locked" boolean DEFAULT false NOT NULL,
+	"seller_revealed" boolean DEFAULT false NOT NULL,
+	"buyer_revealed" boolean DEFAULT false NOT NULL,
+	"status" text DEFAULT 'PENDING_LOCKS' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"expires_at" timestamp NOT NULL
+);
+CREATE TABLE "futures_margin_accounts" (
+	"wallet_address" text,
+	"asset" text DEFAULT 'USDT',
+	"available" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"locked" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "futures_margin_accounts_pkey" PRIMARY KEY("wallet_address","asset")
+);
+CREATE TABLE "futures_positions" (
+	"id" text PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"symbol" text NOT NULL,
+	"side" text NOT NULL,
+	"leverage" numeric(6, 2) NOT NULL,
+	"entry_price" numeric(20, 8) NOT NULL,
+	"mark_price" numeric(20, 8) NOT NULL,
+	"liquidation_price" numeric(20, 8) NOT NULL,
+	"quantity" numeric(20, 8) NOT NULL,
+	"margin" numeric(20, 8) NOT NULL,
+	"unrealized_pnl" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"unrealized_pnl_percent" numeric(10, 4) DEFAULT '0' NOT NULL,
+	"realized_pnl" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"funding_fee" numeric(20, 8) DEFAULT '0' NOT NULL,
+	"margin_mode" text DEFAULT 'isolated' NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"txid" text,
+	"opened_at" timestamp DEFAULT now() NOT NULL,
+	"closed_at" timestamp
+);
+CREATE TABLE "htlc_events" (
+	"id" text PRIMARY KEY,
+	"trade_id" text NOT NULL,
+	"htlc_address" text NOT NULL,
+	"settlement_txid" text NOT NULL,
+	"pair" text NOT NULL,
+	"from_status" text NOT NULL,
+	"to_status" text NOT NULL,
+	"spend_txid" text,
+	"block_height" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "htlc_locks" (
+	"id" text PRIMARY KEY,
+	"secret" text NOT NULL,
+	"secret_hash" text NOT NULL,
+	"htlc_address" text NOT NULL,
+	"redeem_script" text NOT NULL,
+	"amount_bsv" numeric(20, 8) NOT NULL,
+	"locktime_blocks" integer NOT NULL,
+	"sender_bsv_address" text,
+	"recipient_evm_address" text,
+	"evm_chain_id" integer,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"funding_txid" text,
+	"mint_tx_hash" text,
+	"created_at_block" integer,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "htlc_registry" (
+	"trade_id" text PRIMARY KEY,
+	"htlc_address" text NOT NULL,
+	"secret_hash" text NOT NULL,
+	"locktime_blocks" integer NOT NULL,
+	"settlement_txid" text NOT NULL,
+	"pair" text NOT NULL,
+	"user_address" text NOT NULL,
+	"status" text DEFAULT 'LOCKED' NOT NULL,
+	"spend_txid" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"terminal_at" timestamp,
+	"next_check_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "internal_bsv_wallets" (
+	"evm_address" text PRIMARY KEY,
+	"bsv_address" text NOT NULL,
+	"bch_address" text DEFAULT '' NOT NULL,
+	"encrypted_key" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now()
+);
+CREATE TABLE "internal_evm_wallets" (
+	"bsv_address" text PRIMARY KEY,
+	"evm_address" text NOT NULL,
+	"encrypted_key" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now()
+);
+CREATE TABLE "keeper_actions" (
+	"id" text PRIMARY KEY,
+	"keeper_address" text NOT NULL,
+	"htlc_address" text NOT NULL,
+	"trade_id" text NOT NULL,
+	"pair" text NOT NULL,
+	"action" text NOT NULL,
+	"txid" text,
+	"block_height" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "keeper_earnings" (
+	"id" bigserial PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"asset" text DEFAULT 'USDT' NOT NULL,
+	"source" text NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"tx_ref" text DEFAULT '',
+	"earned_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "keepers" (
+	"id" bigserial PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"uri" text DEFAULT '',
+	"roles" jsonb DEFAULT '[]' NOT NULL,
+	"active" boolean DEFAULT true NOT NULL,
+	"display_name" text DEFAULT '',
+	"avatar_url" text DEFAULT '',
+	"registered_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "kyc_verifications" (
+	"id" text PRIMARY KEY,
+	"wallet_address" text NOT NULL CONSTRAINT "kyc_verifications_wallet_address_key" UNIQUE,
+	"first_name" text NOT NULL,
+	"last_name" text NOT NULL,
+	"date_of_birth" text NOT NULL,
+	"nationality" text NOT NULL,
+	"country_of_residence" text NOT NULL,
+	"id_type" text NOT NULL,
+	"id_number" text NOT NULL,
+	"status" text DEFAULT 'approved' NOT NULL,
+	"submitted_at" timestamp with time zone DEFAULT now(),
+	"updated_at" timestamp with time zone DEFAULT now()
+);
+CREATE TABLE "le_swaps" (
+	"id" text PRIMARY KEY,
+	"coin_from" text NOT NULL,
+	"coin_to" text NOT NULL,
+	"network_from" text,
+	"network_to" text,
+	"deposit_amount" numeric(36, 18) NOT NULL,
+	"withdrawal_amount" numeric(36, 18),
+	"deposit_amount_usd" numeric(20, 4),
+	"status" text DEFAULT 'waiting' NOT NULL,
+	"withdrawal" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"completed_at" timestamp
+);
+CREATE TABLE "liquidity_positions" (
+	"id" bigserial PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"pool_id" text NOT NULL,
+	"asset_a" text NOT NULL,
+	"asset_b" text NOT NULL,
+	"amount_a" numeric(36, 18) NOT NULL,
+	"amount_b" numeric(36, 18) NOT NULL,
+	"lp_tokens" numeric(36, 18) NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "lp_positions" (
+	"id" text PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"pool" text NOT NULL,
+	"coin" text NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"apy" numeric(10, 4) NOT NULL,
+	"lock_days" text DEFAULT '0' NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"reward_accrued" numeric(36, 18) DEFAULT '0',
+	"started_at" timestamp DEFAULT now() NOT NULL,
+	"unlocks_at" timestamp NOT NULL,
+	"withdrawn_at" timestamp
+);
+CREATE TABLE "markets" (
+	"symbol" text PRIMARY KEY,
+	"base_asset" text NOT NULL,
+	"quote_asset" text NOT NULL,
+	"last_price" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"price_change_24h" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"price_change_percent_24h" numeric(10, 4) DEFAULT '0' NOT NULL,
+	"volume_24h" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"high_24h" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"low_24h" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"market_cap" numeric(30, 2),
+	"status" text DEFAULT 'active' NOT NULL,
+	"type" text DEFAULT 'spot' NOT NULL,
+	"min_order_size" numeric(36, 18) DEFAULT '0.00000001' NOT NULL,
+	"max_order_size" numeric(36, 18) DEFAULT '1000000' NOT NULL,
+	"tick_size" numeric(36, 18) DEFAULT '0.01' NOT NULL,
+	"maker_fee" numeric(10, 6) DEFAULT '0.001' NOT NULL,
+	"taker_fee" numeric(10, 6) DEFAULT '0.001' NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"contract_addresses" jsonb,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"pinned" boolean DEFAULT false NOT NULL
+);
+CREATE TABLE "messages" (
+	"id" serial PRIMARY KEY,
+	"conversation_id" integer NOT NULL,
+	"role" text NOT NULL,
+	"content" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE "mint_burn_log" (
+	"id" serial PRIMARY KEY,
+	"action" varchar(4) NOT NULL,
+	"asset" varchar(20) NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"wallet_address" text NOT NULL,
+	"note" text,
+	"admin_ref" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "mint_burn_log_action_check" CHECK (CHECK (((action)::text = ANY ((ARRAY['mint'::character varying, 'burn'::character varying])::text[]))))
+);
+CREATE TABLE "nft_activity" (
+	"id" text PRIMARY KEY,
+	"nft_id" text NOT NULL,
+	"collection_id" text NOT NULL,
+	"type" text NOT NULL,
+	"from_address" text,
+	"to_address" text,
+	"price" numeric(20, 8),
+	"currency" text,
+	"price_usd" numeric(20, 2),
+	"tx_hash" text,
+	"chain" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "nft_bids" (
+	"id" text PRIMARY KEY,
+	"nft_id" text NOT NULL,
+	"collection_id" text NOT NULL,
+	"bidder" text NOT NULL,
+	"chain" text NOT NULL,
+	"price" numeric(20, 8) NOT NULL,
+	"currency" text DEFAULT 'ETH' NOT NULL,
+	"price_usd" numeric(20, 2),
+	"status" text DEFAULT 'active' NOT NULL,
+	"expires_at" timestamp,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "nft_collections" (
+	"id" text PRIMARY KEY,
+	"name" text NOT NULL,
+	"slug" text NOT NULL CONSTRAINT "nft_collections_slug_unique" UNIQUE,
+	"chain" text NOT NULL,
+	"contract_address" text,
+	"description" text,
+	"image_url" text,
+	"banner_url" text,
+	"category" text DEFAULT 'art',
+	"floor_price" numeric(20, 8) DEFAULT '0',
+	"floor_currency" text DEFAULT 'ETH',
+	"volume_24h" numeric(30, 8) DEFAULT '0',
+	"volume_total" numeric(30, 8) DEFAULT '0',
+	"total_supply" integer DEFAULT 0,
+	"holders" integer DEFAULT 0,
+	"is_verified" boolean DEFAULT false,
+	"external_url" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "nft_listings" (
+	"id" text PRIMARY KEY,
+	"nft_id" text NOT NULL,
+	"collection_id" text NOT NULL,
+	"seller" text NOT NULL,
+	"chain" text NOT NULL,
+	"price" numeric(20, 8) NOT NULL,
+	"currency" text DEFAULT 'ETH' NOT NULL,
+	"price_usd" numeric(20, 2),
+	"status" text DEFAULT 'active' NOT NULL,
+	"expires_at" timestamp,
+	"tx_hash" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "nfts" (
+	"id" text PRIMARY KEY,
+	"collection_id" text NOT NULL,
+	"chain" text NOT NULL,
+	"contract_address" text,
+	"token_id" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text,
+	"image_url" text,
+	"animation_url" text,
+	"metadata_uri" text,
+	"owner" text,
+	"traits" text,
+	"rarity" text,
+	"rarity_rank" integer,
+	"last_sale_price" numeric(20, 8),
+	"last_sale_currency" text,
+	"is_wrapped" boolean DEFAULT false,
+	"native_chain" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "orders" (
+	"id" text PRIMARY KEY,
+	"symbol" text NOT NULL,
+	"wallet_address" text NOT NULL,
+	"side" text NOT NULL,
+	"type" text NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"price" numeric(36, 18),
+	"stop_price" numeric(36, 18),
+	"quantity" numeric(36, 18) NOT NULL,
+	"filled_quantity" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"remaining_quantity" numeric(36, 18) NOT NULL,
+	"total" numeric(36, 18),
+	"fee" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"fee_asset" text DEFAULT 'USDT' NOT NULL,
+	"time_in_force" text DEFAULT 'GTC' NOT NULL,
+	"txid" text,
+	"signed_tx" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"network_type" text DEFAULT 'evm',
+	"matched_order_id" text,
+	"funding_ref" text,
+	"nonce" text,
+	"expiry" text,
+	"is_bot" boolean DEFAULT false NOT NULL,
+	"is_synthetic" boolean DEFAULT false NOT NULL
+);
+CREATE TABLE "p2p_intents" (
+	"id" bigserial PRIMARY KEY,
+	"intent_id" text NOT NULL,
+	"maker_address" text NOT NULL,
+	"taker_address" text,
+	"token_in" text NOT NULL,
+	"token_out" text NOT NULL,
+	"amount_in" numeric(36, 18) NOT NULL,
+	"min_amount_out" numeric(36, 18) NOT NULL,
+	"filled_amount_out" numeric(36, 18),
+	"price" numeric(36, 18),
+	"fiat" text DEFAULT 'USD',
+	"payment_methods" text DEFAULT '',
+	"terms" text DEFAULT '',
+	"signature" text DEFAULT '',
+	"status" text DEFAULT 'open' NOT NULL,
+	"expires_at" timestamp NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "platform_settings" (
+	"key" text PRIMARY KEY,
+	"value" text NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "post_comments" (
+	"id" text PRIMARY KEY,
+	"post_id" text NOT NULL,
+	"wallet_address" text NOT NULL,
+	"display_name" text,
+	"content" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "post_likes" (
+	"id" text PRIMARY KEY,
+	"post_id" text NOT NULL UNIQUE,
+	"wallet_address" text NOT NULL UNIQUE,
+	CONSTRAINT "post_likes_post_id_wallet_address_key" UNIQUE("post_id","wallet_address")
+);
+CREATE TABLE "post_mints" (
+	"id" text PRIMARY KEY,
+	"post_id" text NOT NULL,
+	"minter" text NOT NULL,
+	"price" numeric(30, 18),
+	"currency" text,
+	"tx_hash" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "prediction_bets" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"round_id" text NOT NULL,
+	"symbol" text NOT NULL,
+	"wallet" text NOT NULL,
+	"position" text NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"leverage" integer DEFAULT 1 NOT NULL,
+	"claimed" boolean DEFAULT false NOT NULL,
+	"payout" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE "prediction_rounds" (
+	"id" text PRIMARY KEY,
+	"epoch" integer NOT NULL,
+	"symbol" text NOT NULL,
+	"lock_price" numeric(36, 10),
+	"close_price" numeric(36, 10),
+	"bull_amount" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"bear_amount" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"total_amount" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"status" text DEFAULT 'live' NOT NULL,
+	"start_ts" bigint NOT NULL,
+	"lock_ts" bigint NOT NULL,
+	"close_ts" bigint NOT NULL,
+	"winner" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE "routing_profiles" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	"base_symbol" text NOT NULL UNIQUE,
+	"quote_symbol" text NOT NULL UNIQUE,
+	"max_slippage_bps" integer DEFAULT 150 NOT NULL,
+	"min_fill_fraction" numeric(5, 4) DEFAULT '0.9' NOT NULL,
+	"max_internal_size" numeric(36, 18),
+	"oracle_required" boolean DEFAULT true NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"split_enabled" boolean DEFAULT false NOT NULL,
+	"notes" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "routing_profiles_base_symbol_quote_symbol_key" UNIQUE("base_symbol","quote_symbol")
+);
+CREATE TABLE "social_follows" (
+	"id" text PRIMARY KEY,
+	"follower" text NOT NULL UNIQUE,
+	"following" text NOT NULL UNIQUE,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "social_follows_follower_following_key" UNIQUE("follower","following")
+);
+CREATE TABLE "social_posts" (
+	"id" text PRIMARY KEY,
+	"creator" text NOT NULL,
+	"creator_name" text,
+	"creator_avatar" text,
+	"title" text NOT NULL,
+	"description" text,
+	"image_url" text,
+	"mint_price" numeric(30, 18) DEFAULT '0',
+	"mint_currency" text DEFAULT 'BSV',
+	"mint_price_usd" numeric(20, 2),
+	"max_supply" integer,
+	"category" text DEFAULT 'art',
+	"tags" text,
+	"inscription_id" text,
+	"chain" text DEFAULT 'BSV',
+	"status" text DEFAULT 'active',
+	"like_count" integer DEFAULT 0,
+	"comment_count" integer DEFAULT 0,
+	"mint_count" integer DEFAULT 0,
+	"is_verified" boolean DEFAULT false,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "staking_positions" (
+	"id" text PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"coin" text NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"apy" numeric(10, 4) NOT NULL,
+	"lock_days" text DEFAULT '30' NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"reward_accrued" numeric(36, 18) DEFAULT '0',
+	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"unlocks_at" timestamp with time zone NOT NULL,
+	"completed_at" timestamp with time zone
+);
+CREATE TABLE "support_faqs" (
+	"id" serial PRIMARY KEY,
+	"question" text NOT NULL,
+	"answer" text NOT NULL,
+	"category" text DEFAULT 'general' NOT NULL,
+	"order" serial,
+	"is_published" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "support_tickets" (
+	"id" serial PRIMARY KEY,
+	"name" text NOT NULL,
+	"email" text NOT NULL,
+	"subject" text NOT NULL,
+	"category" text DEFAULT 'general' NOT NULL,
+	"message" text NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"priority" text DEFAULT 'normal' NOT NULL,
+	"admin_reply" text,
+	"replied_at" timestamp,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "trades" (
+	"id" text PRIMARY KEY,
+	"symbol" text NOT NULL,
+	"side" text NOT NULL,
+	"price" numeric(36, 18) NOT NULL,
+	"quantity" numeric(36, 18) NOT NULL,
+	"total" numeric(36, 18) NOT NULL,
+	"fee" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"fee_asset" text DEFAULT 'USDT' NOT NULL,
+	"wallet_address" text,
+	"txid" text,
+	"timestamp" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "user_balances" (
+	"id" bigserial PRIMARY KEY,
+	"wallet_address" text NOT NULL,
+	"asset_symbol" text NOT NULL,
+	"available" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"locked" numeric(36, 18) DEFAULT '0' NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"seeded" numeric DEFAULT '0' NOT NULL
+);
+CREATE TABLE "wallets" (
+	"address" text PRIMARY KEY,
+	"network_type" text DEFAULT 'evm',
+	"provider" text,
+	"chain_id" text,
+	"status" text DEFAULT 'active',
+	"country" text DEFAULT 'US',
+	"verified" text DEFAULT 'false',
+	"balance_override" numeric(20, 8),
+	"first_seen" timestamp DEFAULT now() NOT NULL,
+	"last_seen" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE "withdrawal_requests" (
+	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+	"wallet_address" varchar(255) NOT NULL,
+	"asset" varchar(32) NOT NULL,
+	"amount" numeric(36, 18) NOT NULL,
+	"network" varchar(64) NOT NULL,
+	"network_label" varchar(128) NOT NULL,
+	"recipient" varchar(255) NOT NULL,
+	"fee" varchar(32),
+	"status" varchar(32) DEFAULT 'pending' NOT NULL,
+	"txid" varchar(255),
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"processed_at" timestamp
+);
+ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE CASCADE;
+CREATE UNIQUE INDEX "admin_emails_pkey" ON "admin_emails" ("id");
+CREATE UNIQUE INDEX "alert_events_pkey" ON "alert_events" ("id");
+CREATE INDEX "alert_events_sev_idx" ON "alert_events" ("severity");
+CREATE INDEX "alert_events_ts_idx" ON "alert_events" ("ts");
+CREATE UNIQUE INDEX "bsv_deposits_credited_pkey" ON "bsv_deposits_credited" ("bsv_address");
+CREATE INDEX "bsv_deposits_credited_user_idx" ON "bsv_deposits_credited" ("user_wallet");
+CREATE INDEX "bsv_intent_expires_idx" ON "bsv_intent_sessions" ("expires_at");
+CREATE UNIQUE INDEX "bsv_intent_hash_idx" ON "bsv_intent_sessions" ("intent_hash");
+CREATE INDEX "bsv_intent_htlc_addr_idx" ON "bsv_intent_sessions" ("htlc_address");
+CREATE UNIQUE INDEX "bsv_intent_nonce_user_idx" ON "bsv_intent_sessions" ("user_address","nonce");
+CREATE UNIQUE INDEX "bsv_intent_sessions_pkey" ON "bsv_intent_sessions" ("id");
+CREATE INDEX "bsv_intent_solver_idx" ON "bsv_intent_sessions" ("solver_address");
+CREATE INDEX "bsv_intent_status_idx" ON "bsv_intent_sessions" ("status");
+CREATE INDEX "bsv_intent_terminal_idx" ON "bsv_intent_sessions" ("terminal_at");
+CREATE INDEX "bsv_intent_user_idx" ON "bsv_intent_sessions" ("user_address");
+CREATE UNIQUE INDEX "candles_pkey" ON "candles" ("id");
+CREATE UNIQUE INDEX "cex_accounts_pkey" ON "cex_accounts" ("id");
+CREATE UNIQUE INDEX "coin_holdings_coin_creator_holder_key" ON "coin_holdings" ("coin_creator","holder");
+CREATE INDEX "coin_holdings_creator_idx" ON "coin_holdings" ("coin_creator");
+CREATE INDEX "coin_holdings_holder_idx" ON "coin_holdings" ("holder");
+CREATE UNIQUE INDEX "coin_holdings_pkey" ON "coin_holdings" ("id");
+CREATE UNIQUE INDEX "coin_nominations_pkey" ON "coin_nominations" ("id");
+CREATE INDEX "coin_trades_creator_idx" ON "coin_trades" ("coin_creator");
+CREATE UNIQUE INDEX "coin_trades_pkey" ON "coin_trades" ("id");
+CREATE INDEX "coin_trades_trader_idx" ON "coin_trades" ("trader");
+CREATE UNIQUE INDEX "coin_vote_logs_pkey" ON "coin_vote_logs" ("id");
+CREATE UNIQUE INDEX "conversations_pkey" ON "conversations" ("id");
+CREATE UNIQUE INDEX "copy_vault_positions_pkey" ON "copy_vault_positions" ("id");
+CREATE INDEX "cvp_follower_idx" ON "copy_vault_positions" ("follower_wallet");
+CREATE INDEX "cvp_vault_idx" ON "copy_vault_positions" ("vault_id");
+CREATE UNIQUE INDEX "copy_vault_trades_pkey" ON "copy_vault_trades" ("id");
+CREATE INDEX "cvt_vault_idx" ON "copy_vault_trades" ("vault_id");
+CREATE INDEX "copy_vaults_leader_idx" ON "copy_vaults" ("leader_wallet");
+CREATE UNIQUE INDEX "copy_vaults_pkey" ON "copy_vaults" ("id");
+CREATE INDEX "copy_vaults_status_idx" ON "copy_vaults" ("status");
+CREATE UNIQUE INDEX "creator_coins_pkey" ON "creator_coins" ("creator_address");
+CREATE UNIQUE INDEX "creator_profiles_address_lower_uniq" ON "creator_profiles" ("lower(address)");
+CREATE UNIQUE INDEX "creator_profiles_pkey" ON "creator_profiles" ("address");
+CREATE UNIQUE INDEX "crypto_orders_pkey" ON "crypto_orders" ("id");
+CREATE UNIQUE INDEX "crypto_orders_stripe_payment_intent_id_key" ON "crypto_orders" ("stripe_payment_intent_id");
+CREATE UNIQUE INDEX "evm_deposits_verified_pkey" ON "evm_deposits_verified" ("tx_hash","chain_id");
+CREATE INDEX "evm_htlc_buyer_idx" ON "evm_htlc_sessions" ("buyer_address");
+CREATE INDEX "evm_htlc_chain_idx" ON "evm_htlc_sessions" ("chain_id");
+CREATE INDEX "evm_htlc_expires_idx" ON "evm_htlc_sessions" ("expires_at");
+CREATE INDEX "evm_htlc_seller_idx" ON "evm_htlc_sessions" ("seller_address");
+CREATE UNIQUE INDEX "evm_htlc_sessions_pkey" ON "evm_htlc_sessions" ("id");
+CREATE INDEX "evm_htlc_status_idx" ON "evm_htlc_sessions" ("status");
+CREATE INDEX "evm_htlc_trade_idx" ON "evm_htlc_sessions" ("trade_id");
+CREATE UNIQUE INDEX "futures_margin_accounts_pkey" ON "futures_margin_accounts" ("wallet_address","asset");
+CREATE UNIQUE INDEX "futures_positions_pkey" ON "futures_positions" ("id");
+CREATE INDEX "htlc_events_address_idx" ON "htlc_events" ("htlc_address");
+CREATE INDEX "htlc_events_created_idx" ON "htlc_events" ("created_at");
+CREATE UNIQUE INDEX "htlc_events_pkey" ON "htlc_events" ("id");
+CREATE INDEX "htlc_events_trade_idx" ON "htlc_events" ("trade_id");
+CREATE UNIQUE INDEX "htlc_locks_pkey" ON "htlc_locks" ("id");
+CREATE INDEX "htlc_registry_address_idx" ON "htlc_registry" ("htlc_address");
+CREATE INDEX "htlc_registry_next_check_idx" ON "htlc_registry" ("next_check_at");
+CREATE UNIQUE INDEX "htlc_registry_pkey" ON "htlc_registry" ("trade_id");
+CREATE INDEX "htlc_registry_status_idx" ON "htlc_registry" ("status");
+CREATE INDEX "htlc_registry_terminal_idx" ON "htlc_registry" ("terminal_at");
+CREATE INDEX "htlc_registry_user_idx" ON "htlc_registry" ("user_address");
+CREATE UNIQUE INDEX "internal_bsv_wallets_pkey" ON "internal_bsv_wallets" ("evm_address");
+CREATE UNIQUE INDEX "internal_evm_wallets_pkey" ON "internal_evm_wallets" ("bsv_address");
+CREATE INDEX "keeper_actions_action_idx" ON "keeper_actions" ("action");
+CREATE INDEX "keeper_actions_created_idx" ON "keeper_actions" ("created_at");
+CREATE INDEX "keeper_actions_htlc_idx" ON "keeper_actions" ("htlc_address");
+CREATE INDEX "keeper_actions_keeper_idx" ON "keeper_actions" ("keeper_address");
+CREATE UNIQUE INDEX "keeper_actions_pkey" ON "keeper_actions" ("id");
+CREATE UNIQUE INDEX "keeper_earnings_pkey" ON "keeper_earnings" ("id");
+CREATE INDEX "keeper_earnings_source_idx" ON "keeper_earnings" ("source");
+CREATE INDEX "keeper_earnings_wallet_idx" ON "keeper_earnings" ("wallet_address");
+CREATE INDEX "keepers_active_idx" ON "keepers" ("active");
+CREATE UNIQUE INDEX "keepers_pkey" ON "keepers" ("id");
+CREATE UNIQUE INDEX "keepers_wallet_idx" ON "keepers" ("wallet_address");
+CREATE UNIQUE INDEX "kyc_verifications_pkey" ON "kyc_verifications" ("id");
+CREATE UNIQUE INDEX "kyc_verifications_wallet_address_key" ON "kyc_verifications" ("wallet_address");
+CREATE INDEX "le_swaps_coin_from_idx" ON "le_swaps" ("coin_from");
+CREATE INDEX "le_swaps_created_idx" ON "le_swaps" ("created_at");
+CREATE UNIQUE INDEX "le_swaps_pkey" ON "le_swaps" ("id");
+CREATE INDEX "le_swaps_status_idx" ON "le_swaps" ("status");
+CREATE UNIQUE INDEX "liquidity_positions_pkey" ON "liquidity_positions" ("id");
+CREATE INDEX "lp_positions_pool_idx" ON "liquidity_positions" ("pool_id");
+CREATE INDEX "lp_positions_wallet_idx" ON "liquidity_positions" ("wallet_address");
+CREATE INDEX "lp_pos_pool_idx" ON "lp_positions" ("pool");
+CREATE INDEX "lp_pos_status_idx" ON "lp_positions" ("status");
+CREATE INDEX "lp_pos_wallet_idx" ON "lp_positions" ("wallet_address");
+CREATE UNIQUE INDEX "lp_positions_pkey" ON "lp_positions" ("id");
+CREATE UNIQUE INDEX "markets_pkey" ON "markets" ("symbol");
+CREATE UNIQUE INDEX "messages_pkey" ON "messages" ("id");
+CREATE UNIQUE INDEX "mint_burn_log_pkey" ON "mint_burn_log" ("id");
+CREATE INDEX "nft_activity_collection_idx" ON "nft_activity" ("collection_id");
+CREATE INDEX "nft_activity_nft_idx" ON "nft_activity" ("nft_id");
+CREATE UNIQUE INDEX "nft_activity_pkey" ON "nft_activity" ("id");
+CREATE INDEX "nft_bids_bidder_idx" ON "nft_bids" ("bidder");
+CREATE INDEX "nft_bids_nft_idx" ON "nft_bids" ("nft_id");
+CREATE UNIQUE INDEX "nft_bids_pkey" ON "nft_bids" ("id");
+CREATE INDEX "nft_collections_chain_idx" ON "nft_collections" ("chain");
+CREATE UNIQUE INDEX "nft_collections_pkey" ON "nft_collections" ("id");
+CREATE INDEX "nft_collections_slug_idx" ON "nft_collections" ("slug");
+CREATE UNIQUE INDEX "nft_collections_slug_unique" ON "nft_collections" ("slug");
+CREATE INDEX "nft_listings_nft_idx" ON "nft_listings" ("nft_id");
+CREATE UNIQUE INDEX "nft_listings_pkey" ON "nft_listings" ("id");
+CREATE INDEX "nft_listings_seller_idx" ON "nft_listings" ("seller");
+CREATE INDEX "nft_listings_status_idx" ON "nft_listings" ("status");
+CREATE INDEX "nfts_chain_contract_idx" ON "nfts" ("chain","contract_address");
+CREATE INDEX "nfts_collection_idx" ON "nfts" ("collection_id");
+CREATE INDEX "nfts_owner_idx" ON "nfts" ("owner");
+CREATE UNIQUE INDEX "nfts_pkey" ON "nfts" ("id");
+CREATE UNIQUE INDEX "orders_pkey" ON "orders" ("id");
+CREATE INDEX "orders_symbol_status_idx" ON "orders" ("symbol","status");
+CREATE INDEX "orders_wallet_status_idx" ON "orders" ("wallet_address","status");
+CREATE INDEX "p2p_intents_intent_id_idx" ON "p2p_intents" ("intent_id");
+CREATE INDEX "p2p_intents_maker_idx" ON "p2p_intents" ("maker_address");
+CREATE UNIQUE INDEX "p2p_intents_pkey" ON "p2p_intents" ("id");
+CREATE INDEX "p2p_intents_status_idx" ON "p2p_intents" ("status");
+CREATE INDEX "p2p_intents_tokens_idx" ON "p2p_intents" ("token_in","token_out");
+CREATE UNIQUE INDEX "platform_settings_pkey" ON "platform_settings" ("key");
+CREATE UNIQUE INDEX "post_comments_pkey" ON "post_comments" ("id");
+CREATE INDEX "post_comments_post_idx" ON "post_comments" ("post_id");
+CREATE UNIQUE INDEX "post_likes_pkey" ON "post_likes" ("id");
+CREATE UNIQUE INDEX "post_likes_post_id_wallet_address_key" ON "post_likes" ("post_id","wallet_address");
+CREATE INDEX "post_mints_minter_idx" ON "post_mints" ("minter");
+CREATE UNIQUE INDEX "post_mints_pkey" ON "post_mints" ("id");
+CREATE INDEX "post_mints_post_idx" ON "post_mints" ("post_id");
+CREATE UNIQUE INDEX "prediction_bets_pkey" ON "prediction_bets" ("id");
+CREATE INDEX "prediction_bets_wallet_idx" ON "prediction_bets" ("wallet","round_id");
+CREATE UNIQUE INDEX "prediction_rounds_pkey" ON "prediction_rounds" ("id");
+CREATE UNIQUE INDEX "routing_profiles_base_symbol_quote_symbol_key" ON "routing_profiles" ("base_symbol","quote_symbol");
+CREATE UNIQUE INDEX "routing_profiles_pkey" ON "routing_profiles" ("id");
+CREATE UNIQUE INDEX "social_follows_follower_following_key" ON "social_follows" ("follower","following");
+CREATE INDEX "social_follows_follower_idx" ON "social_follows" ("follower");
+CREATE INDEX "social_follows_following_idx" ON "social_follows" ("following");
+CREATE UNIQUE INDEX "social_follows_pkey" ON "social_follows" ("id");
+CREATE INDEX "social_posts_chain_idx" ON "social_posts" ("chain");
+CREATE INDEX "social_posts_creator_idx" ON "social_posts" ("creator");
+CREATE UNIQUE INDEX "social_posts_pkey" ON "social_posts" ("id");
+CREATE INDEX "social_posts_status_idx" ON "social_posts" ("status");
+CREATE INDEX "staking_positions_coin_idx" ON "staking_positions" ("coin");
+CREATE UNIQUE INDEX "staking_positions_pkey" ON "staking_positions" ("id");
+CREATE INDEX "staking_positions_status_idx" ON "staking_positions" ("status");
+CREATE INDEX "staking_positions_wallet_idx" ON "staking_positions" ("wallet_address");
+CREATE UNIQUE INDEX "support_faqs_pkey" ON "support_faqs" ("id");
+CREATE UNIQUE INDEX "support_tickets_pkey" ON "support_tickets" ("id");
+CREATE UNIQUE INDEX "trades_pkey" ON "trades" ("id");
+CREATE UNIQUE INDEX "user_balances_pkey" ON "user_balances" ("id");
+CREATE UNIQUE INDEX "user_balances_wallet_asset_idx" ON "user_balances" ("wallet_address","asset_symbol");
+CREATE INDEX "user_balances_wallet_idx" ON "user_balances" ("wallet_address");
+CREATE UNIQUE INDEX "wallets_pkey" ON "wallets" ("address");
+CREATE UNIQUE INDEX "withdrawal_requests_pkey" ON "withdrawal_requests" ("id");

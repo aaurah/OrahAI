@@ -22,6 +22,8 @@ export function errorHandler(
   const statusCode = err.statusCode ?? 500;
   if (statusCode >= 500) {
     logger.error({ stack: err.stack }, `Unhandled error: ${err.message}`);
+  } else if (statusCode === 400) {
+    logger.warn({ details: err.details }, `Bad request: ${err.message}`);
   }
   res.status(statusCode).json({
     error: httpStatusText(statusCode),
