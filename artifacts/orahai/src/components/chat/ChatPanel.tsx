@@ -139,6 +139,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [paidConfirmOpen, setPaidConfirmOpen] = useState(false);
   const pendingPaidSubmit = useRef<{ text: string; imgs: AttachedImage[] } | null>(null);
   const confirmedPaidModels = useRef<Set<string>>(new Set());
+  const [enabledPaidProviders, setEnabledPaidProviders] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("orahai_enabled_paid_providers") ?? "[]") as string[]); }
+    catch { return new Set(); }
+  });
   const [bgJobActive, setBgJobActive] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -350,8 +354,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const text = input.trim();
     if (!text && !attachedImages.length) return;
 
-    // Gate on paid model — show confirmation once per model per session
-    if (isPaidModel(aiModel) && !confirmedPaidModels.current.has(aiModel)) {
+    // Gate on paid model — skip if provider is toggled on globally
+    const paidProviderEnabled = enabledPaidProviders.has(aiModel.split(":")[0]);
+    if (isPaidModel(aiModel) && !paidProviderEnabled && !confirmedPaidModels.current.has(aiModel)) {
       pendingPaidSubmit.current = { text, imgs: attachedImages };
       setPaidConfirmOpen(true);
       return;
@@ -411,6 +416,28 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   };
 
   // Abort all active streams (primary + any parallel force-sends)
+  const togglePaidProvider = useCallback((provider: string) => {
+    setEnabledPaidProviders(prev => {
+      const next = new Set(prev);
+      if (next.has(provider)) {
+        next.delete(provider);
+        // If currently on this provider, fall back to default
+        if (aiModel.startsWith(provider + ":")) {
+          setAiModel(DEFAULT_MODEL);
+          localStorage.setItem("orahai_ai_model", DEFAULT_MODEL);
+        }
+      } else {
+        next.add(provider);
+        // Pre-confirm every model from this provider so no dialog fires
+        MODEL_GROUPS.find(g => g.provider === provider)?.models.forEach(m => {
+          confirmedPaidModels.current.add(m.id);
+        });
+      }
+      localStorage.setItem("orahai_enabled_paid_providers", JSON.stringify([...next]));
+      return next;
+    });
+  }, [aiModel]);
+
   const abortAll = () => {
     abortRef.current?.abort();
     for (const ctrl of parallelAbortMap.current.values()) ctrl.abort();
@@ -1269,7 +1296,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     )}
 
                     {/* Static model groups (cloud + ollama catalog) */}
-                    {MODEL_GROUPS.filter(g => g.provider !== "ollama").map(group => (
+                    {MODEL_GROUPS.filter(g =>
+                      g.provider !== "ollama" &&
+                      (g.provider !== "openai" && g.provider !== "anthropic" || enabledPaidProviders.has(g.provider))
+                    ).map(group => (
                       <div key={group.label}>
                         <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
                           <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
@@ -1304,12 +1334,41 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       </div>
                     ))}
                   </div>
-                  {/* Footer: manage models link */}
-                  <div className="border-t border-border/40 px-3 py-2">
+                  {/* Footer: paid provider toggles + manage link */}
+                  <div className="border-t border-border/40 px-3 pt-2 pb-1.5 space-y-1">
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Paid Providers</p>
+                    {([
+                      { provider: "openai",    label: "OpenAI",    sub: "via Replit proxy" },
+                      { provider: "anthropic", label: "Anthropic", sub: "needs API key" },
+                    ] as const).map(({ provider, label, sub }) => {
+                      const on = enabledPaidProviders.has(provider);
+                      return (
+                        <button key={provider} type="button"
+                          onClick={() => togglePaidProvider(provider)}
+                          className="w-full flex items-center gap-2.5 px-1 py-1 rounded-lg hover:bg-muted/60 transition-colors"
+                        >
+                          {/* pill toggle */}
+                          <div className={cn(
+                            "w-8 h-4 rounded-full transition-colors relative shrink-0",
+                            on ? "bg-amber-500" : "bg-muted-foreground/25",
+                          )}>
+                            <div className={cn(
+                              "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
+                              on ? "translate-x-4" : "translate-x-0.5",
+                            )} />
+                          </div>
+                          <span className={cn("flex-1 text-left text-xs font-medium", on ? "text-foreground" : "text-muted-foreground")}>
+                            {label}
+                          </span>
+                          <DollarSign className="w-2.5 h-2.5 text-amber-400/70 shrink-0" />
+                          <span className="text-[9px] text-muted-foreground/60 shrink-0">{sub}</span>
+                        </button>
+                      );
+                    })}
                     <a
                       href="/ai-models"
                       onClick={() => setModelPickerOpen(false)}
-                      className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-primary transition-colors"
+                      className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-primary transition-colors px-1 pt-1"
                     >
                       <Bot className="w-3 h-3" />
                       Manage models & pull new ones →
