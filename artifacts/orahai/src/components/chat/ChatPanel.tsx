@@ -125,6 +125,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queueRef = useRef<QueuedEntry[]>([]);
   const abortedRef = useRef(false);
+  const parallelAbortMap = useRef<Map<string, AbortController>>(new Map());
+  const [parallelCount, setParallelCount] = useState(0);
   const [queueCount, setQueueCount] = useState(0);
   const [bgJobActive, setBgJobActive] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -362,7 +364,23 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     localStorage.setItem("orahai_agent_mode", mode);
   };
 
-  const handleSubmitCore = async (text: string, imgs: AttachedImage[], existingUserMsgId: string | null) => {
+  // Abort all active streams (primary + any parallel force-sends)
+  const abortAll = () => {
+    abortRef.current?.abort();
+    for (const ctrl of parallelAbortMap.current.values()) ctrl.abort();
+  };
+
+  // Force-send a specific queued message right now, in parallel with the current stream
+  const forceQueue = (displayId: string) => {
+    const idx = queueRef.current.findIndex((q) => q.displayId === displayId);
+    if (idx === -1) return;
+    const [entry] = queueRef.current.splice(idx, 1);
+    setQueueCount(queueRef.current.length);
+    setItems((prev) => prev.map((m) => "role" in m && m.id === entry.displayId ? { ...m, queued: false } : m));
+    void handleSubmitCore(entry.text, entry.imgs, entry.displayId, true);
+  };
+
+  const handleSubmitCore = async (text: string, imgs: AttachedImage[], existingUserMsgId: string | null, parallel = false) => {
     if (!text && !imgs.length) return;
 
     const assistantId = `temp-${crypto.randomUUID()}`;
@@ -386,11 +404,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setItems((prev) => [...prev, userMsg, assistantMsg]);
     }
 
-    setIsStreaming(true);
-    onStreamingChange?.(true);
-    setAgentStep(1);
-    abortedRef.current = false;
-    abortRef.current = new AbortController();
+    // Parallel streams track themselves separately — primary stream owns isStreaming
+    const parallelKey = parallel ? `par-${crypto.randomUUID()}` : null;
+    const myAbort = parallel ? new AbortController() : null;
+    if (parallel && parallelKey && myAbort) {
+      parallelAbortMap.current.set(parallelKey, myAbort);
+      setParallelCount((c) => c + 1);
+    } else {
+      setIsStreaming(true);
+      onStreamingChange?.(true);
+      setAgentStep(1);
+      abortedRef.current = false;
+      abortRef.current = new AbortController();
+    }
+
+    const signal = parallel ? myAbort!.signal : abortRef.current!.signal;
 
     try {
       const token = localStorage.getItem("orahai_token");
@@ -410,7 +438,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           mode: agentMode,
           model: aiModel,
         }),
-        signal: abortRef.current.signal,
+        signal,
       });
 
       if (!res.ok || !res.body) throw new Error("Stream failed");
@@ -527,8 +555,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         }
       }
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        abortedRef.current = true;
+      const wasAborted = signal.aborted;
+      if (wasAborted) {
+        if (!parallel) abortedRef.current = true;
       } else {
         toast({ title: "AI request failed", variant: "destructive" });
         setItems((prev) => prev.map((m) =>
@@ -537,25 +566,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       }
     } finally {
       setItems((prev) => prev.map((m) => "role" in m && m.id === assistantId ? { ...m, pending: false } : m));
-      setAgentStep(0);
-      abortRef.current = null;
 
-      if (abortedRef.current) {
-        // Abort clears the queue and removes any pending queued messages
-        queueRef.current = [];
-        setQueueCount(0);
-        setItems((prev) => prev.filter((m) => !("queued" in m && (m as { queued?: boolean }).queued)));
-        setIsStreaming(false);
-        onStreamingChange?.(false);
+      if (parallel) {
+        // Parallel stream finished — clean up its abort controller
+        if (parallelKey) parallelAbortMap.current.delete(parallelKey);
+        setParallelCount((c) => Math.max(0, c - 1));
       } else {
-        const next = queueRef.current.shift();
-        if (next) {
-          setQueueCount(queueRef.current.length);
-          void handleSubmitCore(next.text, next.imgs, next.displayId);
-        } else {
+        setAgentStep(0);
+        abortRef.current = null;
+
+        if (abortedRef.current) {
+          // Abort: also kill any parallel streams and clear queue
+          for (const ctrl of parallelAbortMap.current.values()) ctrl.abort();
+          parallelAbortMap.current.clear();
+          setParallelCount(0);
+          queueRef.current = [];
           setQueueCount(0);
+          setItems((prev) => prev.filter((m) => !("queued" in m && (m as { queued?: boolean }).queued)));
           setIsStreaming(false);
           onStreamingChange?.(false);
+        } else {
+          const next = queueRef.current.shift();
+          if (next) {
+            setQueueCount(queueRef.current.length);
+            void handleSubmitCore(next.text, next.imgs, next.displayId);
+          } else {
+            setQueueCount(0);
+            setIsStreaming(false);
+            onStreamingChange?.(false);
+          }
         }
       }
     }
@@ -914,7 +953,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 {queuedMsgs.length} queued
               </span>
               <button
-                onClick={() => { abortRef.current?.abort(); }}
+                onClick={abortAll}
                 className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
               >
                 cancel all
@@ -956,6 +995,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                         )}
                       </p>
                       <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => forceQueue(msg.id)}
+                          title="Send now (parallel)"
+                          className="w-6 h-6 flex items-center justify-center rounded text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                        >
+                          <Zap className="w-3 h-3" />
+                        </button>
                         <button
                           onClick={() => startEditQueuedMsg(msg.id, msg.content === "(images)" ? "" : msg.content)}
                           title="Edit"
@@ -1241,12 +1287,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               <ImagePlus className="w-3.5 h-3.5" />
             </button>
             {isStreaming && (
-              <Button type="button" size="sm" variant="ghost"
-                onClick={() => abortRef.current?.abort()}
-                title="Stop & clear queue"
-                className="w-7 h-7 p-0">
-                <StopCircle className="w-3.5 h-3.5 text-destructive" />
-              </Button>
+              <>
+                {parallelCount > 0 && (
+                  <span className="text-[9px] font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-full leading-none select-none">
+                    +{parallelCount}
+                  </span>
+                )}
+                <Button type="button" size="sm" variant="ghost"
+                  onClick={abortAll}
+                  title="Stop & clear queue"
+                  className="w-7 h-7 p-0">
+                  <StopCircle className="w-3.5 h-3.5 text-destructive" />
+                </Button>
+              </>
             )}
             <Button
               type="submit"
