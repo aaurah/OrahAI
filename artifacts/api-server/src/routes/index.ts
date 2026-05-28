@@ -16,6 +16,7 @@ import mcpRouter from "./mcp";
 import mcpServerRouter from "./mcpServer";
 import aiModelsRouter from "./aiModels";
 import adminRouter from "./admin";
+import databaseRouter from "./database";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use("/user/api-keys", apiKeysRouter);
 router.use("/projects", mcpRouter);
 router.use("/mcp", mcpServerRouter);
 router.use("/admin", adminRouter);
+router.use("/projects", databaseRouter);
 
 export default router;

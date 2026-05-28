@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
   ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown, Sprout,
-  Search, Package, Settings, Command, PlugZap,
+  Search, Package, Settings, Command, PlugZap, Database,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,8 @@ interface Props {
   mcpOpen?: boolean;
   onMcpToggle?: () => void;
   showMcp?: boolean;
+  databaseOpen?: boolean;
+  onDatabaseToggle?: () => void;
   onCommandPalette: () => void;
 }
 
@@ -72,6 +74,7 @@ export function WorkspaceTopbar({
   packagesOpen, onPackagesToggle,
   settingsOpen, onSettingsToggle,
   mcpOpen = false, onMcpToggle, showMcp = false,
+  databaseOpen = false, onDatabaseToggle,
   onCommandPalette,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
@@ -183,6 +186,11 @@ export function WorkspaceTopbar({
           {showMcp && onMcpToggle && (
             <TooltipBtn label="MCP Servers" active={mcpOpen} onClick={onMcpToggle}>
               <PlugZap className="w-4 h-4" />
+            </TooltipBtn>
+          )}
+          {onDatabaseToggle && (
+            <TooltipBtn label="Database" active={databaseOpen} onClick={onDatabaseToggle}>
+              <Database className="w-4 h-4" />
             </TooltipBtn>
           )}
           <div className="w-px h-4 bg-border mx-0.5" />

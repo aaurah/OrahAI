@@ -19,6 +19,7 @@ import { SecretsPanel } from "@/components/editor/SecretsPanel";
 import { DeployPanel } from "@/components/editor/DeployPanel";
 import { DebugPanel } from "@/components/editor/DebugPanel";
 import { McpPanel } from "@/components/editor/McpPanel";
+import { DatabasePanel } from "@/components/editor/DatabasePanel";
 import { SetupBanner } from "@/components/editor/SetupBanner";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
@@ -30,7 +31,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
 type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
-type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | "mcp" | null;
+type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | "mcp" | "database" | null;
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -65,6 +66,7 @@ export default function WorkspacePage() {
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [databaseOpen, setDatabaseOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 
   // ── Other state ──────────────────────────────────────────────────────────────
@@ -88,6 +90,7 @@ export default function WorkspacePage() {
     : packagesOpen  ? "packages"
     : settingsOpen  ? "settings"
     : mcpOpen       ? "mcp"
+    : databaseOpen  ? "database"
     : null;
 
   const openRightPanel = (p: RightPanel) => {
@@ -99,6 +102,7 @@ export default function WorkspacePage() {
     setPackagesOpen(p === "packages");
     setSettingsOpen(p === "settings");
     setMcpOpen(p === "mcp");
+    setDatabaseOpen(p === "database");
   };
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
@@ -348,7 +352,8 @@ export default function WorkspacePage() {
     { id: "packages",  label: "Packages panel",          icon: <span>📦</span>, action: () => openRightPanel(packagesOpen ? null : "packages") },
     { id: "settings",  label: "Editor settings",         icon: <span>⚙️</span>, action: () => openRightPanel(settingsOpen ? null : "settings") },
     { id: "github",    label: "GitHub panel",            icon: <span>🐙</span>, action: () => openRightPanel(githubOpen ? null : "github") },
-    { id: "debug",   label: "AI Debugger",              icon: <span>🐛</span>, action: () => openRightPanel(debugOpen ? null : "debug") },
+    { id: "debug",    label: "AI Debugger",             icon: <span>🐛</span>, action: () => openRightPanel(debugOpen ? null : "debug") },
+    { id: "database", label: "Database panel",          icon: <span>🗄️</span>, action: () => openRightPanel(databaseOpen ? null : "database") },
     ...(isProjectOwner ? [
       { id: "secrets", label: "Secrets panel",           icon: <span>🔑</span>, action: () => openRightPanel(secretsOpen ? null : "secrets") },
       { id: "deploy",  label: "Deploy panel",            icon: <span>🚀</span>, action: () => openRightPanel(deployOpen ? null : "deploy") },
@@ -388,6 +393,8 @@ export default function WorkspacePage() {
         mcpOpen={mcpOpen}
         onMcpToggle={() => openRightPanel(mcpOpen ? null : "mcp")}
         showMcp={isProjectOwner}
+        databaseOpen={databaseOpen}
+        onDatabaseToggle={() => openRightPanel(databaseOpen ? null : "database")}
         onCommandPalette={() => setCmdPaletteOpen(true)}
       />
 
@@ -539,6 +546,11 @@ export default function WorkspacePage() {
         {activeRightPanel === "mcp" && isProjectOwner && (
           <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
             <McpPanel projectId={project.id} />
+          </div>
+        )}
+        {activeRightPanel === "database" && (
+          <div className="w-[520px] border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <DatabasePanel projectId={project.id} />
           </div>
         )}
       </div>
