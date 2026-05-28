@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+=======
+modules = ["nodejs-20", "web", "python-3.12"]
+>>>>>>> 351c334080534e6eef4e277aa830e232227e900c
 
 [deployment]
 router = "application"
@@ -32,8 +36,9 @@ args = "pnpm --filter @workspace/orahai-mobile run dev"
 outputType = "webview"
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
+integrations = ["javascript_openai_ai_integrations:2.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
@@ -78,3 +83,5 @@ channel = "stable-25_05"
 
 [userenv.shared]
 INITIAL_ADMIN_EMAIL = "orahai@proton.me"
+PORT = "8080"
+NODE_ENV = "development"
