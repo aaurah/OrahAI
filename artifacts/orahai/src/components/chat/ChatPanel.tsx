@@ -626,10 +626,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                           ))}
                         </div>
                       )}
-                      {isPending && !msg.content ? (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          {agentStep > 1 ? `Working… step ${agentStep}` : "Thinking…"}
+                      {isPending ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground py-0.5">
+                          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                          <span>
+                            {!msg.content
+                              ? "Thinking…"
+                              : agentStep > 1
+                                ? `Working… (step ${agentStep})`
+                                : "Coding…"}
+                          </span>
                         </div>
                       ) : hasContent ? (
                         <MsgContent

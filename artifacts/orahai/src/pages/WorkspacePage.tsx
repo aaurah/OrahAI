@@ -663,6 +663,7 @@ export default function WorkspacePage() {
               { label: "GitHub",   icon: <Github className="w-4 h-4" />,      action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
               { label: "Packages", icon: <span className="text-sm">📦</span>, action: () => { setMobileTab("editor"); setPackagesOpen(true); setMoreMenuOpen(false); } },
               { label: "Settings", icon: <span className="text-sm">⚙️</span>, action: () => { setMobileTab("editor"); setSettingsOpen(true); setMoreMenuOpen(false); } },
+              { label: "Explore",  icon: <Globe className="w-4 h-4" />,      action: () => { navigate("/explore"); setMoreMenuOpen(false); } },
               ...(isProjectOwner ? [
                 { label: "Secrets", icon: <KeyRound className="w-4 h-4" />, action: () => { setMobileTab("editor"); setSecretsOpen(true); setMoreMenuOpen(false); } },
                 { label: "Deploy",  icon: <Rocket className="w-4 h-4" />,   action: () => { setMobileTab("editor"); setDeployOpen(true); setMoreMenuOpen(false); } },
