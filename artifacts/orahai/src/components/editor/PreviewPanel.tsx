@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Globe, RefreshCw, ExternalLink, Monitor, Github,
-  Loader2, Plus, X, AlertCircle,
+  Loader2, Plus, X, AlertCircle, Server, Shield,
 } from "lucide-react";
 import { API_BASE, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -16,102 +16,86 @@ interface PreviewPanelProps {
   onOpenConsole?: () => void;
 }
 
-type TabKind = "local" | "github" | "custom";
+// ── Tab model ──────────────────────────────────────────────────────────────
+
+type TabKind = "local" | "url" | "github";
 
 interface PreviewTab {
   id: string;
   kind: TabKind;
   label: string;
-  url?: string;       // for custom tabs
+  icon: "monitor" | "server" | "shield" | "github" | "globe";
+  url?: string;          // for url/github kinds
   iframeKey: number;
+  pinned?: boolean;      // preset tabs can't be closed
 }
 
 let _tabCounter = 0;
 const newId = () => `tab-${++_tabCounter}`;
 
-function useLocalPreview(projectId: string, refreshKey: number | undefined) {
+// ── Sub-panes ──────────────────────────────────────────────────────────────
+
+function LocalPane({
+  projectId, iframeKey, refreshKey, onRefresh,
+}: {
+  projectId: string; iframeKey: number; refreshKey?: number; onRefresh: () => void;
+}) {
+  const BASE = API_BASE || "";
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const BASE = API_BASE || "";
 
-  const load = useCallback(async (vKey: number) => {
-    setLoading(true);
-    setError(false);
-    setSrc(null);
+  const load = useCallback(async (key: number) => {
+    setLoading(true); setError(false); setSrc(null);
     try {
       const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
-      const v = refreshKey ?? vKey;
+      const v = refreshKey ?? key;
       setSrc(`${BASE}/api/preview/${projectId}?token=${encodeURIComponent(token)}&v=${v}`);
-    } catch {
-      setError(true);
-      setLoading(false);
-    }
+    } catch { setError(true); setLoading(false); }
   }, [projectId, BASE, refreshKey]);
-
-  return { src, loading, setLoading, error, load };
-}
-
-// ── Single iframe pane ──────────────────────────────────────────────────────
-
-function LocalPane({ projectId, iframeKey, refreshKey, onRefresh }: {
-  projectId: string;
-  iframeKey: number;
-  refreshKey?: number;
-  onRefresh: () => void;
-}) {
-  const { src, loading, setLoading, error, load } = useLocalPreview(projectId, refreshKey);
 
   useEffect(() => { load(iframeKey); }, [iframeKey, projectId]);
 
   return (
     <div className="absolute inset-0">
-      {loading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
-      {error && (
-        <EmptyState onRetry={onRefresh} />
-      )}
+      {loading && !error && <Spinner />}
+      {error && <EmptyState onRetry={onRefresh} />}
       {src && (
         <iframe
           key={`local-${iframeKey}`}
           src={src}
           className="w-full h-full border-0"
-          sandbox="allow-scripts allow-forms allow-modals allow-popups"
-          title="Local Preview"
+          sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
+          title="Frontend Preview"
           onLoad={() => setLoading(false)}
-          onError={() => { setLoading(false); }}
+          onError={() => setLoading(false)}
         />
       )}
     </div>
   );
 }
 
-function GithubPane({ url, iframeKey, onRefresh }: {
-  url: string;
-  iframeKey: number;
-  onRefresh: () => void;
+function UrlPane({
+  url, iframeKey, onRefresh,
+}: {
+  url: string; iframeKey: number; onRefresh: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  useEffect(() => { setLoading(true); setError(false); }, [iframeKey]);
+  useEffect(() => { setLoading(true); setError(false); }, [iframeKey, url]);
+
+  if (!url) return <EmptyState onRetry={onRefresh} message="No URL set." />;
 
   return (
     <div className="absolute inset-0">
-      {loading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
-      {error && <EmptyState onRetry={onRefresh} message="GitHub Pages not reachable." />}
+      {loading && !error && <Spinner />}
+      {error && <EmptyState onRetry={onRefresh} message="Could not load this URL." />}
       <iframe
-        key={`gh-${iframeKey}`}
+        key={`url-${iframeKey}-${url}`}
         src={url}
         className="w-full h-full border-0"
-        title="GitHub Pages Preview"
+        title="Preview"
         onLoad={() => setLoading(false)}
         onError={() => { setLoading(false); setError(true); }}
       />
@@ -119,34 +103,10 @@ function GithubPane({ url, iframeKey, onRefresh }: {
   );
 }
 
-function CustomPane({ url, iframeKey, onRefresh }: {
-  url: string;
-  iframeKey: number;
-  onRefresh: () => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  useEffect(() => { setLoading(true); setError(false); }, [iframeKey, url]);
-
-  if (!url) return <EmptyState onRetry={onRefresh} message="No URL entered." />;
-
+function Spinner() {
   return (
-    <div className="absolute inset-0">
-      {loading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
-      {error && <EmptyState onRetry={onRefresh} message="Could not load URL." />}
-      <iframe
-        key={`custom-${iframeKey}-${url}`}
-        src={url}
-        className="w-full h-full border-0"
-        title="Preview"
-        onLoad={() => setLoading(false)}
-        onError={() => { setLoading(false); setError(true); }}
-      />
+    <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
     </div>
   );
 }
@@ -164,7 +124,18 @@ function EmptyState({ onRetry, message }: { onRetry: () => void; message?: strin
   );
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ── Icon helper ────────────────────────────────────────────────────────────
+
+function TabIcon({ icon, className }: { icon: PreviewTab["icon"]; className?: string }) {
+  const cls = cn("w-3 h-3 shrink-0", className);
+  if (icon === "monitor") return <Monitor className={cls} />;
+  if (icon === "server")  return <Server className={cls} />;
+  if (icon === "shield")  return <Shield className={cls} />;
+  if (icon === "github")  return <Github className={cls} />;
+  return <Globe className={cls} />;
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
 
 export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanelProps) {
   const BASE = API_BASE || "";
@@ -173,37 +144,42 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
     ? (() => { const [owner, repo] = githubRepo.split("/"); return `https://${owner}.github.io/${repo}/`; })()
     : null;
 
-  const initialTabs: PreviewTab[] = [
-    { id: newId(), kind: "local", label: "Local", iframeKey: 0 },
-    ...(githubPagesUrl ? [{ id: newId(), kind: "github" as TabKind, label: "Live", iframeKey: 0 }] : []),
+  // Backend tab points to the API health endpoint
+  const backendUrl = `${BASE}/api/healthz`;
+  // Admin panel tab points to the /admin route of this app (same origin → shares localStorage/JWT)
+  const adminUrl = `${window.location.origin}${import.meta.env.BASE_URL}admin`;
+
+  const buildPresetTabs = (): PreviewTab[] => [
+    { id: "frontend",  kind: "local",   label: "Frontend",    icon: "monitor", iframeKey: 0, pinned: true },
+    { id: "backend",   kind: "url",     label: "Backend",     icon: "server",  iframeKey: 0, pinned: true, url: backendUrl },
+    { id: "admin",     kind: "url",     label: "Admin Panel", icon: "shield",  iframeKey: 0, pinned: true, url: adminUrl },
+    ...(githubPagesUrl ? [{ id: "live", kind: "github" as TabKind, label: "Live", icon: "github" as const, iframeKey: 0, pinned: true, url: githubPagesUrl }] : []),
   ];
 
-  const [tabs, setTabs] = useState<PreviewTab[]>(initialTabs);
-  const [activeId, setActiveId] = useState<string>(initialTabs[0].id);
+  const [tabs, setTabs] = useState<PreviewTab[]>(buildPresetTabs);
+  const [activeId, setActiveId] = useState<string>("frontend");
   const [urlBarValue, setUrlBarValue] = useState("");
   const [urlBarEditing, setUrlBarEditing] = useState(false);
   const urlBarRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0];
 
-  // Sync refreshKey → bump active local tab
+  // Sync external refreshKey → bump active frontend tab
   const prevRefreshKey = useRef(refreshKey);
   useEffect(() => {
     if (refreshKey !== prevRefreshKey.current) {
       prevRefreshKey.current = refreshKey;
-      setTabs(ts => ts.map(t => t.id === activeId && t.kind === "local"
-        ? { ...t, iframeKey: t.iframeKey + 1 } : t));
+      setTabs(ts => ts.map(t => t.id === "frontend" ? { ...t, iframeKey: t.iframeKey + 1 } : t));
     }
   }, [refreshKey]);
 
-  // Keep URL bar in sync with active tab
+  // Keep URL bar display in sync with active tab
   useEffect(() => {
     if (!urlBarEditing) {
       if (activeTab?.kind === "local") setUrlBarValue(`preview/${projectId}`);
-      else if (activeTab?.kind === "github") setUrlBarValue(githubPagesUrl ?? "");
       else setUrlBarValue(activeTab?.url ?? "");
     }
-  }, [activeTab, urlBarEditing, projectId, githubPagesUrl]);
+  }, [activeTab, urlBarEditing, projectId]);
 
   const refresh = () => {
     setTabs(ts => ts.map(t => t.id === activeId ? { ...t, iframeKey: t.iframeKey + 1 } : t));
@@ -211,59 +187,45 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
 
   const openInNewTab = async () => {
     if (!activeTab) return;
-    if (activeTab.kind === "github" && githubPagesUrl) {
-      window.open(githubPagesUrl, "_blank", "noopener,noreferrer");
-    } else if (activeTab.kind === "custom" && activeTab.url) {
-      window.open(activeTab.url, "_blank", "noopener,noreferrer");
-    } else {
+    if (activeTab.kind === "local") {
       try {
         const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
         const v = refreshKey ?? activeTab.iframeKey;
         window.open(`${BASE}/api/preview/${projectId}?token=${encodeURIComponent(token)}&v=${v}`, "_blank", "noopener,noreferrer");
       } catch { /* ignore */ }
+    } else if (activeTab.url) {
+      window.open(activeTab.url, "_blank", "noopener,noreferrer");
     }
   };
 
-  const addTab = () => {
+  const addCustomTab = () => {
     const id = newId();
-    setTabs(ts => [...ts, { id, kind: "custom", label: "New tab", url: "", iframeKey: 0 }]);
+    setTabs(ts => [...ts, { id, kind: "url", label: "New tab", icon: "globe", url: "", iframeKey: 0 }]);
     setActiveId(id);
     setUrlBarEditing(true);
-    setTimeout(() => urlBarRef.current?.focus(), 50);
+    setTimeout(() => urlBarRef.current?.focus(), 60);
   };
 
   const closeTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setTabs(ts => {
       const next = ts.filter(t => t.id !== id);
-      if (next.length === 0) return ts; // always keep ≥1 tab
+      if (next.length === 0) return ts;
+      if (activeId === id) setActiveId(next[next.length - 1].id);
       return next;
     });
-    if (activeId === id) {
-      setTabs(ts => {
-        const next = ts.filter(t => t.id !== id);
-        if (next.length > 0) setActiveId(next[next.length - 1].id);
-        return next;
-      });
-    }
   };
 
   const commitUrl = (raw: string) => {
     let url = raw.trim();
-    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
-    setTabs(ts => ts.map(t => {
-      if (t.id !== activeId) return t;
-      const label = url ? new URL(url).hostname.replace(/^www\./, "") : "New tab";
-      return { ...t, url, label, iframeKey: t.iframeKey + 1 };
-    }));
+    if (url && !/^https?:\/\//i.test(url) && !url.startsWith("/")) url = `https://${url}`;
+    let label = "New tab";
+    try { label = new URL(url, window.location.origin).hostname.replace(/^www\./, ""); } catch { /* keep */ }
+    setTabs(ts => ts.map(t => t.id !== activeId ? t : { ...t, url, label, iframeKey: t.iframeKey + 1 }));
     setUrlBarEditing(false);
   };
 
-  const tabIcon = (tab: PreviewTab) => {
-    if (tab.kind === "local") return <Monitor className="w-3 h-3 shrink-0" />;
-    if (tab.kind === "github") return <Github className="w-3 h-3 shrink-0" />;
-    return <Globe className="w-3 h-3 shrink-0" />;
-  };
+  const isEditable = activeTab?.kind === "url" && !activeTab.pinned;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -277,15 +239,22 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
               key={tab.id}
               onClick={() => setActiveId(tab.id)}
               className={cn(
-                "group flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium shrink-0 border-r border-border/40 transition-colors min-w-0 max-w-[140px] relative",
+                "group flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium shrink-0 border-r border-border/40 transition-colors min-w-0 max-w-[140px] relative select-none",
                 active
                   ? "bg-background text-foreground border-b-2 border-b-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
               )}
             >
-              {tabIcon(tab)}
+              <TabIcon icon={tab.icon}
+                className={active ? (
+                  tab.icon === "shield" ? "text-amber-400" :
+                  tab.icon === "server" ? "text-emerald-400" :
+                  tab.icon === "monitor" ? "text-sky-400" :
+                  tab.icon === "github" ? "text-violet-400" : ""
+                ) : ""}
+              />
               <span className="truncate">{tab.label}</span>
-              {tabs.length > 1 && (
+              {!tab.pinned && (
                 <span
                   role="button"
                   onClick={(e) => closeTab(tab.id, e)}
@@ -301,9 +270,9 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
           );
         })}
 
-        {/* Add tab */}
+        {/* New custom tab */}
         <button
-          onClick={addTab}
+          onClick={addCustomTab}
           title="Open new tab"
           className="flex items-center justify-center w-8 h-8 mb-0.5 ml-0.5 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded transition-colors"
         >
@@ -311,32 +280,27 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
         </button>
       </div>
 
-      {/* ── URL / toolbar bar ── */}
+      {/* ── Address / toolbar bar ── */}
       <div className="flex items-center gap-1.5 px-2 h-9 border-b border-border bg-muted/10 shrink-0">
-        {/* URL bar */}
         <div className="flex-1 flex items-center gap-1.5 bg-muted/50 hover:bg-muted/70 focus-within:bg-muted rounded-md px-2.5 py-1 min-w-0 transition-colors">
           <Globe className="w-3 h-3 text-muted-foreground shrink-0" />
-          {activeTab?.kind !== "local" && activeTab?.kind !== "github" ? (
+          {isEditable ? (
             <input
               ref={urlBarRef}
               value={urlBarValue}
               onChange={e => setUrlBarValue(e.target.value)}
               onFocus={() => setUrlBarEditing(true)}
               onBlur={() => commitUrl(urlBarValue)}
-              onKeyDown={e => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+              onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
               placeholder="Enter URL…"
               className="flex-1 bg-transparent text-[11px] font-mono outline-none text-foreground placeholder:text-muted-foreground min-w-0"
             />
           ) : (
-            <span
-              className="flex-1 text-[11px] text-muted-foreground font-mono truncate cursor-default select-none"
-              title={urlBarValue}
-            >
+            <span className="flex-1 text-[11px] text-muted-foreground font-mono truncate cursor-default select-none" title={urlBarValue}>
               {urlBarValue}
             </span>
           )}
         </div>
-
         <button onClick={refresh} title="Refresh" className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
@@ -345,23 +309,18 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
         </button>
       </div>
 
-      {/* ── Content area ── */}
+      {/* ── Content ── */}
       <div className="flex-1 relative overflow-hidden bg-white">
         {tabs.map(tab => (
           <div key={tab.id} className={cn("absolute inset-0", tab.id !== activeId && "hidden")}>
             {tab.kind === "local" && (
-              <LocalPane
-                projectId={projectId}
-                iframeKey={tab.iframeKey}
-                refreshKey={refreshKey}
-                onRefresh={refresh}
-              />
+              <LocalPane projectId={projectId} iframeKey={tab.iframeKey} refreshKey={refreshKey} onRefresh={refresh} />
             )}
-            {tab.kind === "github" && githubPagesUrl && (
-              <GithubPane url={githubPagesUrl} iframeKey={tab.iframeKey} onRefresh={refresh} />
+            {tab.kind !== "local" && tab.url && (
+              <UrlPane url={tab.url} iframeKey={tab.iframeKey} onRefresh={refresh} />
             )}
-            {tab.kind === "custom" && (
-              <CustomPane url={tab.url ?? ""} iframeKey={tab.iframeKey} onRefresh={refresh} />
+            {tab.kind !== "local" && !tab.url && (
+              <EmptyState onRetry={refresh} message="No URL configured for this tab." />
             )}
           </div>
         ))}
