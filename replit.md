@@ -55,6 +55,32 @@ An AI-powered browser IDE where users write, run, debug, and deploy code with a 
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
 
+## Vercel Deployment
+
+Run locally to verify before pushing:
+```
+pnpm run vercel:build   # builds api/index.js + artifacts/orahai/dist/public
+```
+
+Connect repo to Vercel. Framework: **Other**. Vercel reads `vercel.json` for all settings (build command, output dir, routing). No Vercel dashboard overrides needed.
+
+Environment variables to set in the Vercel project dashboard:
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Postgres connection string — use [Neon](https://neon.tech) or Vercel Postgres |
+| `JWT_SECRET` | ✅ | Secret for signing auth tokens |
+| `SANDBOX_INTERNAL_KEY` | ⚠️ | Required if using an external sandbox service |
+| `SANDBOX_URL` | optional | URL of external code-execution sandbox |
+| `AI_SERVICE_URL` | optional | Self-hosted AI endpoint |
+| `AI_SERVICE_INTERNAL_KEY` | optional | Auth key for self-hosted AI |
+| `VITE_API_URL` | — | Leave unset — defaults to `""` (same-origin relative) |
+
+How it works:
+- `/api/*` → `api/index.js` (Express app bundled by esbuild, Node.js 22)
+- `/*` → `artifacts/orahai/dist/public` (Vite static build, CDN-cached)
+- SPA fallback: any non-asset path serves `index.html` so client-side routing works
+- Startup migrations run once per Lambda cold start
+
 ## Gotchas
 
 - API calls use `VITE_API_URL` env var; defaults to `""` (relative) — works via Replit proxy routing
