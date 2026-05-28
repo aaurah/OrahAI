@@ -300,7 +300,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         imageMimeType: z.string().optional(),
         images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
         mode: z.enum(["lite", "economy", "power"]).default("economy"),
-        model: z.string().max(100).optional().default("openai:gpt-4.1"),
+        model: z.string().max(100).optional().default("groq:llama-3.3-70b-versatile"),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
@@ -317,7 +317,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         economy: { maxTokens: 16000, maxSteps: 4, historyLimit: 25, fileCharLimit: 5000, totalFileChars: 60000 },
         power:   { maxTokens: 32000, maxSteps: 6, historyLimit: 20, fileCharLimit: 2500, totalFileChars: 50000 },
       } as const;
-      let { maxTokens, maxSteps, historyLimit, fileCharLimit, totalFileChars } = MODE_CONFIG[mode];
+      let { maxSteps } = MODE_CONFIG[mode];
+      let maxTokens: number = MODE_CONFIG[mode].maxTokens;
+      let historyLimit: number = MODE_CONFIG[mode].historyLimit;
+      let fileCharLimit: number = MODE_CONFIG[mode].fileCharLimit;
+      let totalFileChars: number = MODE_CONFIG[mode].totalFileChars;
 
       // Groq free tier has tight per-request token limits — apply conservative overrides
       if (provider === "groq") {

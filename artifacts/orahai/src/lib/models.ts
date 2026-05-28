@@ -22,7 +22,7 @@ export const MODEL_GROUPS: ModelGroup[] = [
     label: "OpenAI",
     provider: "openai",
     models: [
-      { id: "openai:gpt-4.1",         name: "GPT-4.1",       provider: "openai", badge: "Default" },
+      { id: "openai:gpt-4.1",         name: "GPT-4.1",       provider: "openai" },
       { id: "openai:gpt-4o",          name: "GPT-4o",         provider: "openai", vision: true },
       { id: "openai:gpt-4o-mini",     name: "GPT-4o Mini",    provider: "openai", badge: "Fast" },
       { id: "openai:o3-mini",         name: "o3-mini",         provider: "openai", badge: "Reason" },
@@ -44,7 +44,7 @@ export const MODEL_GROUPS: ModelGroup[] = [
     provider: "groq",
     note: "Free API key at console.groq.com — requires GROQ_API_KEY secret",
     models: [
-      { id: "groq:llama-3.3-70b-versatile",        name: "Llama 3.3 70B",        provider: "groq", badge: "Best",   description: "Top-quality Llama on Groq's LPU — free tier" },
+      { id: "groq:llama-3.3-70b-versatile",        name: "Llama 3.3 70B",        provider: "groq", badge: "Default", description: "Top-quality Llama on Groq's LPU — free tier" },
       { id: "groq:llama-3.1-8b-instant",            name: "Llama 3.1 8B Instant", provider: "groq", badge: "Fast",   description: "Blazing fast, great for quick tasks" },
       { id: "groq:deepseek-r1-distill-qwen-32b",    name: "DeepSeek R1 32B",      provider: "groq", badge: "Reason", description: "Strong reasoning model — free on Groq" },
       { id: "groq:qwen-qwq-32b",                    name: "Qwen QwQ 32B",         provider: "groq", badge: "Reason", description: "Alibaba reasoning model" },
@@ -99,7 +99,7 @@ export function makeOllamaRemoteModelDef(name: string): ModelDef {
   return { id: `ollama-remote:${name}`, name, provider: "ollama-remote" };
 }
 
-export const DEFAULT_MODEL = "openai:gpt-4.1";
+export const DEFAULT_MODEL = "groq:llama-3.3-70b-versatile";
 
 export const OLLAMA_MODEL_LIBRARY: Array<{
   id: string;

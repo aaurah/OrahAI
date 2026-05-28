@@ -136,18 +136,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     if (!modelPickerOpen) return;
     setOllamaLoading(true);
     Promise.all([
-      api.get<{ data: { models: Array<{ name: string }>; ollamaAvailable: boolean } }>("/api/ai/models?endpoint=server"),
-      api.get<{ data: { models: Array<{ name: string }>; ollamaAvailable: boolean } }>("/api/ai/models?endpoint=remote"),
+      api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server"),
+      api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=remote"),
     ])
       .then(([serverRes, remoteRes]) => {
         setLiveOllamaModels(
-          serverRes.data?.ollamaAvailable
-            ? (serverRes.data.models ?? []).map(m => makeOllamaModelDef(m.name))
+          serverRes.ollamaAvailable
+            ? (serverRes.models ?? []).map(m => makeOllamaModelDef(m.name))
             : []
         );
         setLiveRemoteModels(
-          remoteRes.data?.ollamaAvailable
-            ? (remoteRes.data.models ?? []).map(m => makeOllamaRemoteModelDef(m.name))
+          remoteRes.ollamaAvailable
+            ? (remoteRes.models ?? []).map(m => makeOllamaRemoteModelDef(m.name))
             : []
         );
       })
