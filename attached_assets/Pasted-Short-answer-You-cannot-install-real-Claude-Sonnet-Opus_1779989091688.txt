@@ -1,0 +1,138 @@
+Short answer:
+You cannot install real Claude (Sonnet/Opus) on your server or run it locally — Anthropic does not release model weights.
+But you can run Claude Code locally using open‑source models (Qwen, Llama, Mistral) and it behaves like Claude, fully offline and free.
+
+This is the key distinction.
+
+---
+
+✅ Can you install Claude itself locally?
+
+No.
+Anthropic has never released Claude model weights, so true offline Claude is impossible.
+aithinkerlab...
+
+• No GGUF files
+• No downloadable weights
+• No self‑hosting
+• No on‑premise install
+
+
+Claude always runs on Anthropic’s servers.
+
+---
+
+✅ What you can install locally (100% free)
+
+You can install Claude Code + Ollama + open‑source models to create a local Claude‑style AI that works offline.
+
+This is confirmed by multiple sources showing how to run Claude Code locally using Ollama and open models.
+Medium +2
+
+---
+
+🧠 How the “local Claude” setup works
+
+Claude Code = the agent shell
+Ollama = the local model engine
+Qwen / Llama / Mistral = the local brain
+
+Claude Code thinks it’s talking to Anthropic, but you redirect it to your local model.
+
+---
+
+🛠️ Install Claude‑style AI locally (server or PC)
+
+Below is the real working method from the sources.
+
+1️⃣ Install Ollama (local LLM engine)
+
+• Linux: curl -fsSL https://ollama.com/install.sh | sh
+• Windows: irm https://ollama.com/install.ps1 | iex
+DEV Community
+
+
+2️⃣ Install Claude Code
+
+• npm install -g @anthropic-ai/claude-code
+DEV Community
+
+
+3️⃣ Pull a local model
+
+Examples:
+
+• ollama pull qwen2.5-coder:7b
+• ollama pull qwen3-coder:30b (needs 32GB+ RAM)
+LinkedIn
+
+
+4️⃣ Point Claude Code to your local model
+
+Set environment variables:
+
+export ANTHROPIC_BASE_URL=http://localhost:11434/v1
+export ANTHROPIC_AUTH_TOKEN=ollama
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+
+LinkedIn
+
+5️⃣ Launch Claude Code
+
+claude
+
+
+Now it uses your local model, not Anthropic’s cloud.
+
+---
+
+🖥️ Can you install this on a server?
+
+Yes — any Linux server can run:
+
+• Ollama
+• Claude Code
+• Open‑source models
+
+
+As long as you have enough RAM (16–64GB depending on model).
+TheWindowsClub
+
+---
+
+🆓 Is this totally free?
+
+Yes — 100% free because:
+
+• Ollama is free
+• Open‑source models are free
+• Claude Code is free
+• No API key needed
+• No cloud usage
+
+
+You get a Claude‑like coding assistant with zero cost and full privacy.
+
+---
+
+🧩 Summary Table
+
+Feature	Real Claude (Anthropic)	Local Claude‑Style Setup	
+Install on server	❌ No	✅ Yes	
+Offline	❌ No	✅ Yes	
+Free	⚠️ Limited	✅ Fully free	
+Model	Claude Sonnet/Opus	Qwen / Llama / Mistral	
+Privacy	Cloud	100% local	
+Claude Code agent	Cloud	Local	
+
+
+---
+
+Want me to generate a full install script for your server?
+
+Choose one:
+
+• Generate Linux install script
+• Recommend best local model for my hardware
+• Explain difference between Claude Code and Claude AI
