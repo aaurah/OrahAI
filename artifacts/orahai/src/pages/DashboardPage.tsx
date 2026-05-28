@@ -129,7 +129,7 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const { projects, isLoading, mutate } = useProjects({ search });
-  const { workspaces } = useWorkspaces();
+  const { workspaces, isLoading: isWorkspacesLoading } = useWorkspaces();
 
   const [prompt, setPrompt] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -159,10 +159,20 @@ export default function DashboardPage() {
     const trimmed = text.trim();
     if (!trimmed || isCreating) return;
 
-    const wsId = workspaces[0]?.id;
+    // Wait for workspace data to load before acting
+    if (isWorkspacesLoading) return;
+
+    let wsId = workspaces[0]?.id;
     if (!wsId) {
-      toast({ title: "Create a workspace first — click your workspace name in the top nav", variant: "destructive" });
-      return;
+      // Auto-create a personal workspace for the user
+      try {
+        const wsName = user?.name ? `${user.name.split(" ")[0]}'s Workspace` : "My Workspace";
+        const wsRes = await api.post<{ data: { id: string } }>("/api/workspaces", { name: wsName });
+        wsId = wsRes.data.id;
+      } catch {
+        toast({ title: "Could not create a workspace. Please try again.", variant: "destructive" });
+        return;
+      }
     }
 
     setIsCreating(true);
@@ -247,12 +257,12 @@ export default function DashboardPage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Describe what you want to build… (e.g. A weather app with 7-day forecast)"
                 rows={1}
-                disabled={isCreating}
+                disabled={isCreating || isWorkspacesLoading}
                 className="flex-1 resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none leading-relaxed min-h-[24px] disabled:opacity-60"
               />
               <button
                 onClick={() => handleBuild(prompt)}
-                disabled={!prompt.trim() || isCreating}
+                disabled={!prompt.trim() || isCreating || isWorkspacesLoading}
                 className="shrink-0 w-8 h-8 rounded-lg bg-primary flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors mt-0.5"
               >
                 {isCreating
