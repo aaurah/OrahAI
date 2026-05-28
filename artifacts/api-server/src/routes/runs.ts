@@ -12,7 +12,7 @@ const router = Router();
 
 const ENTRY_POINT: Record<string, string> = {
   nodejs:     "node index.js",
-  typescript: "npx ts-node src/index.ts",
+  typescript: "npx --yes tsx src/index.ts",
   python:     "python main.py",
   html:       "echo 'Open index.html in a browser'",
 };
@@ -81,7 +81,19 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
-    const command = parsed.data.command ?? ENTRY_POINT[project.language] ?? "node index.js";
+    // Detect smart default when no command supplied
+    let command = parsed.data.command;
+    if (!command) {
+      const setup = await detectProjectSetup(project.id, project.language);
+      command = setup.devCmd ?? ENTRY_POINT[project.language] ?? "node index.js";
+    }
+
+    // Sanitize common AI-generated malformed patterns
+    // e.g. "npm install react" meant as install+run but missing &&
+    if (/^npm install\s+npm\s/.test(command)) {
+      // "npm install npm run dev" → "npm install && npm run dev"
+      command = command.replace(/^npm install\s+(npm\s+run\s+)/, "npm install && $1");
+    }
     const runId = cuid();
     const [run] = await db.insert(runs).values({
       id: runId, projectId: project.id, command, status: "queued",

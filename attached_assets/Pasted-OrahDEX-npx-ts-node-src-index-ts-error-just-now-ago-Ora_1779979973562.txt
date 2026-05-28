@@ -1,0 +1,87 @@
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	just now ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	1m ago ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	1m ago ago
+OrahDEX	
+npx ts-node src/index.ts
+error	—	1m ago ago
+OrahAI	
+npx ts-node src/index.ts
+error	—	7m ago ago
+OrahDEX	
+npm install @modelcontextprotocol/sdk
+error	—	34m ago ago
+OrahDEX	
+npm install npm run dev
+error	—	1h ago ago
+OrahAI	
+npx ts-node src/index.ts
+error	—	2h ago ago
+OrahAI	
+npx ts-node src/index.ts
+error	—	2h ago ago
+OrahAI	
+npm install clsx
+error	—	3h ago ago
+OrahAI	
+npm install clsx
+error	—	3h ago ago
+OrahAI	
+npm install clsx
+error	—	3h ago ago
+OrahAI	
+yarn add clsx
+error	—	3h ago ago
+OrahAI	
+npm install clsx
+error	—	3h ago ago
+OrahAI	
+cd apps/api && npm install && npm run build && npm start cd apps/web && npm install && npm run build && npm start cd apps/sandbox && npm install && npm run build && npm start cd apps/ai && pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000
+error	—	3h ago ago
+OrahAI	
+docker compose up --build
+error	—	3h ago ago
+OrahAI	
+cd packages/db npm install npx prisma generate npx prisma migrate deploy
+error	—	3h ago ago
+OrahAI	
+docker compose up db -d
+error	—	3h ago ago
+OrahAI	
+cp .env.example .env # Edit .env to set: # - DATABASE_URL, JWT_SECRET, OPENAI_API_KEY or ANTHROPIC_API_KEY, etc.
+error	—	3h ago ago
+OrahAI	
+npx ts-node src/index.ts
+error	—	3h ago ago
+OrahAI	
+# API (Express + TS) cd apps/api && npm install && npm run dev # Web IDE (Next.js - migration backup) cd apps/web && npm install && npm run dev # Sandbox runner cd apps/sandbox && npm install && npm run dev # AI service cd apps/ai && pip install -r requirements.txt uvicorn main:app --reload --port 8000
+error	—	3h ago ago
+OrahAI	
+docker compose up db -d cd packages/db npm install npx prisma generate npx prisma migrate dev --name init
+error	—	3h ago ago
+OrahAI	
+cp .env.example .env # Edit .env to set: # - DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, etc. npm install # Monorepo root
+error
