@@ -2,8 +2,9 @@ import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { db, chatMessages, projects, memberships, files } from "@workspace/db";
+import { db, chatMessages, projects, memberships, files, mcpServers } from "@workspace/db";
 import { eq, and, or, isNull, asc, desc, sql } from "drizzle-orm";
+import { discoverAllMcpTools, callMcpTool, type McpTool, type McpServerConfig } from "../lib/mcpClient";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { aiRateLimiter } from "../middlewares/rateLimit";
@@ -126,6 +127,30 @@ function extractFileOps(content: string): FileOp[] {
   return ops;
 }
 
+// ── Parse <<<MCP_CALL:server:tool>>> ... <<<MCP_END>>> blocks ────────────────
+interface McpCallOp {
+  serverName: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+function extractMcpCalls(content: string): McpCallOp[] {
+  const ops: McpCallOp[] = [];
+  const re = /<<<MCP_CALL:([^:>]+):([^>]+)>>>\s*([\s\S]*?)<<<MCP_END>>>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const serverName = m[1].trim();
+    const toolName   = m[2].trim();
+    const rawArgs    = m[3].trim();
+    let args: Record<string, unknown> = {};
+    if (rawArgs) {
+      try { args = JSON.parse(rawArgs); } catch { /* leave empty */ }
+    }
+    ops.push({ serverName, toolName, args });
+  }
+  return ops;
+}
+
 // ── Extract @filename mentions from a user message ────────────────────────────
 function extractMentions(message: string): string[] {
   const re = /@([\w./-]+)/g;
@@ -203,8 +228,11 @@ interface FileOpResult {
 interface CmdResult {
   command: string; status: string; output: string; exitCode?: number;
 }
+interface McpResult {
+  serverName: string; toolName: string; ok: boolean; output: string;
+}
 
-function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: CmdResult[]): string {
+function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: CmdResult[], mcpResults: McpResult[] = []): string {
   const lines: string[] = [`[Tool results from step ${step}]`];
 
   if (fileOps.length > 0) {
@@ -230,7 +258,16 @@ function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: C
     }
   }
 
-  const hasErrors = fileOps.some(o => !o.success) || cmds.some(c => c.status === "error" || (c.exitCode !== undefined && c.exitCode !== 0));
+  if (mcpResults.length > 0) {
+    lines.push("\nMCP tool results:");
+    for (const r of mcpResults) {
+      lines.push(`\n[${r.serverName}/${r.toolName}] ${r.ok ? "✓" : "✗"}`);
+      const out = r.output.slice(0, 6000);
+      lines.push(out + (r.output.length > 6000 ? "\n...(truncated)" : ""));
+    }
+  }
+
+  const hasErrors = fileOps.some(o => !o.success) || cmds.some(c => c.status === "error" || (c.exitCode !== undefined && c.exitCode !== 0)) || mcpResults.some(r => !r.ok);
   if (hasErrors) {
     lines.push("\nSome operations had errors. Diagnose and fix them now — don't ask for permission.");
   } else {
@@ -326,7 +363,22 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           ? "\n\nMODE: Power — think thoroughly, be exhaustive. Write complete, production-quality code. Take as many steps as needed."
           : "";
 
-      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext, fileCharLimit, totalFileChars, pinnedFiles) + modeNote;
+      // ── Load enabled MCP servers & discover their tools ───────────────────
+      const enabledMcpServers = await db.select().from(mcpServers)
+        .where(and(eq(mcpServers.projectId, project.id), eq(mcpServers.enabled, true)));
+      const mcpServerConfigs: McpServerConfig[] = enabledMcpServers.map(s => ({
+        id: s.id, name: s.name, url: s.url, transport: s.transport, authToken: s.authToken,
+      }));
+      let discoveredMcpTools: McpTool[] = [];
+      if (mcpServerConfigs.length > 0) {
+        const { tools, errors } = await discoverAllMcpTools(mcpServerConfigs);
+        discoveredMcpTools = tools;
+        if (errors.length) {
+          send({ type: "mcp_discovery_errors", errors });
+        }
+      }
+
+      const systemPrompt = buildSystemPrompt(project.name, project.language, projectFiles, filePath, fileContext, fileCharLimit, totalFileChars, pinnedFiles, discoveredMcpTools) + modeNote;
 
       const userMessageContent: OpenAI.ChatCompletionContentPart[] = [{ type: "text", text: userContent }];
       for (const img of allImages) {
@@ -460,13 +512,39 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
         const cmdResults: CmdResult[] = [];
 
+        // ── MCP tool calls ────────────────────────────────────────────────────
+        const mcpCallOps = extractMcpCalls(stepContent);
+        const mcpCallResults: McpResult[] = [];
+        if (mcpCallOps.length > 0 && mcpServerConfigs.length > 0) {
+          send({ type: "mcp_calls_start", count: mcpCallOps.length });
+          for (const op of mcpCallOps) {
+            const srv = mcpServerConfigs.find(s => s.name === op.serverName);
+            if (!srv) {
+              const errMsg = `MCP server "${op.serverName}" not found or not enabled`;
+              send({ type: "mcp_call_error", serverName: op.serverName, toolName: op.toolName, error: errMsg });
+              mcpCallResults.push({ serverName: op.serverName, toolName: op.toolName, ok: false, output: errMsg });
+              continue;
+            }
+            try {
+              const output = await callMcpTool(srv, op.toolName, op.args);
+              send({ type: "mcp_call_done", serverName: op.serverName, toolName: op.toolName });
+              mcpCallResults.push({ serverName: op.serverName, toolName: op.toolName, ok: true, output });
+            } catch (err) {
+              const errMsg = (err as Error).message;
+              send({ type: "mcp_call_error", serverName: op.serverName, toolName: op.toolName, error: errMsg });
+              mcpCallResults.push({ serverName: op.serverName, toolName: op.toolName, ok: false, output: errMsg });
+            }
+          }
+          send({ type: "mcp_calls_done" });
+        }
+
         // If no actions were taken, the agent is done
-        if (fileOps.length === 0) break;
+        if (fileOps.length === 0 && mcpCallOps.length === 0) break;
         if (step === maxSteps) break;
 
         // Feed results back so the agent can react and continue
         agentMessages.push({ role: "assistant", content: stepContent });
-        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults) });
+        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults, mcpCallResults) });
       }
 
       const [saved] = await db.insert(chatMessages).values({
@@ -1108,6 +1186,7 @@ function buildSystemPrompt(
   fileCharLimit = 5000,
   totalFileChars = 60000,
   pinnedFiles: { path: string; content: string }[] = [],
+  mcpTools: McpTool[] = [],
 ): string {
   const fileTree = projectFiles.map(f => `  ${f.path}`).join("\n") || "  (no files yet)";
   const pinnedPaths = new Set(pinnedFiles.map(f => f.path));
@@ -1239,6 +1318,47 @@ function buildSystemPrompt(
     }
   } else if (!activeFilePath) {
     lines.push(`No files yet. Create them with <<<WRITE:filename>>>.`);
+  }
+
+  // ── MCP tools section ────────────────────────────────────────────────────
+  if (mcpTools.length > 0) {
+    lines.push(``);
+    lines.push(`════════════════════════════════════════════`);
+    lines.push(`  MCP TOOLS — EXTERNAL TOOL SERVERS`);
+    lines.push(`════════════════════════════════════════════`);
+    lines.push(``);
+    lines.push(`You have access to external tools via MCP (Model Context Protocol) servers.`);
+    lines.push(`To call a tool, use this EXACT format (nothing else, no markdown, no explanation before calling):`);
+    lines.push(``);
+    lines.push(`<<<MCP_CALL:server-name:tool-name>>>`);
+    lines.push(`{"arg1": "value1", "arg2": "value2"}`);
+    lines.push(`<<<MCP_END>>>`);
+    lines.push(``);
+    lines.push(`Rules:`);
+    lines.push(`- Call tools BEFORE writing files if you need data from them first`);
+    lines.push(`- You can make multiple MCP calls in one step`);
+    lines.push(`- The result will be injected into the next step for you to use`);
+    lines.push(`- ALWAYS pass valid JSON as the argument block (or {} for no args)`);
+    lines.push(``);
+    lines.push(`Available tools:`);
+    lines.push(``);
+    const byServer = new Map<string, McpTool[]>();
+    for (const t of mcpTools) {
+      const arr = byServer.get(t.serverName) ?? [];
+      arr.push(t);
+      byServer.set(t.serverName, arr);
+    }
+    for (const [serverName, tools] of byServer) {
+      lines.push(`[Server: ${serverName}]`);
+      for (const t of tools) {
+        const schemaStr = t.inputSchema && Object.keys(t.inputSchema).length > 0
+          ? JSON.stringify(t.inputSchema, null, 2)
+          : "(no arguments)";
+        lines.push(`  • ${t.name}: ${t.description}`);
+        lines.push(`    Schema: ${schemaStr}`);
+      }
+      lines.push(``);
+    }
   }
 
   return lines.join("\n");

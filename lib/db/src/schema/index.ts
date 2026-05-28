@@ -168,6 +168,22 @@ export const apiKeys = pgTable("api_keys", {
 
 export type ApiKey = typeof apiKeys.$inferSelect;
 
+// ── MCP Servers ───────────────────────────────────────────────────────────────
+
+export const mcpServers = pgTable("mcp_servers", {
+  id:        text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name:      text("name").notNull(),
+  url:       text("url").notNull(),
+  transport: text("transport").notNull().default("sse"),
+  authToken: text("auth_token"),
+  enabled:   boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("mcp_servers_project_name_idx").on(t.projectId, t.name)]);
+
+export type McpServer = typeof mcpServers.$inferSelect;
+
 // ── Project Domains ───────────────────────────────────────────────────────────
 
 export const projectDomains = pgTable("project_domains", {

@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
   ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown, Sprout,
-  Search, Package, Settings, Command,
+  Search, Package, Settings, Command, PlugZap,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,9 @@ interface Props {
   onPackagesToggle: () => void;
   settingsOpen: boolean;
   onSettingsToggle: () => void;
+  mcpOpen?: boolean;
+  onMcpToggle?: () => void;
+  showMcp?: boolean;
   onCommandPalette: () => void;
 }
 
@@ -68,6 +71,7 @@ export function WorkspaceTopbar({
   searchOpen, onSearchToggle,
   packagesOpen, onPackagesToggle,
   settingsOpen, onSettingsToggle,
+  mcpOpen = false, onMcpToggle, showMcp = false,
   onCommandPalette,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
@@ -176,6 +180,11 @@ export function WorkspaceTopbar({
           <TooltipBtn label="Packages" active={packagesOpen} onClick={onPackagesToggle}>
             <Package className="w-4 h-4" />
           </TooltipBtn>
+          {showMcp && onMcpToggle && (
+            <TooltipBtn label="MCP Servers" active={mcpOpen} onClick={onMcpToggle}>
+              <PlugZap className="w-4 h-4" />
+            </TooltipBtn>
+          )}
           <div className="w-px h-4 bg-border mx-0.5" />
           <TooltipBtn label="Import" onClick={() => setImportOpen(true)}>
             <Upload className="w-4 h-4" />

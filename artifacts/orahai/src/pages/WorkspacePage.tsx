@@ -18,6 +18,7 @@ import { PreviewPanel } from "@/components/editor/PreviewPanel";
 import { SecretsPanel } from "@/components/editor/SecretsPanel";
 import { DeployPanel } from "@/components/editor/DeployPanel";
 import { DebugPanel } from "@/components/editor/DebugPanel";
+import { McpPanel } from "@/components/editor/McpPanel";
 import { SetupBanner } from "@/components/editor/SetupBanner";
 import { useProject } from "@/hooks/useProject";
 import { useRuns } from "@/hooks/useRuns";
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
 type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
-type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | null;
+type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | "mcp" | null;
 
 export default function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -63,6 +64,7 @@ export default function WorkspacePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [packagesOpen, setPackagesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 
   // ── Other state ──────────────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ export default function WorkspacePage() {
     : debugOpen     ? "debug"
     : packagesOpen  ? "packages"
     : settingsOpen  ? "settings"
+    : mcpOpen       ? "mcp"
     : null;
 
   const openRightPanel = (p: RightPanel) => {
@@ -95,6 +98,7 @@ export default function WorkspacePage() {
     setDebugOpen(p === "debug");
     setPackagesOpen(p === "packages");
     setSettingsOpen(p === "settings");
+    setMcpOpen(p === "mcp");
   };
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
@@ -381,6 +385,9 @@ export default function WorkspacePage() {
         onPackagesToggle={() => openRightPanel(packagesOpen ? null : "packages")}
         settingsOpen={settingsOpen}
         onSettingsToggle={() => openRightPanel(settingsOpen ? null : "settings")}
+        mcpOpen={mcpOpen}
+        onMcpToggle={() => openRightPanel(mcpOpen ? null : "mcp")}
+        showMcp={isProjectOwner}
         onCommandPalette={() => setCmdPaletteOpen(true)}
       />
 
@@ -529,6 +536,11 @@ export default function WorkspacePage() {
             <EditorSettingsPanel onClose={() => openRightPanel(null)} />
           </div>
         )}
+        {activeRightPanel === "mcp" && isProjectOwner && (
+          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
+            <McpPanel projectId={project.id} />
+          </div>
+        )}
       </div>
 
       {/* ── Mobile layout ────────────────────────────────────────────────────── */}
@@ -662,6 +674,7 @@ export default function WorkspacePage() {
             {[
               { label: "GitHub",   icon: <Github className="w-4 h-4" />,      action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
               { label: "Packages", icon: <span className="text-sm">📦</span>, action: () => { setMobileTab("editor"); setPackagesOpen(true); setMoreMenuOpen(false); } },
+              { label: "MCP Tools", icon: <span className="text-sm">🔌</span>, action: () => { setMobileTab("editor"); setMcpOpen(true); setMoreMenuOpen(false); } },
               { label: "Settings", icon: <span className="text-sm">⚙️</span>, action: () => { setMobileTab("editor"); setSettingsOpen(true); setMoreMenuOpen(false); } },
               { label: "Explore",  icon: <Globe className="w-4 h-4" />,      action: () => { navigate("/explore"); setMoreMenuOpen(false); } },
               ...(isProjectOwner ? [
