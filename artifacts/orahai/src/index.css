@@ -165,3 +165,7 @@
 .safe-b {
   padding-bottom: max(env(safe-area-inset-bottom), 4px);
 }
+
+/* Hide scrollbar while keeping scroll functionality */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
