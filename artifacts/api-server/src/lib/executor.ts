@@ -26,7 +26,9 @@ export async function runInProject(
   for (const f of projectFiles) {
     const fullPath = path.resolve(dir, f.path);
     if (!fullPath.startsWith(resolvedDir + path.sep) && fullPath !== resolvedDir) continue;
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.mkdir(path.dirname(fullPath), { recursive: true }).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== "EEXIST") throw e;
+    });
     await fs.writeFile(fullPath, f.content ?? "", "utf8").catch(() => undefined);
   }
 
