@@ -150,7 +150,7 @@ export function WorkspaceTopbar({
           {autoDevEnabled && (
             <span className="absolute inset-0 rounded-lg animate-pulse bg-emerald-500/10 pointer-events-none" />
           )}
-          <Sprout className={cn("w-3.5 h-3.5 shrink-0", autoDevEnabled && "animate-bounce")} />
+          <Sprout className={cn("w-3.5 h-3.5 shrink-0", autoDevEnabled && "animate-pulse")} />
           <span className="hidden sm:inline text-xs">
             {autoDevEnabled
               ? growthCount > 0 ? `🍎 ×${growthCount}` : "Growing…"
