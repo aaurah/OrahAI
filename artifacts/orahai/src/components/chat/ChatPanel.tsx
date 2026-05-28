@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
-  Zap, Scale, Flame, Pencil, PlugZap,
+  Zap, Scale, Flame, Pencil, PlugZap, Cpu,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -130,6 +130,65 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editQueuedText, setEditQueuedText] = useState("");
+
+  // ── GPU VRAM Monitor ───────────────────────────────────────────────────────
+  interface GpuModel {
+    name: string;
+    size_vram: number;
+    size: number;
+    expires_at: string;
+  }
+  const [gpuModels, setGpuModels] = useState<GpuModel[]>([]);
+  const [gpuChipOpen, setGpuChipOpen] = useState(false);
+  const [warmingUp, setWarmingUp] = useState(false);
+  const gpuPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isOllamaModel = aiModel.startsWith("ollama:") || aiModel.startsWith("ollama-remote:");
+  const ollamaEndpointForGpu = aiModel.startsWith("ollama-remote:") ? "remote" : "server";
+  const currentModelName = aiModel.split(":").slice(1).join(":");
+
+  const fetchGpuPs = useCallback(async () => {
+    if (!isOllamaModel) { setGpuModels([]); return; }
+    try {
+      const data = await api.get<{ models: GpuModel[] }>(`/api/ai/ps?endpoint=${ollamaEndpointForGpu}`);
+      setGpuModels(data.models ?? []);
+    } catch { setGpuModels([]); }
+  }, [isOllamaModel, ollamaEndpointForGpu]);
+
+  useEffect(() => {
+    if (!isOllamaModel) { setGpuModels([]); return; }
+    void fetchGpuPs();
+    gpuPollRef.current = setInterval(() => { void fetchGpuPs(); }, 20_000);
+    return () => { if (gpuPollRef.current) clearInterval(gpuPollRef.current); };
+  }, [isOllamaModel, fetchGpuPs]);
+
+  async function handleKeepWarm() {
+    setWarmingUp(true);
+    try {
+      await api.post("/api/ai/warmup", { model: currentModelName, endpoint: ollamaEndpointForGpu, keepAlive: "30m" });
+      await fetchGpuPs();
+      toast({ title: "Model kept warm for 30 minutes" });
+    } catch {
+      toast({ title: "Keep warm failed", variant: "destructive" });
+    } finally { setWarmingUp(false); }
+  }
+
+  function formatVram(bytes: number): string {
+    if (!bytes) return "";
+    const gb = bytes / 1024 ** 3;
+    return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / 1024 ** 2).toFixed(0)}MB`;
+  }
+
+  function formatExpiry(expiresAt: string): string {
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    if (ms <= 0) return "expired";
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1_000);
+    return m > 0 ? `${m}m` : `${s}s`;
+  }
+
+  const hotModel = gpuModels.find(m => m.name === currentModelName || m.name.startsWith(currentModelName.split(":")[0]));
+  const isWarm = !!hotModel;
 
   // Fetch live Ollama models (both endpoints) when the model picker opens
   useEffect(() => {
@@ -948,8 +1007,105 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               </button>
             );
           })}
+          {/* GPU VRAM chip — only visible for Ollama models */}
+          {isOllamaModel && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setGpuChipOpen(v => !v)}
+                title={isWarm ? `Model loaded in VRAM · expires in ${formatExpiry(hotModel!.expires_at)}` : "Model not in VRAM — first response will be slower"}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all",
+                  isWarm
+                    ? "border-green-500/30 text-green-400 bg-green-500/10 hover:bg-green-500/20"
+                    : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground",
+                )}
+              >
+                <Cpu className="w-2.5 h-2.5" />
+                {isWarm ? (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    <span>{formatVram(hotModel!.size_vram)}</span>
+                    <span className="text-green-500/70">·</span>
+                    <span>{formatExpiry(hotModel!.expires_at)}</span>
+                  </>
+                ) : (
+                  <span>Cold</span>
+                )}
+              </button>
+
+              {gpuChipOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setGpuChipOpen(false)} />
+                  <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/30">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                        <Cpu className="w-3 h-3" /> VRAM Monitor
+                      </span>
+                      <button onClick={() => setGpuChipOpen(false)} className="text-muted-foreground hover:text-foreground">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {/* Running models list */}
+                    <div className="p-2 space-y-1.5 max-h-48 overflow-y-auto">
+                      {gpuModels.length === 0 ? (
+                        <div className="py-3 text-center text-xs text-muted-foreground">
+                          No models loaded in VRAM
+                          <p className="text-[10px] mt-1 text-muted-foreground/60">First request will load the model (~10–30s)</p>
+                        </div>
+                      ) : (
+                        gpuModels.map(m => {
+                          const isCurrent = m.name === currentModelName || m.name.startsWith(currentModelName.split(":")[0]);
+                          return (
+                            <div key={m.name} className={cn(
+                              "rounded-lg px-2.5 py-2 border text-xs",
+                              isCurrent ? "border-green-500/30 bg-green-500/5" : "border-border/40 bg-muted/20",
+                            )}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-medium truncate text-[11px]">{m.name}</span>
+                                {isCurrent && <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/20 font-bold shrink-0">Active</span>}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+                                <span title="VRAM used">{formatVram(m.size_vram)} VRAM</span>
+                                <span title="Expires from VRAM">· evicts in {formatExpiry(m.expires_at)}</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Keep Warm button */}
+                    <div className="border-t border-border/40 p-2">
+                      <button
+                        onClick={() => { void handleKeepWarm(); setGpuChipOpen(false); }}
+                        disabled={warmingUp || !isWarm}
+                        className={cn(
+                          "w-full flex items-center justify-center gap-1.5 text-[11px] font-medium rounded-lg px-3 py-1.5 transition-colors",
+                          isWarm
+                            ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20"
+                            : "bg-muted text-muted-foreground cursor-not-allowed border border-border/40",
+                        )}
+                      >
+                        {warmingUp
+                          ? <><Loader2 className="w-3 h-3 animate-spin" /> Extending…</>
+                          : <><Flame className="w-3 h-3" /> Keep Warm 30min</>
+                        }
+                      </button>
+                      <p className="text-[9px] text-muted-foreground/60 text-center mt-1">
+                        Prevents cold-start delays by keeping model in GPU memory
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Model picker */}
-          <div className="ml-auto relative">
+          <div className={cn("relative", !isOllamaModel && "ml-auto")}>
             <button
               type="button"
               onClick={() => setModelPickerOpen(v => !v)}

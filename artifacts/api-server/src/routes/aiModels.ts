@@ -223,6 +223,37 @@ router.delete("/models", requireAuth, async (req: AuthenticatedRequest, res: Res
   } catch (err) { next(err); }
 });
 
+// ── GET /api/ai/ps?endpoint=server|remote — running models in VRAM ────────────
+router.get("/ps", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const endpoint: OllamaEndpoint = req.query.endpoint === "remote" ? "remote" : "server";
+  try {
+    const psRes = await ollamaFetch("/api/ps", endpoint, { signal: AbortSignal.timeout(5000) });
+    if (!psRes.ok) return next(createError(`Ollama ps failed: ${psRes.status}`, psRes.status));
+    const data = await psRes.json();
+    return res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/ai/warmup — extend model keep-alive in VRAM ────────────────────
+router.post("/warmup", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const { model, endpoint: ep, keepAlive = "30m" } = req.body as { model?: string; endpoint?: string; keepAlive?: string };
+  const endpoint: OllamaEndpoint = ep === "remote" ? "remote" : "server";
+  if (!model) return next(createError("model is required", 400));
+  try {
+    // Send a zero-token generate request with keep_alive to extend VRAM residency
+    const warmRes = await ollamaFetch("/api/generate", endpoint, {
+      method: "POST",
+      body: JSON.stringify({ model, prompt: "", keep_alive: keepAlive, stream: false }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!warmRes.ok) {
+      const txt = await warmRes.text();
+      return next(createError(`Warmup failed: ${txt}`, warmRes.status));
+    }
+    return res.json({ ok: true, model, endpoint, keepAlive });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/ai/models/cancel ────────────────────────────────────────────────
 router.post("/models/cancel", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
