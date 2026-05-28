@@ -464,9 +464,17 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               path?: string; action?: string; size?: number; error?: string;
               step?: number; maxSteps?: number;
               count?: number; serverName?: string; toolName?: string;
+              from?: string; to?: string; reason?: string;
             };
 
-            if (evt.type === "agent_step" && evt.step) {
+            if (evt.type === "model_switch" && evt.to) {
+              const label = evt.to.includes(":") ? evt.to.split(":")[1] : evt.to;
+              const reasonLabel = evt.reason === "too_large" ? "request too large" : "rate limit";
+              toast({ title: `⚡ Switched to ${label}`, description: `Auto-fallback (${reasonLabel})` });
+              setAiModel(evt.to);
+              localStorage.setItem("orahai_ai_model", evt.to);
+
+            } else if (evt.type === "agent_step" && evt.step) {
               setAgentStep(evt.step);
 
             } else if (evt.type === "delta" && evt.content) {

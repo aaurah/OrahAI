@@ -435,6 +435,37 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         { role: "user", content: allImages.length ? userMessageContent : userContent },
       ];
 
+      // ── Auto-fallback model chain ─────────────────────────────────────────
+      // Build an ordered list of models to try. The user's requested model is
+      // first; if it hits 429/413 we silently advance to the next entry.
+      const GLOBAL_FALLBACK_CHAIN = [
+        "groq:llama-3.3-70b-versatile",
+        "groq:llama-3.1-8b-instant",
+        "groq:gemma2-9b-it",
+        "groq:meta-llama/llama-4-scout-17b-16e-instruct",
+        "groq:qwen/qwen3-32b",
+        "openai:gpt-4.1-mini",
+        "openai:gpt-4.1",
+      ];
+      const isProviderConfigured = (p: string) => {
+        if (p === "groq") return !!makeGroqClient();
+        if (p === "anthropic") return !!getAnthropicClient();
+        if (p === "ollama-remote") return !!makeOllamaRemoteClient();
+        return true; // openai (Replit AI proxy) and ollama always available
+      };
+      const _seenFallbacks = new Set<string>();
+      const activeFallbacks: string[] = [];
+      for (const m of [`${provider}:${modelName}`, ...GLOBAL_FALLBACK_CHAIN]) {
+        if (!_seenFallbacks.has(m)) {
+          _seenFallbacks.add(m);
+          const p = m.slice(0, m.indexOf(":"));
+          if (isProviderConfigured(p)) activeFallbacks.push(m);
+        }
+      }
+
+      let activeProvider = provider;
+      let activeModelName = modelName;
+
       // ── Agentic loop ──────────────────────────────────────────────────────
       for (let step = 1; step <= maxSteps; step++) {
         send({ type: "agent_step", step, maxSteps });
@@ -445,113 +476,140 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         }
 
         let stepContent = "";
-        if (provider === "anthropic") {
-          const anthropicClient = getAnthropicClient();
-          if (!anthropicClient) {
-            const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
-            stepContent = errMsg; allContent += errMsg;
-            send({ type: "delta", content: errMsg }); break;
-          }
+        let stepFailed = false;
+
+        // ── Auto-fallback retry loop ───────────────────────────────────────
+        const attemptedModels = new Set<string>();
+        fallbackLoop: while (true) {
+          const curModelKey = `${activeProvider}:${activeModelName}`;
+          attemptedModels.add(curModelKey);
+          // Groq free tier has tight per-request limits — enforce them dynamically
+          const curMaxTokens = activeProvider === "groq" ? Math.min(maxTokens, 3000) : maxTokens;
+          const isOllama = activeProvider === "ollama" || activeProvider === "ollama-remote";
+
           try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const stream = await (anthropicClient.messages.create as any)({
-              model: modelName,
-              max_tokens: maxTokens,
-              system: systemPrompt,
-              messages: toAnthropicMessages(agentMessages),
-              stream: true,
-            });
-            for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
-              const delta = event.delta as Record<string, unknown> | undefined;
-              if (event.type === "content_block_delta" && delta?.type === "text_delta") {
-                const t = String(delta.text ?? "");
-                stepContent += t; allContent += t;
-                send({ type: "delta", content: t });
+            if (activeProvider === "anthropic") {
+              const anthropicClient = getAnthropicClient();
+              if (!anthropicClient) {
+                const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
+                stepContent = errMsg; allContent += errMsg;
+                send({ type: "delta", content: errMsg }); stepFailed = true; break;
               }
-            }
-          } catch (e) {
-            logger.warn({ err: e }, "Anthropic error");
-            const errMsg = "Anthropic error. Check your ANTHROPIC_API_KEY in project secrets.";
-            stepContent = errMsg; allContent += errMsg;
-            send({ type: "delta", content: errMsg }); break;
-          }
-        } else {
-          const isOllama = provider === "ollama" || provider === "ollama-remote";
-          let llmClient: OpenAI;
-          if (provider === "ollama-remote") {
-            const remoteClient = makeOllamaRemoteClient();
-            if (!remoteClient) {
-              const errMsg = "Remote Ollama not configured. Set OLLAMA_REMOTE_URL in your environment secrets.";
-              stepContent = errMsg; allContent += errMsg;
-              send({ type: "delta", content: errMsg }); break;
-            }
-            llmClient = remoteClient;
-          } else if (provider === "ollama") {
-            llmClient = makeOllamaClient();
-          } else if (provider === "groq") {
-            const groqClient = makeGroqClient();
-            if (!groqClient) {
-              const errMsg = "Groq not configured. Add your GROQ_API_KEY in Replit Secrets (free at console.groq.com).";
-              stepContent = errMsg; allContent += errMsg;
-              send({ type: "delta", content: errMsg }); break;
-            }
-            llmClient = groqClient;
-          } else {
-            llmClient = openai;
-          }
-          try {
-            if (provider === "ollama-remote") {
-              // ngrok free tier buffers SSE streams — use non-streaming call and
-              // forward the full response as a single delta so the client still
-              // sees progressive output once the response arrives.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const resp = await (llmClient.chat.completions.create as any)({
-                model: modelName,
-                messages: agentMessages,
-                stream: false,
-                max_tokens: maxTokens,
+              const stream = await (anthropicClient.messages.create as any)({
+                model: activeModelName,
+                max_tokens: curMaxTokens,
+                system: systemPrompt,
+                messages: toAnthropicMessages(agentMessages),
+                stream: true,
               });
-              const text: string = resp.choices?.[0]?.message?.content ?? "";
-              if (text) {
-                // Stream word-by-word so the UI feels live rather than a wall-of-text pop-in
-                const words = text.split(/(?<=\s)/);
-                for (const word of words) {
-                  stepContent += word; allContent += word;
-                  send({ type: "delta", content: word });
-                  await new Promise(r => setTimeout(r, 12));
+              for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+                const delta = event.delta as Record<string, unknown> | undefined;
+                if (event.type === "content_block_delta" && delta?.type === "text_delta") {
+                  const t = String(delta.text ?? "");
+                  stepContent += t; allContent += t;
+                  send({ type: "delta", content: t });
                 }
               }
             } else {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const stream = await (llmClient.chat.completions.create as any)({
-                model: modelName,
-                messages: agentMessages,
-                stream: true,
-                ...(isOllama ? { max_tokens: maxTokens } : { max_completion_tokens: maxTokens }),
-              });
-              for await (const chunk of stream) {
+              let llmClient: OpenAI;
+              if (activeProvider === "ollama-remote") {
+                const remoteClient = makeOllamaRemoteClient();
+                if (!remoteClient) {
+                  const errMsg = "Remote Ollama not configured. Set OLLAMA_REMOTE_URL in your environment secrets.";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = remoteClient;
+              } else if (activeProvider === "ollama") {
+                llmClient = makeOllamaClient();
+              } else if (activeProvider === "groq") {
+                const groqClient = makeGroqClient();
+                if (!groqClient) {
+                  const errMsg = "Groq not configured. Add your GROQ_API_KEY in Replit Secrets (free at console.groq.com).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = groqClient;
+              } else {
+                llmClient = openai;
+              }
+
+              if (activeProvider === "ollama-remote") {
+                // ngrok free tier buffers SSE — non-streaming call, word-by-word playback
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const delta = (chunk as any).choices?.[0]?.delta?.content;
-                if (delta) {
-                  stepContent += delta; allContent += delta;
-                  send({ type: "delta", content: delta });
+                const resp = await (llmClient.chat.completions.create as any)({
+                  model: activeModelName,
+                  messages: agentMessages,
+                  stream: false,
+                  max_tokens: curMaxTokens,
+                });
+                const text: string = resp.choices?.[0]?.message?.content ?? "";
+                if (text) {
+                  const words = text.split(/(?<=\s)/);
+                  for (const word of words) {
+                    stepContent += word; allContent += word;
+                    send({ type: "delta", content: word });
+                    await new Promise(r => setTimeout(r, 12));
+                  }
+                }
+              } else {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const stream = await (llmClient.chat.completions.create as any)({
+                  model: activeModelName,
+                  messages: agentMessages,
+                  stream: true,
+                  ...(isOllama ? { max_tokens: curMaxTokens } : { max_completion_tokens: curMaxTokens }),
+                });
+                for await (const chunk of stream) {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const delta = (chunk as any).choices?.[0]?.delta?.content;
+                  if (delta) {
+                    stepContent += delta; allContent += delta;
+                    send({ type: "delta", content: delta });
+                  }
                 }
               }
             }
+            break; // ← success, exit retry loop
+
           } catch (e) {
+            const errStatus = (e as { status?: number })?.status;
+            const isRateLimit = errStatus === 429 || errStatus === 413;
+
+            if (isRateLimit) {
+              // Try next untried model in the fallback chain
+              const nextModel = activeFallbacks.find(m => !attemptedModels.has(m));
+              if (nextModel) {
+                const prevKey = curModelKey;
+                const ci = nextModel.indexOf(":");
+                activeProvider = nextModel.slice(0, ci);
+                activeModelName = nextModel.slice(ci + 1);
+                const reason = errStatus === 413 ? "too_large" : "rate_limit";
+                logger.warn({ from: prevKey, to: nextModel, reason }, "AI auto-fallback");
+                send({ type: "model_switch", from: prevKey, to: nextModel, reason });
+                continue fallbackLoop;
+              }
+            }
+
+            // No fallback left, or non-rate-limit error
             logger.warn({ err: e }, "AI error");
             const isTimeout = (e as Error)?.message?.includes("timed out") || (e as Error)?.message?.includes("timeout") || (e as NodeJS.ErrnoException)?.code === "ETIMEDOUT";
-            const errMsg = provider === "ollama-remote"
+            const errMsg = activeProvider === "ollama-remote"
               ? isTimeout
-                ? "⏱ Remote Ollama timed out. Your Colab session may be idle or Ollama is stuck. In Colab: run `pkill -f ollama` then restart the Ollama serve cell, then re-run the inference test cell."
-                : "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine. Also make sure Ollama is started with OLLAMA_ORIGINS=* in Colab."
-              : provider === "ollama"
+                ? "⏱ Remote Ollama timed out. Your Colab session may be idle. In Colab: run `pkill -f ollama` then restart the Ollama serve cell."
+                : "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine."
+              : activeProvider === "ollama"
                 ? "Ollama error. Make sure the Ollama service is running and the model is installed."
-                : "AI service temporarily unavailable. Please try again.";
+                : isRateLimit
+                  ? "Rate limit reached on all available models. Please wait a minute and try again."
+                  : "AI service temporarily unavailable. Please try again.";
             stepContent = errMsg; allContent += errMsg;
-            send({ type: "delta", content: errMsg }); break;
+            send({ type: "delta", content: errMsg }); stepFailed = true; break fallbackLoop;
           }
         }
+
+        if (stepFailed) break;
 
         // ── Truncation detection — check for opened but unclosed WRITE blocks ──
         const openCount = (stepContent.match(/<<<WRITE:[^\n>]+>>>/g) ?? []).length;
