@@ -6,6 +6,7 @@ import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
 import { logger } from "../lib/logger";
+import { runInProject } from "../lib/executor";
 
 const router = Router();
 
@@ -97,31 +98,25 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
           .where(eq(runs.id, run.id)).catch((e: unknown) => logger.warn({ err: e }, "Failed to update run status"));
       });
     } else {
-      const lang = project.language ?? "nodejs";
-      let output: string;
-      if (lang === "html") {
-        output = `✓ HTML project ready.\n\nSwitch to the Preview tab to view your project live in the browser.\nNo server-side execution is needed for HTML/CSS/JS projects.`;
-      } else {
+      // Run locally using the built-in executor
+      (async () => {
         try {
-          const setup = await detectProjectSetup(project.id, lang);
-          const scriptLines = Object.entries(setup.scripts).length > 0
-            ? "\nAvailable scripts:\n" + Object.entries(setup.scripts).map(([k, v]) => `  ${setup.packageManager} run ${k}  →  ${v}`).join("\n")
-            : "";
-          const devLine = setup.devCmd ? `\nDetected run command:  ${setup.devCmd}` : "";
-          const installLine = setup.installCmd ? `Install dependencies:  ${setup.installCmd}` : "";
-          output =
-            `$ ${command}\n\n` +
-            `Detected framework: ${setup.framework}\n` +
-            (installLine ? installLine + "\n" : "") +
-            (devLine ? devLine + "\n" : "") +
-            (scriptLines ? scriptLines + "\n" : "") +
-            `\nCode execution is not available in this environment.\n` +
-            `Your project files are saved — ask the AI to help set up, fix errors, or deploy this project.`;
-        } catch {
-          output = `$ ${command}\n\nCode execution is not enabled in this environment.\n\nYour files are saved and ready.\nAsk the AI assistant to help run, debug, or deploy this project.`;
+          const projectFiles = await db
+            .select({ path: files.path, content: files.content })
+            .from(files)
+            .where(and(eq(files.projectId, project.id), isNull(files.deletedAt)));
+
+          const result = await runInProject(project.id, command, projectFiles);
+          await db.update(runs)
+            .set({ status: result.status, output: result.output, exitCode: result.exitCode, completedAt: new Date() })
+            .where(eq(runs.id, run.id));
+        } catch (e) {
+          logger.warn({ err: e }, "Local executor error");
+          await db.update(runs)
+            .set({ status: "error", output: String((e as Error).message ?? "Execution failed"), completedAt: new Date() })
+            .where(eq(runs.id, run.id));
         }
-      }
-      await db.update(runs).set({ status: "success", output, completedAt: new Date() }).where(eq(runs.id, run.id));
+      })();
     }
 
     res.status(202).json({ data: run });
