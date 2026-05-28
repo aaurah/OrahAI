@@ -78,11 +78,11 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
       },
       anthropic: {
         available: !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY),
-        models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-3-5"],
+        models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
       },
       groq: {
         available: groqKey,
-        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b"],
       },
       ollama: {
         available: serverProbe.available,

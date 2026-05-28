@@ -34,9 +34,9 @@ export const MODEL_GROUPS: ModelGroup[] = [
     provider: "anthropic",
     note: "Requires ANTHROPIC_API_KEY in project or environment secrets",
     models: [
-      { id: "anthropic:claude-opus-4-5",   name: "Claude Opus 4.5",    provider: "anthropic", badge: "Powerful", vision: true },
-      { id: "anthropic:claude-sonnet-4-5", name: "Claude Sonnet 4.5",  provider: "anthropic", badge: "Best", vision: true },
-      { id: "anthropic:claude-haiku-3-5",  name: "Claude Haiku 3.5",   provider: "anthropic", badge: "Fast" },
+      { id: "anthropic:claude-opus-4-8",            name: "Claude Opus 4.8",    provider: "anthropic", badge: "Powerful", vision: true },
+      { id: "anthropic:claude-sonnet-4-6",          name: "Claude Sonnet 4.6",  provider: "anthropic", badge: "Best", vision: true },
+      { id: "anthropic:claude-haiku-4-5-20251001",  name: "Claude Haiku 4.5",   provider: "anthropic", badge: "Fast" },
     ],
   },
   {
@@ -44,12 +44,12 @@ export const MODEL_GROUPS: ModelGroup[] = [
     provider: "groq",
     note: "Free API key at console.groq.com — requires GROQ_API_KEY secret",
     models: [
-      { id: "groq:llama-3.3-70b-versatile",        name: "Llama 3.3 70B",        provider: "groq", badge: "Default", description: "Top-quality Llama on Groq's LPU — free tier" },
-      { id: "groq:llama-3.1-8b-instant",            name: "Llama 3.1 8B Instant", provider: "groq", badge: "Fast",   description: "Blazing fast, great for quick tasks" },
-      { id: "groq:deepseek-r1-distill-qwen-32b",    name: "DeepSeek R1 32B",      provider: "groq", badge: "Reason", description: "Strong reasoning model — free on Groq" },
-      { id: "groq:qwen-qwq-32b",                    name: "Qwen QwQ 32B",         provider: "groq", badge: "Reason", description: "Alibaba reasoning model" },
-      { id: "groq:mixtral-8x7b-32768",              name: "Mixtral 8×7B",         provider: "groq", badge: "MoE",    description: "Mixture-of-experts, 32k context" },
-      { id: "groq:gemma2-9b-it",                    name: "Gemma 2 9B",           provider: "groq", description: "Google Gemma 2 — fast and capable" },
+      { id: "groq:llama-3.3-70b-versatile",                       name: "Llama 3.3 70B",        provider: "groq", badge: "Default", description: "Top-quality Llama on Groq's LPU — free tier" },
+      { id: "groq:llama-3.1-8b-instant",                          name: "Llama 3.1 8B Instant", provider: "groq", badge: "Fast",    description: "Blazing fast, great for quick tasks" },
+      { id: "groq:meta-llama/llama-4-scout-17b-16e-instruct",     name: "Llama 4 Scout 17B",    provider: "groq", badge: "New",     description: "Meta Llama 4 Scout — latest multimodal model" },
+      { id: "groq:qwen/qwen3-32b",                                name: "Qwen 3 32B",           provider: "groq", badge: "Reason",  description: "Alibaba Qwen 3 — strong reasoning" },
+      { id: "groq:groq/compound",                                 name: "Groq Compound",        provider: "groq", badge: "New",     description: "Groq's compound model — best quality" },
+      { id: "groq:groq/compound-mini",                            name: "Groq Compound Mini",   provider: "groq", badge: "Fast",    description: "Groq's compound mini — fast & smart" },
     ],
   },
   {
