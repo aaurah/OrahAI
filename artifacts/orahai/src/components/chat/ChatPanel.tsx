@@ -764,6 +764,87 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       )}
 
+      {/* Queue tray — shown above input while messages are waiting */}
+      {queueCount > 0 && (() => {
+        const queuedMsgs = items.filter(
+          (it): it is ChatMessage & { queued: true; images?: AttachedImage[] } =>
+            "role" in it && !("_type" in it) && !!(it as { queued?: boolean }).queued
+        );
+        if (!queuedMsgs.length) return null;
+        return (
+          <div className="mx-2.5 mt-2 rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-amber-500/10 border-b border-amber-500/15">
+              <span className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide flex items-center gap-1">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                {queuedMsgs.length} queued
+              </span>
+              <button
+                onClick={() => { abortRef.current?.abort(); }}
+                className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+              >
+                cancel all
+              </button>
+            </div>
+            <div className="divide-y divide-amber-500/10 max-h-40 overflow-y-auto">
+              {queuedMsgs.map((msg) => (
+                <div key={msg.id} className="px-3 py-2">
+                  {editingQueuedId === msg.id ? (
+                    <div className="space-y-1.5">
+                      <Textarea
+                        value={editQueuedText}
+                        onChange={(e) => setEditQueuedText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveQueuedEdit(msg.id); }
+                          if (e.key === "Escape") cancelQueuedEdit();
+                        }}
+                        className="text-xs min-h-[48px] resize-none"
+                        autoFocus
+                      />
+                      <div className="flex gap-1.5 justify-end">
+                        <button onClick={cancelQueuedEdit}
+                          className="px-2 py-0.5 text-[10px] rounded-md text-muted-foreground hover:bg-muted transition-colors">
+                          Cancel
+                        </button>
+                        <button onClick={() => saveQueuedEdit(msg.id)}
+                          className="px-2 py-0.5 text-[10px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2">
+                      <p className="flex-1 text-xs text-foreground/80 line-clamp-2 break-words min-w-0">
+                        {msg.content && msg.content !== "(images)" ? msg.content : (
+                          <span className="italic text-muted-foreground">
+                            {msg.images?.length ? `${msg.images.length} image${msg.images.length > 1 ? "s" : ""}` : "(empty)"}
+                          </span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => startEditQueuedMsg(msg.id, msg.content === "(images)" ? "" : msg.content)}
+                          title="Edit"
+                          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => deleteQueuedMsg(msg.id)}
+                          title="Remove"
+                          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Input */}
       <div className="p-2.5 border-t border-border">
         {/* Mode selector */}
