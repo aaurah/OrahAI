@@ -61,3 +61,8 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+"Groq api" = "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"
