@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
-  Zap, Scale, Flame, Pencil, PlugZap, Cpu, DollarSign,
+  Zap, Scale, Flame, Pencil, PlugZap, Cpu, DollarSign, Link2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -120,6 +120,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentStep, setAgentStep] = useState(0);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [urlPreviews, setUrlPreviews] = useState<{ id: string; url: string }[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, "good" | "bad">>({});
   const [speakingId, setSpeakingId] = useState<string | null>(null);
@@ -331,6 +332,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const handlePaste = (e: React.ClipboardEvent) => {
     const imageItems = Array.from(e.clipboardData.items).filter((i) => i.type.startsWith("image/"));
     imageItems.forEach((item) => { const f = item.getAsFile(); if (f) addImageFile(f); });
+    if (!imageItems.length) {
+      const text = e.clipboardData.getData("text/plain").trim();
+      const matches = text.match(/https?:\/\/[^\s]+/g);
+      if (matches) {
+        matches.forEach(url => {
+          setUrlPreviews(prev => prev.some(p => p.url === url) ? prev : [...prev, { id: crypto.randomUUID(), url }]);
+        });
+      }
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -376,6 +386,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     setInput("");
     const imgs = attachedImages;
     setAttachedImages([]);
+    setUrlPreviews([]);
 
     if (isStreaming) {
       const displayId = `queued-${crypto.randomUUID()}`;
@@ -1095,6 +1106,37 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 </button>
               </div>
               <span className="text-xs text-muted-foreground truncate max-w-[56px]">{img.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* URL screenshot preview strip */}
+      {urlPreviews.length > 0 && (
+        <div className="px-2.5 pt-2 flex flex-col gap-2">
+          {urlPreviews.map(({ id, url }) => (
+            <div key={id} className="relative rounded-lg border border-border bg-muted/30 overflow-hidden flex gap-0">
+              <div className="w-24 h-16 shrink-0 overflow-hidden bg-muted">
+                <img
+                  src={`https://image.thum.io/get/width/300/crop/400/${url}`}
+                  alt="Page screenshot"
+                  className="w-full h-full object-cover object-top"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+              </div>
+              <div className="flex-1 min-w-0 px-2 py-1.5 flex flex-col justify-center">
+                <div className="flex items-center gap-1 text-[10px] text-primary mb-0.5">
+                  <Link2 className="w-3 h-3 shrink-0" />
+                  <span className="truncate font-medium">Screenshot preview</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground truncate">{url}</p>
+              </div>
+              <button
+                onClick={() => setUrlPreviews(prev => prev.filter(p => p.id !== id))}
+                className="absolute top-1 right-1 w-4 h-4 rounded-full bg-background/80 border border-border flex items-center justify-center hover:bg-muted"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
             </div>
           ))}
         </div>
