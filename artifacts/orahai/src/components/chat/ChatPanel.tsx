@@ -93,6 +93,12 @@ interface McpCallEvent {
   error?: string;
 }
 
+type ExploreEntry =
+  | { kind: "step"; step: number; maxSteps?: number }
+  | { kind: "file"; path: string; action: "write" | "delete" | "error"; error?: string }
+  | { kind: "run"; id: string; command: string; status: "running" | "done" | "error" }
+  | { kind: "mcp"; id: string; server: string; tool: string; status: "done" | "error" };
+
 type ListItem =
   | (ChatMessage & { pending?: boolean; queued?: boolean; images?: AttachedImage[] })
   | (RunEvent & { _type: "run" })
@@ -150,6 +156,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editQueuedText, setEditQueuedText] = useState("");
+  const [exploreLog, setExploreLog] = useState<Record<string, ExploreEntry[]>>({});
+  const [exploreOpen, setExploreOpen] = useState<Record<string, boolean>>({});
 
   // ── GPU VRAM Monitor ───────────────────────────────────────────────────────
   interface GpuModel {
@@ -464,6 +472,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       id: assistantId, projectId, userId: null,
       role: "assistant", content: "", createdAt: new Date().toISOString(), pending: true,
     };
+    const appendExplore = (entry: ExploreEntry) => {
+      setExploreLog(prev => ({ ...prev, [assistantId]: [...(prev[assistantId] ?? []), entry] }));
+      setExploreOpen(prev => (assistantId in prev ? prev : { ...prev, [assistantId]: true }));
+    };
+    const updateExploreRun = (runId: string, status: "done" | "error") => {
+      setExploreLog(prev => ({
+        ...prev,
+        [assistantId]: (prev[assistantId] ?? []).map(e =>
+          e.kind === "run" && e.id === runId ? { ...e, status } : e
+        ),
+      }));
+    };
 
     if (existingUserMsgId) {
       // Queued message already shown — strip the queued badge and append assistant placeholder
@@ -554,6 +574,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
             } else if (evt.type === "agent_step" && evt.step) {
               setAgentStep(evt.step);
+              appendExplore({ kind: "step", step: evt.step, maxSteps: evt.maxSteps });
 
             } else if (evt.type === "delta" && evt.content) {
               setItems((prev) =>
@@ -570,6 +591,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               };
               setItems((prev) => [...prev, runItem]);
               scrollBottom();
+              appendExplore({ kind: "run", id: `run-${evt.idx}`, command: evt.command!, status: "running" });
 
             } else if (evt.type === "run_result") {
               const rid = `run-${evt.idx}-${assistantId}`;
@@ -578,6 +600,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                   ? { ...item, status: (evt.status ?? "error") as "success" | "error", output: evt.output, exitCode: evt.exitCode }
                   : item
               ));
+              updateExploreRun(`run-${evt.idx}`, evt.exitCode === 0 ? "done" : "error");
 
             } else if (evt.type === "file_write" && evt.path) {
               const fid = `fop-write-${evt.path}-${assistantId}`;
@@ -590,6 +613,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               });
               onFileChange?.(evt.path, "write");
               scrollBottom();
+              appendExplore({ kind: "file", path: evt.path, action: "write" });
 
             } else if (evt.type === "file_delete" && evt.path) {
               const fid = `fop-delete-${evt.path}-${assistantId}`;
@@ -602,6 +626,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               });
               onFileChange?.(evt.path, "delete");
               scrollBottom();
+              appendExplore({ kind: "file", path: evt.path, action: "delete" });
 
             } else if (evt.type === "file_op_error" && evt.path) {
               const fid = `fop-err-${evt.path}-${assistantId}`;
@@ -624,6 +649,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 return [...prev, newItem];
               });
               scrollBottom();
+              appendExplore({ kind: "mcp", id: mid, server: evt.serverName!, tool: evt.toolName!, status: "done" });
 
             } else if (evt.type === "mcp_call_error" && evt.serverName && evt.toolName) {
               const mid = `mcp-err-${evt.serverName}-${evt.toolName}-${assistantId}`;
@@ -881,25 +907,72 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                         </div>
                       )}
                       {isPending ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground py-0.5">
-                          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          <span>
-                            {!msg.content
-                              ? "Thinking…"
-                              : agentStep > 1
-                                ? `Working… (step ${agentStep})`
-                                : "Coding…"}
-                          </span>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground py-0.5">
+                            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                            <span>
+                              {!msg.content
+                                ? "Thinking…"
+                                : agentStep > 1
+                                  ? `Working… (step ${agentStep})`
+                                  : "Coding…"}
+                            </span>
+                          </div>
+                          {(exploreLog[msg.id]?.length ?? 0) > 0 && (
+                            <div>
+                              <button
+                                onClick={() => setExploreOpen(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+                                <span className="font-medium">Explore</span>
+                                {exploreOpen[msg.id]
+                                  ? <ChevronUp className="w-3 h-3" />
+                                  : <ChevronDown className="w-3 h-3" />}
+                                <span className="opacity-50">({exploreLog[msg.id]?.length})</span>
+                              </button>
+                              {exploreOpen[msg.id] && (
+                                <div className="mt-1.5 ml-3 flex flex-col gap-0.5 max-h-36 overflow-y-auto pr-1">
+                                  {exploreLog[msg.id]?.map((entry, i) => (
+                                    <ExploreEntryRow key={i} entry={entry} />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : hasContent ? (
-                        <MsgContent
-                          content={msg.content}
-                          isAssistant={msg.role === "assistant"}
-                          onApply={onApplyCode}
-                          onApplyToPath={onApplyToPath}
-                          activeFilePath={activeFilePath}
-                          projectId={projectId}
-                        />
+                        <>
+                          <MsgContent
+                            content={msg.content}
+                            isAssistant={msg.role === "assistant"}
+                            onApply={onApplyCode}
+                            onApplyToPath={onApplyToPath}
+                            activeFilePath={activeFilePath}
+                            projectId={projectId}
+                          />
+                          {msg.role === "assistant" && (exploreLog[msg.id]?.length ?? 0) > 0 && (
+                            <div className="pt-1 border-t border-border/30">
+                              <button
+                                onClick={() => setExploreOpen(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Sparkles className="w-3 h-3 shrink-0 opacity-50" />
+                                <span>{exploreLog[msg.id]?.length} action{(exploreLog[msg.id]?.length ?? 0) !== 1 ? "s" : ""} taken</span>
+                                {exploreOpen[msg.id]
+                                  ? <ChevronUp className="w-3 h-3" />
+                                  : <ChevronDown className="w-3 h-3" />}
+                              </button>
+                              {exploreOpen[msg.id] && (
+                                <div className="mt-1.5 ml-3 flex flex-col gap-0.5 max-h-36 overflow-y-auto pr-1">
+                                  {exploreLog[msg.id]?.map((entry, i) => (
+                                    <ExploreEntryRow key={i} entry={entry} />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
                       ) : null}
                     </div>
                     {/* Action bar */}
@@ -1481,6 +1554,56 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     </div>
   );
 });
+
+// ── Explore Entry Row ──────────────────────────────────────────────────────────
+
+function ExploreEntryRow({ entry }: { entry: ExploreEntry }) {
+  if (entry.kind === "step") {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Sparkles className="w-3 h-3 shrink-0 text-primary/60" />
+        <span>Step {entry.step}{entry.maxSteps ? ` / ${entry.maxSteps}` : ""}</span>
+      </div>
+    );
+  }
+  if (entry.kind === "file") {
+    const icon =
+      entry.action === "write"  ? <FileCode2 className="w-3 h-3 shrink-0 text-green-400" /> :
+      entry.action === "delete" ? <FileX     className="w-3 h-3 shrink-0 text-red-400" />   :
+                                  <AlertCircle className="w-3 h-3 shrink-0 text-red-400" />;
+    const label =
+      entry.action === "write"  ? "Wrote" :
+      entry.action === "delete" ? "Deleted" : "Error";
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+        {icon}
+        <span className="shrink-0">{label}</span>
+        <code className="font-mono text-[10px] truncate text-foreground/70">{entry.path}</code>
+      </div>
+    );
+  }
+  if (entry.kind === "run") {
+    const icon =
+      entry.status === "running" ? <Loader2      className="w-3 h-3 shrink-0 animate-spin text-amber-400" /> :
+      entry.status === "done"    ? <CheckCircle2 className="w-3 h-3 shrink-0 text-green-400" />             :
+                                   <XCircle      className="w-3 h-3 shrink-0 text-red-400" />;
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+        {icon}
+        <code className="font-mono text-[10px] truncate text-foreground/70">{entry.command || "command"}</code>
+      </div>
+    );
+  }
+  if (entry.kind === "mcp") {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+        <PlugZap className="w-3 h-3 shrink-0 text-violet-400" />
+        <span className="truncate"><span className="text-foreground/60">{entry.server}/</span>{entry.tool}</span>
+      </div>
+    );
+  }
+  return null;
+}
 
 // ── MCP Call Card ──────────────────────────────────────────────────────────────
 
