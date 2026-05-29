@@ -1,22 +1,69 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Shield, Users, FolderOpen, Play, BarChart3, Search, Trash2,
   RefreshCw, ChevronLeft, ChevronRight, Activity, Loader2,
   AlertCircle, CheckCircle, Clock, Infinity, Lock, ShieldCheck,
-  ShieldOff, Unlock, RotateCcw, X,
+  ShieldOff, Unlock, RotateCcw, X, Bot, Cpu, Cloud, CheckCircle2,
+  XCircle, Download, Server, Zap, ExternalLink, StopCircle, Wifi,
+  WifiOff, Sparkles, Copy, Laptop, Eye, UploadCloud,
 } from "lucide-react";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
-import { api } from "@/lib/api";
+import { api, API_BASE } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { OLLAMA_MODEL_LIBRARY } from "@/lib/models";
 
-type Tab = "overview" | "users" | "projects" | "runs";
+type Tab = "overview" | "users" | "projects" | "runs" | "ai";
+
+// ── AI tab types ──────────────────────────────────────────────────────────────
+type OllamaEndpoint = "server" | "remote";
+
+interface OllamaModel {
+  name: string;
+  size: number;
+  modified_at: string;
+  details?: { parameter_size?: string; quantization_level?: string };
+}
+
+interface ProviderStatus {
+  available: boolean;
+  models?: string[];
+  version?: string;
+  configured?: boolean;
+  url?: string | null;
+}
+
+interface ProvidersData {
+  openai: ProviderStatus;
+  anthropic: ProviderStatus;
+  groq: ProviderStatus;
+  ollama: ProviderStatus;
+  "ollama-remote": ProviderStatus;
+  [key: string]: ProviderStatus;
+}
+
+interface PullState {
+  model: string;
+  endpoint: OllamaEndpoint;
+  status: string;
+  percent: number;
+  done: boolean;
+  error: string | null;
+}
+
+function fmtBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
 
 interface Stats {
   users: { total: number; new30Days: number };
@@ -130,6 +177,7 @@ export default function AdminPage() {
     { id: "users", label: "Users", icon: <Users className="w-4 h-4" /> },
     { id: "projects", label: "Projects", icon: <FolderOpen className="w-4 h-4" /> },
     { id: "runs", label: "Runs", icon: <Activity className="w-4 h-4" /> },
+    { id: "ai", label: "AI", icon: <Bot className="w-4 h-4" /> },
   ];
 
   return (
@@ -170,6 +218,7 @@ export default function AdminPage() {
         {tab === "users" && <UsersTab currentUserId={user.id} />}
         {tab === "projects" && <ProjectsTab />}
         {tab === "runs" && <RunsTab />}
+        {tab === "ai" && <AiTab />}
       </main>
     </div>
   );
@@ -762,6 +811,622 @@ function ProjectsTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── AI Tab ────────────────────────────────────────────────────────────────────
+
+const AI_LIB_FILTERS = ["all", "general", "code", "vision", "fast", "powerful", "embed"];
+
+function AiProviderCard({ name, icon, available, version, models, note, unavailableLabel }: {
+  name: string; icon: React.ReactNode; available: boolean;
+  version?: string; models?: string[]; note?: string; unavailableLabel?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={cn(
+      "rounded-xl border p-4 transition-colors",
+      available ? "border-green-500/20 bg-green-500/5" : "border-border bg-card",
+    )}>
+      <div className="flex items-center gap-3">
+        <div className={cn("p-2 rounded-lg", available ? "bg-green-500/10 text-green-400" : "bg-muted text-muted-foreground")}>
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm">{name}</span>
+            {version && <span className="text-[10px] text-muted-foreground">v{version}</span>}
+          </div>
+          {note && <p className="text-xs text-muted-foreground mt-0.5 truncate">{note}</p>}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {available ? (
+            <div className="flex items-center gap-1 text-green-400 text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Ready
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 text-muted-foreground text-xs">
+              <XCircle className="w-3.5 h-3.5" /> {unavailableLabel ?? "Not configured"}
+            </div>
+          )}
+          {models && models.length > 0 && (
+            <button onClick={() => setExpanded(v => !v)}
+              className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground">
+              {expanded
+                ? <ChevronLeft className="w-3.5 h-3.5 rotate-90" />
+                : <ChevronLeft className="w-3.5 h-3.5 -rotate-90" />}
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && models && models.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border/40 flex flex-wrap gap-1.5">
+          {models.map(m => (
+            <span key={m} className="text-[10px] px-2 py-0.5 rounded-full bg-muted border border-border/40 text-muted-foreground font-mono">{m}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiInstalledRow({ model, onDelete, onUpdate, deleting, updating }: {
+  model: OllamaModel;
+  onDelete: (name: string) => void;
+  onUpdate: (name: string) => void;
+  deleting: boolean;
+  updating: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 group">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-mono font-medium truncate">{model.name}</span>
+          {model.details?.parameter_size && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-medium shrink-0">
+              {model.details.parameter_size}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-muted-foreground">{fmtBytes(model.size)}</span>
+          {model.details?.quantization_level && (
+            <span className="text-xs text-muted-foreground">{model.details.quantization_level}</span>
+          )}
+          <span className="text-xs text-muted-foreground">
+            updated {formatDistanceToNow(new Date(model.modified_at))} ago
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={() => onUpdate(model.name)} disabled={updating || deleting}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors disabled:opacity-50"
+          title="Re-pull latest version">
+          {updating ? <RefreshCw className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
+          Update
+        </button>
+        <button onClick={() => onDelete(model.name)} disabled={deleting || updating}
+          className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+          title="Remove model">
+          {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AiLibraryCard({ model, serverInstalled, remoteInstalled, pullingServer, pullingRemote, serverAvailable, remoteAvailable, remoteConfigured, onPull }: {
+  model: typeof OLLAMA_MODEL_LIBRARY[0];
+  serverInstalled: boolean;
+  remoteInstalled: boolean;
+  pullingServer: boolean;
+  pullingRemote: boolean;
+  serverAvailable: boolean;
+  remoteAvailable: boolean;
+  remoteConfigured: boolean;
+  onPull: (id: string, endpoint: OllamaEndpoint) => void;
+}) {
+  const [showLocal, setShowLocal] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const localCmd = `ollama pull ${model.id}`;
+  function copyCmd() {
+    void navigator.clipboard.writeText(localCmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  return (
+    <div className={cn(
+      "rounded-xl border p-4 flex flex-col gap-2",
+      (serverInstalled || remoteInstalled) ? "border-green-500/20 bg-green-500/5" : "border-border bg-card",
+    )}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold">{model.name}</span>
+            {model.badge && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                {model.badge}
+              </span>
+            )}
+            {model.vision && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium flex items-center gap-0.5">
+                <Eye className="w-2.5 h-2.5" /> Vision
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">{model.description}</p>
+        </div>
+        <span className="text-xs text-muted-foreground font-mono shrink-0 mt-0.5">{model.size}</span>
+      </div>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {serverInstalled ? (
+          <div className="flex items-center gap-1 text-green-400 text-xs font-medium">
+            <CheckCircle2 className="w-3 h-3" /> Server
+          </div>
+        ) : serverAvailable ? (
+          <button onClick={() => onPull(model.id, "server")} disabled={pullingServer}
+            className={cn(
+              "flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 transition-colors",
+              pullingServer ? "bg-muted text-muted-foreground cursor-wait" : "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20",
+            )}>
+            {pullingServer ? <><RefreshCw className="w-3 h-3 animate-spin" /> Server…</> : <><Server className="w-3 h-3" /> Server</>}
+          </button>
+        ) : (
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <WifiOff className="w-3 h-3" /> Server offline
+          </span>
+        )}
+
+        {remoteConfigured && (
+          remoteInstalled ? (
+            <div className="flex items-center gap-1 text-sky-400 text-xs font-medium">
+              <CheckCircle2 className="w-3 h-3" /> Remote
+            </div>
+          ) : remoteAvailable ? (
+            <button onClick={() => onPull(model.id, "remote")} disabled={pullingRemote}
+              className={cn(
+                "flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 transition-colors",
+                pullingRemote ? "bg-muted text-muted-foreground cursor-wait" : "bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20",
+              )}>
+              {pullingRemote ? <><RefreshCw className="w-3 h-3 animate-spin" /> Remote…</> : <><Wifi className="w-3 h-3" /> Remote</>}
+            </button>
+          ) : (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <WifiOff className="w-3 h-3" /> Remote offline
+            </span>
+          )
+        )}
+
+        <button onClick={() => setShowLocal(v => !v)}
+          className="flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 transition-colors">
+          <Laptop className="w-3 h-3" /> Local
+        </button>
+      </div>
+
+      {showLocal && (
+        <div className="rounded-lg bg-muted/50 border border-amber-500/20 p-2.5 space-y-1.5 text-xs">
+          <p className="text-muted-foreground">Run on <strong className="text-foreground">your machine</strong> (requires{" "}
+            <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Ollama</a>):
+          </p>
+          <div className="flex items-center gap-1.5 bg-background rounded px-2 py-1.5 border border-border/40">
+            <code className="font-mono flex-1 text-foreground text-[11px]">{localCmd}</code>
+            <button onClick={copyCmd} className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+              {copied ? <CheckCircle2 className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiTab() {
+  const [providers, setProviders] = useState<ProvidersData | null>(null);
+  const [serverModels, setServerModels] = useState<OllamaModel[]>([]);
+  const [remoteModels, setRemoteModels] = useState<OllamaModel[]>([]);
+  const [serverAvailable, setServerAvailable] = useState(false);
+  const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [pulls, setPulls] = useState<Record<string, PullState>>({});
+  const [customModel, setCustomModel] = useState("");
+  const [libFilter, setLibFilter] = useState("all");
+  const [installedEndpoint, setInstalledEndpoint] = useState<OllamaEndpoint>("server");
+  const abortRefs = useRef<Record<string, AbortController>>({});
+
+  const remoteConfigured = !!(providers?.["ollama-remote"]?.url);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [provRes, serverRes, remoteRes] = await Promise.all([
+        api.get<{ providers: ProvidersData }>("/api/ai/providers"),
+        api.get<{ models: OllamaModel[]; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server"),
+        api.get<{ models: OllamaModel[]; ollamaAvailable: boolean }>("/api/ai/models?endpoint=remote"),
+      ]);
+      setProviders(provRes.providers);
+      setServerModels(serverRes.models ?? []);
+      setServerAvailable(serverRes.ollamaAvailable);
+      setRemoteModels(remoteRes.models ?? []);
+      setRemoteAvailable(remoteRes.ollamaAvailable);
+    } catch (e) {
+      toast({ title: "Failed to load AI providers", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const serverNames = new Set(serverModels.map(m => m.name));
+  const remoteNames = new Set(remoteModels.map(m => m.name));
+
+  async function startPull(modelId: string, endpoint: OllamaEndpoint) {
+    const key = `${endpoint}:${modelId}`;
+    const token = localStorage.getItem("orahai_token");
+    const abortCtrl = new AbortController();
+    abortRefs.current[key] = abortCtrl;
+
+    setPulls(prev => ({
+      ...prev,
+      [key]: { model: modelId, endpoint, status: "Initializing…", percent: 0, done: false, error: null },
+    }));
+
+    try {
+      const res = await fetch(`${API_BASE || ""}/api/ai/models/pull`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ model: modelId, endpoint }),
+        signal: abortCtrl.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const lines = dec.decode(value, { stream: true })
+          .split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim());
+        for (const line of lines) {
+          try {
+            const evt = JSON.parse(line) as { type: string; status?: string; completed?: number; total?: number; error?: string };
+            if (evt.type === "error") {
+              setPulls(prev => ({ ...prev, [key]: { ...prev[key], error: evt.error ?? "Pull failed", done: true } }));
+              break;
+            }
+            if (evt.type === "done") {
+              setPulls(prev => ({ ...prev, [key]: { ...prev[key], status: "Complete", percent: 100, done: true, error: null } }));
+              await refresh();
+              break;
+            }
+            if (evt.type === "progress") {
+              const pct = evt.total && evt.total > 0 ? Math.round((evt.completed ?? 0) / evt.total * 100) : 0;
+              setPulls(prev => ({ ...prev, [key]: { ...prev[key], status: evt.status ?? "Downloading…", percent: pct, done: false, error: null } }));
+            }
+          } catch { /* skip bad JSON */ }
+        }
+      }
+    } catch (e: unknown) {
+      if ((e as Error).name !== "AbortError") {
+        setPulls(prev => ({ ...prev, [key]: { ...prev[key], error: (e as Error).message, done: true } }));
+      } else {
+        setPulls(prev => { const n = { ...prev }; delete n[key]; return n; });
+      }
+    }
+  }
+
+  function cancelPull(key: string) {
+    abortRefs.current[key]?.abort();
+    setPulls(prev => { const n = { ...prev }; delete n[key]; return n; });
+  }
+
+  async function handleDelete(name: string, endpoint: OllamaEndpoint) {
+    const key = `${endpoint}:${name}`;
+    setDeleting(key);
+    try {
+      await api.delete(`/api/ai/models?name=${encodeURIComponent(name)}&endpoint=${endpoint}`);
+      toast({ title: `Removed ${name} from ${endpoint}` });
+      await refresh();
+    } catch (e) {
+      toast({ title: `Failed to remove model`, description: (e as Error).message, variant: "destructive" });
+    } finally { setDeleting(null); }
+  }
+
+  function handleUpdate(name: string, endpoint: OllamaEndpoint) {
+    void startPull(name, endpoint);
+  }
+
+  function handleCustomPull(endpoint: OllamaEndpoint) {
+    const m = customModel.trim();
+    if (!m) return;
+    void startPull(m, endpoint);
+    setCustomModel("");
+  }
+
+  const activePulls = Object.entries(pulls).filter(([, p]) => !p.done || p.error);
+  const filteredLib = OLLAMA_MODEL_LIBRARY.filter(m => libFilter === "all" || m.tags?.includes(libFilter));
+  const displayedModels = installedEndpoint === "server" ? serverModels : remoteModels;
+  const endpointAvailable = installedEndpoint === "server" ? serverAvailable : remoteAvailable;
+
+  return (
+    <div className="space-y-8">
+
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <Bot className="w-5 h-5 text-primary" /> AI Management
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Manage all AI providers, pull models to server or remote, and keep them up to date
+          </p>
+        </div>
+        <button onClick={refresh} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Provider status grid */}
+      <section>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Provider Status</h3>
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-pulse">
+            {[0,1,2,3,4].map(i => <div key={i} className="h-20 rounded-xl bg-muted" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <AiProviderCard name="Ollama — Server" icon={<Server className="w-4 h-4" />}
+              available={serverAvailable} version={providers?.ollama?.version}
+              note={serverAvailable
+                ? `${serverModels.length} model${serverModels.length !== 1 ? "s" : ""} installed`
+                : "Not running on this server"}
+              models={providers?.ollama?.models} />
+            <AiProviderCard name="Ollama — Remote" icon={<Wifi className="w-4 h-4" />}
+              available={remoteAvailable} version={providers?.["ollama-remote"]?.version}
+              unavailableLabel={remoteConfigured ? "Unreachable" : "Not configured"}
+              note={!remoteConfigured
+                ? "Set OLLAMA_REMOTE_URL secret to connect"
+                : remoteAvailable
+                  ? `${remoteModels.length} model${remoteModels.length !== 1 ? "s" : ""} available`
+                  : "URL set but remote didn't respond"}
+              models={providers?.["ollama-remote"]?.models} />
+            <AiProviderCard name="Groq — Free Cloud" icon={<Sparkles className="w-4 h-4" />}
+              available={providers?.groq?.available ?? false}
+              note={providers?.groq?.available
+                ? `${(providers.groq.models ?? []).length} models — Llama 3.3, Mixtral, DeepSeek R1`
+                : "Free — set GROQ_API_KEY secret"}
+              models={providers?.groq?.models} />
+            <AiProviderCard name="OpenAI — GPT" icon={<Cloud className="w-4 h-4" />}
+              available={providers?.openai?.available ?? false}
+              note="gpt-4.1, gpt-4o, o3-mini" models={providers?.openai?.models} />
+            <AiProviderCard name="Anthropic — Claude" icon={<Zap className="w-4 h-4" />}
+              available={providers?.anthropic?.available ?? false}
+              note="Set ANTHROPIC_API_KEY secret" models={providers?.anthropic?.models} />
+            <div className="rounded-xl border border-dashed border-border bg-card p-4 flex flex-col items-center justify-center gap-1.5 text-center">
+              <Cpu className="w-5 h-5 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">More providers (Gemini, xAI, DeepSeek) activate when their API key secrets are set</p>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Active pulls */}
+      {activePulls.length > 0 && (
+        <section className="rounded-xl border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-muted/40 flex items-center gap-2">
+            <Download className="w-4 h-4 text-primary animate-bounce" />
+            <h3 className="text-sm font-semibold">Downloading</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {activePulls.map(([key, p]) => (
+              <div key={key} className="px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono font-medium">{p.model}</span>
+                    <span className={cn(
+                      "text-[9px] px-1.5 py-0.5 rounded-full border font-medium",
+                      p.endpoint === "remote"
+                        ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
+                        : "bg-primary/10 text-primary border-primary/20",
+                    )}>
+                      {p.endpoint === "remote" ? "Remote" : "Server"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{p.status}</span>
+                    {!p.done && (
+                      <button onClick={() => cancelPull(key)}
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                        title="Cancel">
+                        <StopCircle className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {p.error ? (
+                  <div className="flex items-center gap-1.5 text-xs text-destructive">
+                    <AlertCircle className="w-3.5 h-3.5" /> {p.error}
+                  </div>
+                ) : (
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className={cn("h-full rounded-full transition-all duration-300", p.done ? "bg-green-500" : "bg-primary")}
+                      style={{ width: `${p.percent}%` }} />
+                  </div>
+                )}
+                {p.percent > 0 && !p.error && (
+                  <span className="text-[10px] text-muted-foreground mt-0.5 block">{p.percent}%</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Installed models */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Installed Models</h3>
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+            {(["server", "remote"] as OllamaEndpoint[]).map(ep => (
+              <button key={ep} onClick={() => setInstalledEndpoint(ep)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors capitalize",
+                  installedEndpoint === ep ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}>
+                {ep === "server" ? <Server className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
+                {ep}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {!endpointAvailable ? (
+          <div className="rounded-xl border bg-card p-6 text-center">
+            {installedEndpoint === "server" ? (
+              <p className="text-sm text-muted-foreground">Ollama server is not running on this machine.</p>
+            ) : (
+              <div className="space-y-1">
+                <WifiOff className="w-6 h-6 text-muted-foreground mx-auto" />
+                <p className="text-sm text-muted-foreground">
+                  {remoteConfigured ? "Remote Ollama is unreachable — check the tunnel is running." : "No remote configured — set OLLAMA_REMOTE_URL in Secrets."}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : displayedModels.length === 0 ? (
+          <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
+            No models installed yet — pull one from the library below.
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-card divide-y divide-border overflow-hidden">
+            {displayedModels.map(m => {
+              const key = `${installedEndpoint}:${m.name}`;
+              return (
+                <AiInstalledRow key={m.name} model={m}
+                  onDelete={name => handleDelete(name, installedEndpoint)}
+                  onUpdate={name => handleUpdate(name, installedEndpoint)}
+                  deleting={deleting === key}
+                  updating={!!pulls[key] && !pulls[key].done} />
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Custom model pull */}
+      <section className="rounded-xl border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1 flex items-center gap-2">
+          <Download className="w-4 h-4 text-primary" />
+          Pull any model
+        </h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Enter any model name from{" "}
+          <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer"
+            className="text-primary hover:underline inline-flex items-center gap-0.5">
+            ollama.com/library <ExternalLink className="w-2.5 h-2.5" />
+          </a>{" "}
+          and pull it to the server or your remote machine.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            className="flex-1 min-w-[200px] rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50"
+            placeholder="e.g. llama3.2:3b or qwen2.5-coder:7b"
+            value={customModel}
+            onChange={e => setCustomModel(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleCustomPull("server"); }}
+          />
+          <button
+            onClick={() => handleCustomPull("server")}
+            disabled={!customModel.trim() || !serverAvailable}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <Server className="w-3.5 h-3.5" /> Pull to Server
+          </button>
+          {remoteConfigured && (
+            <button
+              onClick={() => handleCustomPull("remote")}
+              disabled={!customModel.trim() || !remoteAvailable}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              <Wifi className="w-3.5 h-3.5" /> Pull to Remote
+            </button>
+          )}
+        </div>
+        {!serverAvailable && (
+          <p className="text-xs text-amber-400/80 mt-2 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" /> Ollama server is offline — start it to pull models
+          </p>
+        )}
+      </section>
+
+      {/* Model library */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Model Library</h3>
+          <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer"
+            className="text-xs text-primary hover:underline flex items-center gap-1">
+            Browse all <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+
+        <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400/90 flex gap-2 items-start">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            <strong className="text-amber-300">Server disk is limited.</strong>{" "}
+            Each card has three options: <strong className="text-foreground">Server</strong> (Replit, limited space) ·{" "}
+            <strong className="text-foreground">Remote</strong> (your connected machine) ·{" "}
+            <strong className="text-foreground">Local</strong> (copy command to run on your own computer).
+          </span>
+        </div>
+
+        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+          {AI_LIB_FILTERS.map(tag => (
+            <button key={tag} onClick={() => setLibFilter(tag)}
+              className={cn(
+                "px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors capitalize",
+                libFilter === tag ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground border border-border/40",
+              )}>
+              {tag}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filteredLib.map(m => (
+            <AiLibraryCard key={m.id} model={m}
+              serverInstalled={serverNames.has(m.id) || serverNames.has(m.id.split(":")[0])}
+              remoteInstalled={remoteNames.has(m.id) || remoteNames.has(m.id.split(":")[0])}
+              pullingServer={!!pulls[`server:${m.id}`] && !pulls[`server:${m.id}`].done}
+              pullingRemote={!!pulls[`remote:${m.id}`] && !pulls[`remote:${m.id}`].done}
+              serverAvailable={serverAvailable}
+              remoteAvailable={remoteAvailable}
+              remoteConfigured={remoteConfigured}
+              onPull={startPull} />
+          ))}
+        </div>
+        {filteredLib.length === 0 && (
+          <div className="text-center py-12 text-sm text-muted-foreground">No models matching this filter.</div>
+        )}
+      </section>
+
+      {/* Footer note */}
+      <section className="rounded-xl border border-border/40 bg-muted/30 p-4">
+        <div className="flex gap-3">
+          <Cpu className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p><strong className="text-foreground">Server models</strong> run on this Replit instance (CPU, limited disk). Good for 1B–3B models.</p>
+            <p><strong className="text-foreground">Remote models</strong> run on your own machine or GPU server — no quota limits, faster for large models.</p>
+            <p><strong className="text-foreground">Cloud APIs</strong> (Groq, OpenAI, Anthropic) require their respective API key secrets to be set.</p>
+            <p>All providers and installed models appear in the <strong className="text-foreground">AI chat panel</strong> model picker for every user.</p>
+          </div>
+        </div>
+      </section>
+
     </div>
   );
 }
