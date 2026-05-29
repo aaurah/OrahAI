@@ -88,13 +88,6 @@ export function SecretsPanel({ projectId }: Props) {
     if (!e.target.files) return;
     e.target.value = "";
     if (!file) return;
-    // Reject non-text files (PDFs, images, etc.)
-    const isText = file.type.startsWith("text/") || file.type === "" || file.type === "application/octet-stream";
-    const hasBadExt = /\.(pdf|png|jpg|jpeg|gif|webp|zip|docx?|xlsx?|pptx?)$/i.test(file.name);
-    if (!isText || hasBadExt) {
-      toast({ title: "Please select a plain-text .env file", variant: "destructive" });
-      return;
-    }
     if (file.size > 500_000) { toast({ title: "File too large (max 500 KB)", variant: "destructive" }); return; }
     setImporting(true);
     try {
