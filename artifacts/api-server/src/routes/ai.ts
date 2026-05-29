@@ -516,9 +516,22 @@ function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: C
     }
   }
 
-  const runFailed = runResults.some(r => !r.timedOut && r.exitCode !== 0 && r.exitCode !== null);
+  // Port-collision: "Address already in use" is a transient race, NOT a code bug.
+  // The fix is already applied at the process-manager level (waits for old proc to die).
+  // Don't let the AI spiral by treating it as a fixable error.
+  const hasPortCollision = runResults.some(r =>
+    r.output && (
+      r.output.includes("Address already in use") ||
+      r.output.includes("EADDRINUSE") ||
+      r.output.includes("address already in use")
+    )
+  );
+  const runFailed = runResults.some(r => !r.timedOut && r.exitCode !== 0 && r.exitCode !== null && !hasPortCollision);
   const hasErrors = fileOps.some(o => !o.success) || cmds.some(c => c.status === "error" || (c.exitCode !== undefined && c.exitCode !== 0)) || mcpResults.some(r => !r.ok) || runFailed;
-  if (hasErrors) {
+
+  if (hasPortCollision) {
+    lines.push("\nNote: The run failed with \"Address already in use\" — a previous server instance was still shutting down. The process manager now waits for the port to clear before each new spawn, so this should resolve itself. Do NOT retry the same run command again. If all required files have been written, just wrap up with a summary of what was done.");
+  } else if (hasErrors) {
     lines.push("\nSome operations had errors. Diagnose and fix them now — don't ask for permission.");
   } else {
     lines.push("\nAll operations succeeded. Continue if there are more steps needed to fully complete the task, or wrap up with a summary if done.");

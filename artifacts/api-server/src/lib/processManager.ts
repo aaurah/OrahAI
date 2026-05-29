@@ -200,7 +200,24 @@ export async function spawnProcess(
   dir: string,
   extraEnv?: Record<string, string>,
 ): Promise<ManagedProcess> {
+  // Grab the old process BEFORE stopProcess deletes it from the map
+  const prior = processes.get(projectId);
   stopProcess(projectId);
+
+  if (prior) {
+    // Wait for the OS process to actually exit so it releases its bound port.
+    // stopProcess sends SIGTERM (+ SIGKILL after 3 s), but the port is still
+    // held until the kernel processes the exit — typically <100 ms for SIGTERM
+    // but up to 3+ s if the process ignores it and needs SIGKILL.
+    await new Promise<void>(resolve => {
+      // If the proc is already dead, bail immediately
+      if (prior.proc.exitCode !== null || prior.proc.killed) return resolve();
+      const tid = setTimeout(resolve, 3500); // absolute safety timeout
+      prior.proc.once("close", () => { clearTimeout(tid); resolve(); });
+    });
+    // Extra 200 ms for the kernel to release the port binding
+    await new Promise(r => setTimeout(r, 200));
+  }
 
   const mp: ManagedProcess = {
     proc: null as unknown as ChildProcess,
