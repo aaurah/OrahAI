@@ -15,17 +15,17 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-});
+function makeOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
 
 function getAnthropicClient(): Anthropic | null {
-  const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
-  if (!apiKey && !baseURL) return null;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Anthropic({ ...(baseURL ? { baseURL } : {}), apiKey: apiKey ?? "dummy" } as any);
+  return new Anthropic({ apiKey } as any);
 }
 
 function makeOllamaClient(): OpenAI {
@@ -130,7 +130,8 @@ async function resolveAutoModel(message: string): Promise<{ provider: string; mo
   if (!hasAnyPaidKey) {
     const local = await getLocalOllamaModel();
     if (local) return { provider: "ollama", modelName: local };
-    return { provider: "openai", modelName: "gpt-4.1" }; // OpenAI proxy fallback
+    // No paid keys and no local Ollama — tell the user to configure something
+    return { provider: "ollama", modelName: "llama3.2" };
   }
 
   // ── Hybrid mode: paid keys present — smart-route by task, fall back to local
