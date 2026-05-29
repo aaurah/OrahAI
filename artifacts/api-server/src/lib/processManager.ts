@@ -14,6 +14,9 @@ const EXEC_ENV = (dir: string, extra?: Record<string, string>) => ({
   NPM_CONFIG_UPDATE_NOTIFIER: "false",
   FORCE_COLOR: "1",
   CI: "false",
+  // Python: disable output buffering so tracebacks always appear in the terminal
+  PYTHONUNBUFFERED: "1",
+  PYTHONDONTWRITEBYTECODE: "1",
   ...extra,
 });
 
