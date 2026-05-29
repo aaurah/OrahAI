@@ -5,20 +5,25 @@ import { getIo } from "./ioSingleton";
 
 export const RUN_ROOT = "/tmp/orahai-runs";
 
-const EXEC_ENV = (dir: string, extra?: Record<string, string>) => ({
-  ...process.env,
-  HOME: dir,
-  PATH: process.env.PATH,
-  NPM_CONFIG_FUND: "false",
-  NPM_CONFIG_AUDIT: "false",
-  NPM_CONFIG_UPDATE_NOTIFIER: "false",
-  FORCE_COLOR: "1",
-  CI: "false",
-  // Python: disable output buffering so tracebacks always appear in the terminal
-  PYTHONUNBUFFERED: "1",
-  PYTHONDONTWRITEBYTECODE: "1",
-  ...extra,
-});
+const EXEC_ENV = (dir: string, extra?: Record<string, string>) => {
+  // Strip PORT so spawned processes don't inherit OrahAI's own port (8080)
+  // and accidentally try to bind to an already-occupied socket.
+  const { PORT: _port, ...restEnv } = process.env as Record<string, string | undefined>;
+  return {
+    ...restEnv,
+    HOME: dir,
+    PATH: process.env.PATH,
+    NPM_CONFIG_FUND: "false",
+    NPM_CONFIG_AUDIT: "false",
+    NPM_CONFIG_UPDATE_NOTIFIER: "false",
+    FORCE_COLOR: "1",
+    CI: "false",
+    // Python: disable output buffering so tracebacks always appear in the terminal
+    PYTHONUNBUFFERED: "1",
+    PYTHONDONTWRITEBYTECODE: "1",
+    ...extra,
+  };
+};
 
 export interface ManagedProcess {
   proc: ChildProcess;
@@ -148,6 +153,42 @@ export async function installDeps(dir: string): Promise<string> {
 
     proc.on("error", (err) => {
       resolve(`\x1b[31m[Install error: ${err.message}]\x1b[0m\r\n`);
+    });
+  });
+}
+
+export async function installPythonDeps(dir: string): Promise<string> {
+  const reqTxt = path.join(dir, "requirements.txt");
+  if (!(await fileExists(reqTxt))) return "";
+
+  return new Promise((resolve) => {
+    const chunks: string[] = [];
+    const header = `\r\n\x1b[33m[Installing Python packages…]\x1b[0m\r\n`;
+    chunks.push(header);
+
+    const proc = spawn("pip install -r requirements.txt --quiet --disable-pip-version-check", [], {
+      cwd: dir,
+      env: EXEC_ENV(dir),
+      shell: true,
+    });
+
+    const onData = (buf: Buffer) => {
+      const text = buf.toString().replace(/\n/g, "\r\n");
+      chunks.push(text);
+    };
+    proc.stdout?.on("data", onData);
+    proc.stderr?.on("data", onData);
+
+    proc.on("close", (code) => {
+      const msg = code === 0
+        ? `\x1b[32m[Python packages installed]\x1b[0m\r\n`
+        : `\x1b[31m[pip install exited with code ${code}]\x1b[0m\r\n`;
+      chunks.push(msg);
+      resolve(chunks.join(""));
+    });
+
+    proc.on("error", (err) => {
+      resolve(`\x1b[31m[pip install error: ${err.message}]\x1b[0m\r\n`);
     });
   });
 }

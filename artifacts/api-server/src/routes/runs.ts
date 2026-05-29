@@ -9,6 +9,7 @@ import { logger } from "../lib/logger";
 import {
   prepareWorkspace,
   installDeps,
+  installPythonDeps,
   spawnProcess,
   stopProcess,
   getProcess,
@@ -128,11 +129,17 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
         const dir = await prepareWorkspace(project.id, projectFiles);
 
         // Stream install output before starting the main process
+        const { getIo } = await import("../lib/ioSingleton");
         const installOutput = await installDeps(dir);
         if (installOutput) {
-          const { getIo } = await import("../lib/ioSingleton");
           getIo()?.to(`project:${projectId}`).emit("terminal:output", {
             projectId, runId: run.id, data: installOutput,
+          });
+        }
+        const pythonInstallOutput = await installPythonDeps(dir);
+        if (pythonInstallOutput) {
+          getIo()?.to(`project:${projectId}`).emit("terminal:output", {
+            projectId, runId: run.id, data: pythonInstallOutput,
           });
         }
 
