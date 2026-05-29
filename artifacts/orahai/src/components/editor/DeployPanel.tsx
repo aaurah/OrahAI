@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Rocket, Github, Download, ExternalLink, Loader2, CheckCircle2,
   XCircle, Globe, ChevronDown, ChevronUp, Monitor,
   AlertCircle, Smartphone, Copy, Check, RefreshCw, Link2, Zap,
+  KeyRound, Clock, ArrowUpRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -109,6 +110,21 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
   const [expoUrl, setExpoUrl] = useState<string | null>(null);
   const [expoLoading, setExpoLoading] = useState(false);
 
+  // Vercel deploy state
+  type VercelDeployment = {
+    id: string; vercelId?: string; vercel_id?: string; url: string | null;
+    inspectorUrl?: string | null; inspector_url?: string | null;
+    status: string; projectName?: string | null; project_name?: string | null;
+    createdAt?: string; created_at?: string;
+  };
+  const [hasVercelToken, setHasVercelToken] = useState<boolean | null>(null);
+  const [vercelTokenInput, setVercelTokenInput] = useState("");
+  const [savingToken, setSavingToken] = useState(false);
+  const [vercelDeploying, setVercelDeploying] = useState(false);
+  const [vercelDeployments, setVercelDeployments] = useState<VercelDeployment[]>([]);
+  const [vercelLoadingDeployments, setVercelLoadingDeployments] = useState(false);
+  const vercelPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const fetchExpoUrl = useCallback(async () => {
     setExpoLoading(true);
     try {
@@ -159,6 +175,80 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
       void strFromU8;
     } catch { toast({ title: "Download failed", variant: "destructive" }); }
     finally { setDownloading(false); }
+  };
+
+  // ── Vercel helpers ──────────────────────────────────────────────────────────
+
+  const loadVercelDeployments = useCallback(async () => {
+    setVercelLoadingDeployments(true);
+    try {
+      const res = await api.get<{ data: VercelDeployment[] }>(`/api/vercel/${project.id}/deployments`);
+      setVercelDeployments(res.data ?? []);
+    } catch { /* silent */ }
+    finally { setVercelLoadingDeployments(false); }
+  }, [project.id]);
+
+  const checkVercelToken = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: { hasToken: boolean } }>(`/api/vercel/${project.id}/token-status`);
+      setHasVercelToken(res.data.hasToken);
+      if (res.data.hasToken) loadVercelDeployments();
+    } catch { setHasVercelToken(false); }
+  }, [project.id, loadVercelDeployments]);
+
+  useEffect(() => {
+    if (deployTab === "vercel") checkVercelToken();
+    return () => {
+      if (vercelPollRef.current) { clearInterval(vercelPollRef.current); vercelPollRef.current = null; }
+    };
+  }, [deployTab, checkVercelToken]);
+
+  const startPolling = useCallback((deploymentId: string) => {
+    if (vercelPollRef.current) clearInterval(vercelPollRef.current);
+    vercelPollRef.current = setInterval(async () => {
+      try {
+        const res = await api.get<{ data: VercelDeployment }>(`/api/vercel/deployments/${deploymentId}/status`);
+        const updated = res.data;
+        setVercelDeployments(prev => prev.map(d => d.id === deploymentId ? { ...d, ...updated } : d));
+        const terminal = ["READY", "ERROR", "CANCELED"].includes(updated.status ?? "");
+        if (terminal) {
+          if (vercelPollRef.current) { clearInterval(vercelPollRef.current); vercelPollRef.current = null; }
+          if (updated.status === "READY") toast({ title: "✓ Deployed to Vercel", description: updated.url ?? undefined });
+          if (updated.status === "ERROR") toast({ title: "Vercel deploy failed", variant: "destructive" });
+        }
+      } catch { /* ignore poll errors */ }
+    }, 3000);
+  }, []);
+
+  const handleVercelDeploy = async () => {
+    if (vercelDeploying) return;
+    setVercelDeploying(true);
+    try {
+      const res = await api.post<{ data: VercelDeployment }>(`/api/vercel/${project.id}/deploy`, {});
+      const deployment = res.data;
+      setVercelDeployments(prev => [deployment, ...prev]);
+      toast({ title: "Deployment started", description: "Building on Vercel…" });
+      startPolling(deployment.id);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      toast({ title: e.response?.data?.message ?? "Deploy failed", variant: "destructive" });
+    } finally { setVercelDeploying(false); }
+  };
+
+  const handleSaveVercelToken = async () => {
+    const token = vercelTokenInput.trim();
+    if (!token) return;
+    setSavingToken(true);
+    try {
+      await api.post(`/api/projects/${project.id}/secrets`, { key: "VERCEL_TOKEN", value: token });
+      setHasVercelToken(true);
+      setVercelTokenInput("");
+      toast({ title: "Vercel token saved" });
+      loadVercelDeployments();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      toast({ title: e.response?.data?.message ?? "Failed to save token", variant: "destructive" });
+    } finally { setSavingToken(false); }
   };
 
   return (
@@ -290,281 +380,197 @@ export function DeployPanel({ project, onProjectUpdate }: Props) {
         )}
 
         {/* ── VERCEL TAB ──────────────────────────────────────────────── */}
-        {deployTab === "vercel" && (() => {
-          const FRAMEWORK_MAP: Record<string, {
-            label: string;
-            buildCommand: string | null;
-            outputDirectory: string;
-            installCommand: string;
-            runtime: string;
-            notes: string;
-            envVars: { key: string; description: string; required: boolean }[];
-          }> = {
-            typescript: {
-              label: "TypeScript / Node.js",
-              buildCommand: "npm run build",
-              outputDirectory: "dist",
-              installCommand: "npm install",
-              runtime: "Node.js 22",
-              notes: "Add an api/ directory with .ts files to create Serverless Functions.",
-              envVars: [
-                { key: "DATABASE_URL", description: "Postgres connection string (use Neon or Vercel Postgres)", required: true },
-                { key: "JWT_SECRET", description: "Auth token signing secret", required: true },
-                { key: "NODE_ENV", description: "Set to production", required: false },
-              ],
-            },
-            nodejs: {
-              label: "Node.js",
-              buildCommand: "npm run build",
-              outputDirectory: "dist",
-              installCommand: "npm install",
-              runtime: "Node.js 22",
-              notes: "Add an api/ directory with .js files to create Serverless Functions.",
-              envVars: [
-                { key: "DATABASE_URL", description: "Postgres connection string", required: false },
-                { key: "NODE_ENV", description: "Set to production", required: false },
-              ],
-            },
-            python: {
-              label: "Python",
-              buildCommand: null,
-              outputDirectory: ".",
-              installCommand: "pip install -r requirements.txt",
-              runtime: "Python 3.12",
-              notes: "Create api/handler.py and export a handler function. Vercel runs each file as a serverless function.",
-              envVars: [
-                { key: "DATABASE_URL", description: "Database connection string", required: false },
-                { key: "SECRET_KEY", description: "App secret key", required: false },
-              ],
-            },
-            html: {
-              label: "Static HTML",
-              buildCommand: null,
-              outputDirectory: ".",
-              installCommand: "",
-              runtime: "Static (CDN only)",
-              notes: "No server runtime — files served directly from Vercel's edge network.",
-              envVars: [],
-            },
-          };
-
-          const fw = FRAMEWORK_MAP[project.language] ?? FRAMEWORK_MAP.nodejs;
-          const hasGithub = !!project.githubRepo;
-          const importUrl = hasGithub
-            ? `https://vercel.com/new/import?repository-url=https://github.com/${project.githubRepo}`
-            : "https://vercel.com/new";
-
-          const vercelJson = JSON.stringify(
-            project.language === "html"
-              ? { outputDirectory: "." }
-              : project.language === "python"
-              ? { functions: { "api/*.py": { runtime: "python3.12" } }, rewrites: [{ source: "/(.*)", destination: "/api/handler" }] }
-              : {
-                  framework: null,
-                  buildCommand: fw.buildCommand,
-                  outputDirectory: fw.outputDirectory,
-                  installCommand: fw.installCommand,
-                  rewrites: [{ source: "/((?!api/).*)", destination: "/index.html" }],
-                },
-            null, 2,
-          );
-
-          const downloadJson = () => {
-            const blob = new Blob([vercelJson], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url; a.download = "vercel.json"; a.click();
-            URL.revokeObjectURL(url);
-          };
-
-          return (
-            <div className="p-4 space-y-4">
-              {/* Header */}
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-foreground flex items-center justify-center shrink-0">
-                  <svg viewBox="0 0 76 65" className="w-5 h-5 fill-background" aria-hidden="true"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" /></svg>
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Deploy to Vercel</p>
-                  <p className="text-xs text-muted-foreground">Serverless · Edge CDN · Preview URLs on every push</p>
-                </div>
+        {deployTab === "vercel" && (
+          <div className="p-4 space-y-4">
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-foreground flex items-center justify-center shrink-0">
+                <svg viewBox="0 0 76 65" className="w-5 h-5 fill-background" aria-hidden="true"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" /></svg>
               </div>
-
-              {/* GitHub status */}
-              <div className={cn(
-                "rounded-xl border p-3 flex items-center gap-3",
-                hasGithub ? "border-green-500/20 bg-green-500/5" : "border-amber-500/20 bg-amber-500/5",
-              )}>
-                {hasGithub ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-green-600 dark:text-green-400">GitHub connected</p>
-                      <p className="text-[11px] text-muted-foreground font-mono truncate">{project.githubRepo}</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-amber-600 dark:text-amber-400">No GitHub repo connected</p>
-                      <p className="text-[11px] text-muted-foreground">Connect a repo for one-click deploy</p>
-                    </div>
-                    <button onClick={() => setDeployTab("github")}
-                      className="text-[11px] text-primary underline hover:no-underline shrink-0">
-                      Connect
-                    </button>
-                  </>
-                )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Vercel Functions</p>
+                <p className="text-xs text-muted-foreground">Deploy directly — no GitHub required</p>
               </div>
-
-              {/* Main deploy CTA */}
-              <a
-                href={importUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-foreground text-background text-sm font-bold hover:opacity-90 transition-opacity"
-              >
-                <svg viewBox="0 0 76 65" className="w-4 h-4 fill-background" aria-hidden="true"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" /></svg>
-                {hasGithub ? "Deploy to Vercel" : "Import project on Vercel"}
-                <ExternalLink className="w-3.5 h-3.5 opacity-70" />
-              </a>
-              {!hasGithub && (
-                <p className="text-[11px] text-center text-muted-foreground -mt-2">
-                  Connect GitHub first to import your repo automatically
-                </p>
+              {hasVercelToken && (
+                <button onClick={() => { loadVercelDeployments(); checkVercelToken(); }}
+                  disabled={vercelLoadingDeployments}
+                  className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                  title="Refresh">
+                  <RefreshCw className={cn("w-3.5 h-3.5", vercelLoadingDeployments && "animate-spin")} />
+                </button>
               )}
-
-              {/* Framework settings */}
-              <div className="rounded-xl border border-border bg-card p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Framework settings</p>
-                  <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{fw.label}</span>
-                </div>
-                <div className="space-y-2">
-                  {([
-                    ["Runtime", fw.runtime],
-                    ["Install command", fw.installCommand || "—"],
-                    ["Build command", fw.buildCommand ?? "—"],
-                    ["Output directory", fw.outputDirectory],
-                  ] as const).map(([label, value]) => (
-                    <div key={label} className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-28 shrink-0">{label}</span>
-                      <span className="text-[11px] font-mono text-foreground bg-muted/40 rounded px-1.5 py-0.5 flex-1 break-all">{value}</span>
-                    </div>
-                  ))}
-                </div>
-                {fw.notes && (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border/50 pt-2">{fw.notes}</p>
-                )}
-              </div>
-
-              {/* vercel.json */}
-              <div className="rounded-xl border border-border bg-card p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">vercel.json</p>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => { navigator.clipboard.writeText(vercelJson); toast({ title: "Copied vercel.json" }); }}
-                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors">
-                      <Copy className="w-3 h-3" /> Copy
-                    </button>
-                    <button onClick={downloadJson}
-                      className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 px-2 py-1 rounded hover:bg-primary/10 transition-colors font-medium">
-                      <Download className="w-3 h-3" /> Download
-                    </button>
-                  </div>
-                </div>
-                <pre className="text-[10px] font-mono text-slate-300 bg-[#0d0d0d] rounded-lg p-3 overflow-x-auto border border-white/5 leading-relaxed">
-                  {vercelJson}
-                </pre>
-                <p className="text-[11px] text-muted-foreground">Place this file in the root of your project before deploying.</p>
-              </div>
-
-              {/* Environment variables */}
-              {fw.envVars.length > 0 && (
-                <div className="rounded-xl border border-border bg-card p-3 space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Environment variables</p>
-                  <p className="text-[11px] text-muted-foreground">Set these in your Vercel project → Settings → Environment Variables:</p>
-                  <div className="space-y-1.5">
-                    {fw.envVars.map(v => (
-                      <div key={v.key} className="flex items-start gap-2">
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {v.required
-                            ? <span className="text-[9px] bg-red-500/15 text-red-500 px-1 py-0.5 rounded font-bold uppercase">req</span>
-                            : <span className="text-[9px] bg-muted text-muted-foreground px-1 py-0.5 rounded uppercase">opt</span>
-                          }
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-mono text-foreground">{v.key}</p>
-                          <p className="text-[10px] text-muted-foreground">{v.description}</p>
-                        </div>
-                        <CopyButton text={v.key} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Step-by-step */}
-              <Section title="Step-by-step guide" defaultOpen={false}>
-                <ol className="space-y-2">
-                  {[
-                    hasGithub
-                      ? { n: "1", text: <>Your repo <span className="font-mono text-foreground">{project.githubRepo}</span> is already on GitHub ✓</> }
-                      : { n: "1", text: <>Push to GitHub first — use the <button onClick={() => setDeployTab("github")} className="text-primary underline hover:no-underline">GitHub tab</button></> },
-                    { n: "2", text: <>Click <strong className="text-foreground">Deploy to Vercel</strong> above — it opens vercel.com with your repo pre-filled</> },
-                    { n: "3", text: <>Choose your Vercel team/account, then click <strong className="text-foreground">Import</strong></> },
-                    { n: "4", text: <>Set environment variables in the Vercel UI (see the list above)</> },
-                    { n: "5", text: <>Click <strong className="text-foreground">Deploy</strong> — live URL ready in ~60 seconds</> },
-                    { n: "6", text: <>Every future push to the repo auto-deploys a new version</> },
-                  ].map(({ n, text }) => (
-                    <li key={n} className="flex gap-2 text-xs text-muted-foreground leading-relaxed">
-                      <span className="font-mono text-primary shrink-0 font-bold">{n}.</span>
-                      <span>{text}</span>
-                    </li>
-                  ))}
-                </ol>
-              </Section>
-
-              {/* CLI fallback */}
-              <Section title="CLI deploy (no GitHub required)" defaultOpen={false}>
-                <div className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground">Download your project ZIP, unzip it, then:</p>
-                  <CmdBlock cmd="npm install -g vercel" />
-                  <CmdBlock cmd={`cd ${project.name.replace(/\s+/g, "-").toLowerCase()} && vercel --prod`} />
-                  <p className="text-[10px] text-muted-foreground">Vercel CLI will prompt you to log in and ask a few config questions on the first run.</p>
-                </div>
-              </Section>
-
-              {/* Free tier */}
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1.5">
-                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Free tier includes</p>
-                {[
-                  "100 GB bandwidth / month",
-                  "Serverless Functions (Node.js, Python, Edge)",
-                  "Automatic HTTPS + global CDN",
-                  "Preview URL on every git push",
-                  "Custom domains",
-                ].map(item => (
-                  <p key={item} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />{item}
-                  </p>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-3 pt-1">
-                <a href="https://vercel.com/docs" target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-primary hover:underline">
-                  Vercel Docs <ExternalLink className="w-3 h-3" />
-                </a>
-                <a href="https://vercel.com/pricing" target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-primary hover:underline">
-                  Pricing <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
             </div>
-          );
-        })()}
+
+            {/* Loading skeleton */}
+            {hasVercelToken === null && (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {/* No token — connect form */}
+            {hasVercelToken === false && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+                    <p className="text-xs font-semibold">Connect your Vercel account</p>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Paste your Vercel API token below. It's saved as a project secret (<code className="font-mono">VERCEL_TOKEN</code>) and never leaves the server.
+                  </p>
+                  <ol className="space-y-1">
+                    {[
+                      <>Go to <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer" className="text-primary underline hover:no-underline inline-flex items-center gap-0.5">vercel.com/account/tokens <ExternalLink className="w-2.5 h-2.5" /></a></>,
+                      <>Click <strong className="text-foreground">Create Token</strong>, give it a name, set scope to <strong className="text-foreground">Full Account</strong></>,
+                      <>Paste the token here:</>,
+                    ].map((text, i) => (
+                      <li key={i} className="flex gap-2 text-[11px] text-muted-foreground">
+                        <span className="font-mono text-primary font-bold shrink-0">{i + 1}.</span>
+                        <span>{text}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      type="password"
+                      placeholder="vercel_••••••••"
+                      value={vercelTokenInput}
+                      onChange={e => setVercelTokenInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleSaveVercelToken()}
+                      className="flex-1 h-8 text-xs font-mono"
+                    />
+                    <Button size="sm" onClick={handleSaveVercelToken} disabled={savingToken || !vercelTokenInput.trim()} className="h-8 text-xs px-3">
+                      {savingToken ? <Loader2 className="w-3 h-3 animate-spin" /> : "Connect"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Connected — deploy UI */}
+            {hasVercelToken === true && (
+              <div className="space-y-4">
+                {/* Token status */}
+                <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-3 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-green-600 dark:text-green-400">Vercel account connected</p>
+                    <p className="text-[11px] text-muted-foreground">Token stored as <code className="font-mono">VERCEL_TOKEN</code> project secret</p>
+                  </div>
+                  <button
+                    onClick={() => setHasVercelToken(false)}
+                    className="text-[10px] text-muted-foreground hover:text-destructive transition-colors underline shrink-0">
+                    Change
+                  </button>
+                </div>
+
+                {/* Deploy button */}
+                <button
+                  onClick={handleVercelDeploy}
+                  disabled={vercelDeploying}
+                  className="flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-foreground text-background text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {vercelDeploying
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Deploying…</>
+                    : <><svg viewBox="0 0 76 65" className="w-4 h-4 fill-background" aria-hidden="true"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z" /></svg> Deploy to Vercel</>
+                  }
+                </button>
+                <p className="text-[11px] text-center text-muted-foreground -mt-2">
+                  Uploads all project files · Live in ~30 seconds
+                </p>
+
+                {/* Deployment history */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Deployments</p>
+                    {vercelLoadingDeployments && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                  </div>
+
+                  {vercelDeployments.length === 0 && !vercelLoadingDeployments && (
+                    <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-4 flex flex-col items-center gap-1.5 text-center">
+                      <Rocket className="w-5 h-5 text-muted-foreground/40" />
+                      <p className="text-xs text-muted-foreground">No deployments yet</p>
+                      <p className="text-[11px] text-muted-foreground/60">Hit Deploy to push your first version</p>
+                    </div>
+                  )}
+
+                  {vercelDeployments.map(d => {
+                    const status = d.status ?? "QUEUED";
+                    const url = d.url ?? null;
+                    const inspectorUrl = d.inspectorUrl ?? d.inspector_url ?? null;
+                    const projectName = d.projectName ?? d.project_name ?? "—";
+                    const createdAt = d.createdAt ?? d.created_at;
+                    const isBuilding = ["QUEUED", "INITIALIZING", "BUILDING", "DEPLOYING"].includes(status);
+                    const isReady = status === "READY";
+                    const isError = ["ERROR", "CANCELED"].includes(status);
+
+                    return (
+                      <div key={d.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <div className="mt-0.5 shrink-0">
+                            {isBuilding && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />}
+                            {isReady && <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />}
+                            {isError && <XCircle className="w-3.5 h-3.5 text-destructive" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-mono text-foreground truncate">{projectName}</span>
+                              <span className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase",
+                                isBuilding && "bg-amber-500/10 text-amber-500",
+                                isReady && "bg-green-500/10 text-green-500",
+                                isError && "bg-destructive/10 text-destructive",
+                              )}>
+                                {status}
+                              </span>
+                            </div>
+                            {createdAt && (
+                              <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                <Clock className="w-2.5 h-2.5" />
+                                {new Date(createdAt).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {isReady && url && (
+                          <a href={url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-[11px] text-primary hover:underline font-mono break-all">
+                            <ArrowUpRight className="w-3 h-3 shrink-0" />
+                            {url.replace(/^https?:\/\//, "")}
+                          </a>
+                        )}
+
+                        {inspectorUrl && (
+                          <a href={inspectorUrl} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                            <ExternalLink className="w-2.5 h-2.5" /> View build logs on Vercel
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* How it works */}
+                <div className="rounded-xl border border-border bg-card p-3 space-y-1.5">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">How it works</p>
+                  {[
+                    "All project files are uploaded directly to Vercel's API",
+                    "Files in api/ become Serverless Functions automatically",
+                    "Static files are served from Vercel's global edge CDN",
+                    "Each deploy creates a unique preview URL",
+                  ].map(item => (
+                    <p key={item} className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                      <CheckCircle2 className="w-3 h-3 text-primary/60 shrink-0 mt-0.5" />{item}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── NETLIFY TAB ─────────────────────────────────────────────── */}
         {deployTab === "netlify" && (
