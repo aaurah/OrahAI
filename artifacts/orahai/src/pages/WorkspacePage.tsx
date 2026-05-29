@@ -4,6 +4,8 @@ import {
   Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon,
   MoreHorizontal, Github, KeyRound, Rocket, Square,
 } from "lucide-react";
+import { ActivityBar, type LeftPanel } from "@/components/editor/ActivityBar";
+import { ToolsPanel } from "@/components/editor/ToolsPanel";
 import { useSocket } from "@/hooks/useSocket";
 import { Terminal } from "@/components/terminal/Terminal";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
@@ -70,6 +72,8 @@ export default function WorkspacePage() {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  // ── Activity bar (left sidebar) ──────────────────────────────────────────────
+  const [leftPanel, setLeftPanel] = useState<LeftPanel | null>("files");
 
   // ── Other state ──────────────────────────────────────────────────────────────
   const socket = useSocket();
@@ -99,15 +103,15 @@ export default function WorkspacePage() {
     : null;
 
   const openRightPanel = (p: RightPanel) => {
-    setChatOpen(p === "chat");
-    setGithubOpen(p === "github");
-    setSecretsOpen(p === "secrets");
-    setDeployOpen(p === "deploy");
-    setDebugOpen(p === "debug");
-    setPackagesOpen(p === "packages");
-    setSettingsOpen(p === "settings");
-    setMcpOpen(p === "mcp");
-    setDatabaseOpen(p === "database");
+    if (p === "chat" || p === null) {
+      setChatOpen(p === "chat");
+      return;
+    }
+    if (p === "github") { setLeftPanel("git"); return; }
+    if (p === "deploy") { setLeftPanel("deploy"); return; }
+    if (p && (["secrets", "packages", "settings", "mcp", "database", "debug"] as RightPanel[]).includes(p)) {
+      setLeftPanel("tools"); return;
+    }
   };
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
@@ -411,35 +415,14 @@ export default function WorkspacePage() {
         onRun={handleRun}
         onStop={handleStop}
         chatOpen={chatOpen}
-        onChatToggle={() => openRightPanel(chatOpen ? null : "chat")}
+        onChatToggle={() => setChatOpen(v => !v)}
         terminalOpen={terminalOpen}
         onTerminalToggle={() => setTerminalOpen(v => !v)}
-        githubOpen={githubOpen}
-        onGithubToggle={() => openRightPanel(githubOpen ? null : "github")}
         previewOpen={previewOpen}
         onPreviewToggle={() => setPreviewOpen(v => !v)}
-        secretsOpen={secretsOpen}
-        onSecretsToggle={() => openRightPanel(secretsOpen ? null : "secrets")}
-        showSecrets={isProjectOwner}
-        deployOpen={deployOpen}
-        onDeployToggle={() => openRightPanel(deployOpen ? null : "deploy")}
         autoDevEnabled={autoDevEnabled}
         onAutoDevToggle={() => { setAutoDevEnabled(v => !v); setGrowthCount(0); }}
         growthCount={growthCount}
-        searchOpen={searchOpen}
-        onSearchToggle={() => setSearchOpen(v => !v)}
-        packagesOpen={packagesOpen}
-        onPackagesToggle={() => openRightPanel(packagesOpen ? null : "packages")}
-        settingsOpen={settingsOpen}
-        onSettingsToggle={() => openRightPanel(settingsOpen ? null : "settings")}
-        mcpOpen={mcpOpen}
-        onMcpToggle={() => openRightPanel(mcpOpen ? null : "mcp")}
-        showMcp={isProjectOwner}
-        databaseOpen={databaseOpen}
-        onDatabaseToggle={() => {
-          if (!databaseOpen) setMobileTab("editor");
-          openRightPanel(databaseOpen ? null : "database");
-        }}
         onCommandPalette={() => setCmdPaletteOpen(true)}
       />
 
@@ -455,23 +438,58 @@ export default function WorkspacePage() {
       {/* ── Desktop layout ──────────────────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
 
-        {/* LEFT: sidebar or search panel */}
-        {searchOpen ? (
-          <div className="w-72 flex-shrink-0 border-r border-border flex flex-col overflow-hidden bg-background">
-            <SearchPanel
-              projectId={project.id}
-              onNavigate={handleSearchNavigate}
-              onClose={() => setSearchOpen(false)}
-            />
+        {/* LEFT: Activity bar + expandable panel */}
+        <ActivityBar
+          leftPanel={leftPanel}
+          onLeftPanel={setLeftPanel}
+          isOwner={isProjectOwner}
+        />
+        {leftPanel !== null && (
+          <div className={cn(
+            "flex-shrink-0 border-r border-border flex flex-col overflow-hidden bg-background",
+            leftPanel === "tools" ? "w-80" : "w-64",
+          )}>
+            {leftPanel === "files" && (
+              <WorkspaceSidebar
+                projectId={project.id}
+                activeFilePath={activeFile?.path}
+                onFileSelect={handleFileSelect}
+                refreshKey={fileRefreshKey}
+                onSearchOpen={() => setLeftPanel("search")}
+              />
+            )}
+            {leftPanel === "search" && (
+              <SearchPanel
+                projectId={project.id}
+                onNavigate={handleSearchNavigate}
+                onClose={() => setLeftPanel("files")}
+              />
+            )}
+            {leftPanel === "git" && (
+              <GitHubPanel
+                projectId={project.id}
+                projectName={project.name}
+                onSynced={() => { mutateProject(); setFileRefreshKey(k => k + 1); }}
+              />
+            )}
+            {leftPanel === "tools" && (
+              <ToolsPanel
+                projectId={project.id}
+                project={project}
+                isOwner={isProjectOwner}
+                onInstall={handleInstallCommand}
+                onSendToChat={(prompt) => {
+                  setChatOpen(true);
+                  setTimeout(() => chatRef.current?.submit(prompt), 100);
+                }}
+                onClose={() => setLeftPanel("files")}
+                activeFilePath={activeFile?.path}
+              />
+            )}
+            {leftPanel === "deploy" && (
+              <DeployPanel project={project} onProjectUpdate={mutateProject} />
+            )}
           </div>
-        ) : (
-          <WorkspaceSidebar
-            projectId={project.id}
-            activeFilePath={activeFile?.path}
-            onFileSelect={handleFileSelect}
-            refreshKey={fileRefreshKey}
-            onSearchOpen={() => setSearchOpen(true)}
-          />
         )}
 
         {/* CENTER: editor + file tabs + preview + terminal */}
@@ -524,8 +542,8 @@ export default function WorkspacePage() {
           </div>
         </div>
 
-        {/* RIGHT: chat / github / secrets / deploy / packages / settings */}
-        {activeRightPanel === "chat" && (
+        {/* RIGHT: AI panel */}
+        {chatOpen && (
           <div className="w-80 xl:w-96 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
             {showSetupBanner && (
               <SetupBanner projectId={project.id} onDismiss={dismissSetup} onAiSetup={handleAiSetup} />
@@ -542,59 +560,6 @@ export default function WorkspacePage() {
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
             />
-          </div>
-        )}
-        {activeRightPanel === "github" && (
-          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <GitHubPanel projectId={project.id} projectName={project.name} onSynced={() => { mutateProject(); setFileRefreshKey(k => k + 1); }} />
-          </div>
-        )}
-        {activeRightPanel === "secrets" && isProjectOwner && (
-          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <SecretsPanel projectId={project.id} />
-          </div>
-        )}
-        {activeRightPanel === "deploy" && (
-          <div className="w-80 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <DeployPanel project={project} onProjectUpdate={mutateProject} />
-          </div>
-        )}
-        {activeRightPanel === "debug" && (
-          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <DebugPanel
-              projectId={project.id}
-              activeFilePath={activeFile?.path}
-              onSendToChat={(prompt) => {
-                setChatOpen(true);
-                setDebugOpen(false);
-                setMobileTab("ai");
-                setTimeout(() => chatRef.current?.submit(prompt), 100);
-              }}
-            />
-          </div>
-        )}
-        {activeRightPanel === "packages" && (
-          <div className="w-64 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <PackagesPanel
-              projectId={project.id}
-              language={project.language}
-              onInstall={handleInstallCommand}
-            />
-          </div>
-        )}
-        {activeRightPanel === "settings" && (
-          <div className="w-64 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <EditorSettingsPanel onClose={() => openRightPanel(null)} />
-          </div>
-        )}
-        {activeRightPanel === "mcp" && isProjectOwner && (
-          <div className="w-72 border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <McpPanel projectId={project.id} />
-          </div>
-        )}
-        {activeRightPanel === "database" && (
-          <div className="w-[520px] border-l border-border flex-shrink-0 flex flex-col overflow-hidden bg-background">
-            <DatabasePanel projectId={project.id} />
           </div>
         )}
       </div>

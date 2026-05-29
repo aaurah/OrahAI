@@ -6,6 +6,7 @@ import {
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
   Zap, Scale, Flame, Pencil, PlugZap, Cpu, DollarSign, Link2,
+  BookOpen, Wand2, PenLine,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -165,6 +166,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [exploreLog, setExploreLog] = useState<Record<string, ExploreEntry[]>>({});
   const [exploreOpen, setExploreOpen] = useState<Record<string, boolean>>({});
   const [autoResolvedModel, setAutoResolvedModel] = useState<string | null>(null);
+
+  // ── AI Panel Mode ──────────────────────────────────────────────────────────
+  type AiMode = "chat" | "explain" | "generate" | "complete";
+  const [aiMode, setAiMode] = useState<AiMode>("chat");
+  const [explainCustomInput, setExplainCustomInput] = useState("");
 
   // ── GPU VRAM Monitor ───────────────────────────────────────────────────────
   interface GpuModel {
@@ -810,13 +816,37 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {/* Header */}
       <div className="flex items-center gap-2 px-3 h-10 border-b border-border shrink-0">
         <Sparkles className="w-3.5 h-3.5 text-primary" />
-        <span className="text-sm font-medium">AI Chat</span>
-        {activeFilePath && (
+        <span className="text-sm font-semibold">OrahAI</span>
+        {activeFilePath && aiMode === "chat" && (
           <span className="text-xs text-muted-foreground truncate flex-1">· {activeFilePath}</span>
         )}
         <button onClick={clearHistory} className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title="Clear history">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+      </div>
+
+      {/* AI Mode tabs */}
+      <div className="flex items-center border-b border-border shrink-0 bg-background">
+        {([
+          { id: "chat"     as const, icon: <Sparkles className="w-3 h-3" />,  label: "Chat"     },
+          { id: "explain"  as const, icon: <BookOpen  className="w-3 h-3" />, label: "Explain"  },
+          { id: "generate" as const, icon: <Wand2     className="w-3 h-3" />, label: "Generate" },
+          { id: "complete" as const, icon: <PenLine   className="w-3 h-3" />, label: "Complete" },
+        ]).map(({ id, icon, label }) => (
+          <button
+            key={id}
+            onClick={() => setAiMode(id)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap",
+              aiMode === id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Background job banner — shown when AI is working after tab was closed */}
@@ -843,8 +873,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Messages — hidden when not in chat mode */}
+      <div className={cn("overflow-y-auto p-3 space-y-3", aiMode === "chat" ? "flex-1" : "hidden")}>
         {items.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground pb-8">
             <Bot className="w-8 h-8 opacity-30" />
@@ -1103,8 +1133,144 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         <div ref={messagesEndRef} />
       </div>
 
+      {/* ── EXPLAIN MODE ─────────────────────────────────────────────────────── */}
+      {aiMode === "explain" && (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-primary" />
+              Explain Code
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              AI analyzes and explains code. Select a quick action or paste custom code below.
+            </p>
+          </div>
+          {activeFilePath && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/50">
+              <FileCode2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground font-mono truncate">{activeFilePath}</span>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            {([
+              { label: "Explain this file",       prompt: `Explain the code in ${activeFilePath ?? "the current file"} — what it does, how it works, and the key patterns used.` },
+              { label: "Break down each function", prompt: `Go through each function in ${activeFilePath ?? "the current file"} and explain its purpose, parameters, and return value.` },
+              { label: "Trace the logic flow",     prompt: `Trace the main logic flow in ${activeFilePath ?? "the current file"} step by step from entry point to output.` },
+              { label: "Identify complex areas",   prompt: `Identify the most complex or hard-to-understand parts of ${activeFilePath ?? "this code"} and explain them clearly.` },
+              { label: "Summarize the project",    prompt: "Give a high-level summary of what this project does, how it's structured, and the main technologies used." },
+              { label: "Explain key concepts",     prompt: `What are the key programming concepts and patterns used in ${activeFilePath ?? "this project"}? Explain each one.` },
+            ] as { label: string; prompt: string }[]).map(({ label, prompt }) => (
+              <button key={label}
+                onClick={() => { setAiMode("chat"); void handleSubmitCore(prompt, [], null); }}
+                className="w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-lg border border-border/60 hover:bg-muted/40 hover:border-primary/30 transition-colors text-sm">
+                <span className="text-primary/60 shrink-0">→</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Or paste custom code:</p>
+            <textarea
+              value={explainCustomInput}
+              onChange={e => setExplainCustomInput(e.target.value)}
+              className="w-full h-20 rounded-lg border border-border bg-muted/20 text-xs p-2.5 resize-none outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 font-mono"
+              placeholder="Paste any code here to explain…"
+            />
+            <button
+              disabled={!explainCustomInput.trim()}
+              onClick={() => {
+                if (!explainCustomInput.trim()) return;
+                const prompt = `Explain this code:\n\`\`\`\n${explainCustomInput}\n\`\`\``;
+                setExplainCustomInput("");
+                setAiMode("chat");
+                void handleSubmitCore(prompt, [], null);
+              }}
+              className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40"
+            >
+              Explain this code
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── GENERATE MODE ────────────────────────────────────────────────────── */}
+      {aiMode === "generate" && (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-2">
+              <Wand2 className="w-4 h-4 text-primary" />
+              Generate
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Generate code, tests, documentation, and more with one click.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { label: "Unit tests",        icon: "🧪", prompt: `Write comprehensive unit tests for ${activeFilePath ?? "this project"}. Cover all edge cases.` },
+              { label: "JSDoc comments",    icon: "📝", prompt: `Add detailed JSDoc/docstring comments to every function in ${activeFilePath ?? "the current file"}.` },
+              { label: "README.md",         icon: "📋", prompt: "Generate a comprehensive README.md for this project with setup, features, and usage examples." },
+              { label: "Optimize code",     icon: "⚡", prompt: `Optimize ${activeFilePath ?? "the current file"} for performance and efficiency. Show the improved version.` },
+              { label: "Error handling",    icon: "🛡️", prompt: `Add comprehensive error handling and validation to ${activeFilePath ?? "the current file"}.` },
+              { label: "TypeScript types",  icon: "🔷", prompt: `Add strong TypeScript types, interfaces, and generics to ${activeFilePath ?? "the current file"}.` },
+              { label: "Security audit",    icon: "🔒", prompt: `Audit ${activeFilePath ?? "this project"} for security vulnerabilities and provide specific fixes.` },
+              { label: "API docs",          icon: "🌐", prompt: `Generate full API documentation for all endpoints/functions in ${activeFilePath ?? "this file"}.` },
+              { label: "Integration tests", icon: "🔗", prompt: `Write integration tests for ${activeFilePath ?? "this project"} testing how components work together.` },
+              { label: "Refactor code",     icon: "♻️", prompt: `Refactor ${activeFilePath ?? "the current file"} to be cleaner, more maintainable, and follow best practices.` },
+              { label: ".env template",     icon: "⚙️", prompt: "Create a .env.example file with all required environment variables, each with a description comment." },
+              { label: "Docker setup",      icon: "🐳", prompt: "Create a production-ready Dockerfile and docker-compose.yml for this project." },
+            ] as { label: string; icon: string; prompt: string }[]).map(({ label, icon, prompt }) => (
+              <button key={label}
+                onClick={() => { setAiMode("chat"); void handleSubmitCore(prompt, [], null); }}
+                className="flex flex-col items-start gap-1.5 px-3 py-2.5 rounded-lg border border-border/60 hover:bg-muted/40 hover:border-primary/30 transition-colors text-left">
+                <span className="text-base leading-none">{icon}</span>
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── COMPLETE MODE ────────────────────────────────────────────────────── */}
+      {aiMode === "complete" && (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-2">
+              <PenLine className="w-4 h-4 text-primary" />
+              Complete & Extend
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              AI will complete, extend, or improve the current file.
+            </p>
+          </div>
+          {activeFilePath && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/50">
+              <FileCode2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground font-mono truncate">{activeFilePath}</span>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            {([
+              { label: "Complete this file",    prompt: `Complete the code in ${activeFilePath ?? "the current file"} — fill in missing implementations, TODOs, and stubs.` },
+              { label: "Add missing features",  prompt: `Analyze ${activeFilePath ?? "the current file"} and add the most important missing features or functionality.` },
+              { label: "Extend functionality",  prompt: `Extend the code in ${activeFilePath ?? "the current file"} with additional useful functionality that enhances the project.` },
+              { label: "Fix all bugs",          prompt: `Find and fix all bugs in ${activeFilePath ?? "the current file"}. Show each fix with a brief explanation.` },
+              { label: "Add input validation",  prompt: `Add comprehensive input validation and sanitization to ${activeFilePath ?? "the current file"}.` },
+              { label: "Make production-ready", prompt: `Make ${activeFilePath ?? "the current file"} production-ready — add error handling, logging, type safety, and security.` },
+            ] as { label: string; prompt: string }[]).map(({ label, prompt }) => (
+              <button key={label}
+                onClick={() => { setAiMode("chat"); void handleSubmitCore(prompt, [], null); }}
+                className="w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-lg border border-border/60 hover:bg-muted/40 hover:border-primary/30 transition-colors text-sm">
+                <span className="text-primary/60 shrink-0">→</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Image preview strip */}
-      {attachedImages.length > 0 && (
+      {aiMode === "chat" && attachedImages.length > 0 && (
         <div className="px-2.5 pt-2 flex flex-wrap gap-2">
           {attachedImages.map((img, i) => (
             <div key={i} className="relative inline-flex flex-col items-center gap-0.5">
@@ -1123,7 +1289,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       )}
 
       {/* URL screenshot preview strip */}
-      {urlPreviews.length > 0 && (
+      {aiMode === "chat" && urlPreviews.length > 0 && (
         <div className="px-2.5 pt-2 flex flex-col gap-2">
           {urlPreviews.map(({ id, url }) => (
             <div key={id} className="relative rounded-lg border border-border bg-muted/30 overflow-hidden flex gap-0">
@@ -1154,7 +1320,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       )}
 
       {/* Queue tray — shown above input while messages are waiting */}
-      {queueCount > 0 && (() => {
+      {aiMode === "chat" && queueCount > 0 && (() => {
         const queuedMsgs = items.filter(
           (it): it is ChatMessage & { queued: true; images?: AttachedImage[] } =>
             "role" in it && !("_type" in it) && !!(it as { queued?: boolean }).queued
@@ -1241,8 +1407,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         );
       })()}
 
-      {/* Input */}
-      <div className="p-2.5 border-t border-border">
+      {/* Input — chat mode only */}
+      {aiMode === "chat" && (<div className="p-2.5 border-t border-border">
         {/* Mode selector */}
         <div className="flex items-center gap-1 mb-2">
           {AGENT_MODES.map((m) => {
@@ -1582,7 +1748,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             ? "AI responding · send to queue · stop to abort"
             : "↵ newline · Ctrl+Enter or tap send · paste image"}
         </p>
-      </div>
+      </div>)}
 
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
         onChange={(e) => { if (e.target.files?.length) handleImageFiles(e.target.files); e.target.value = ""; }} />
