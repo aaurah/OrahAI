@@ -34,8 +34,10 @@ const SUGGESTIONS = [
   "Portfolio website with dark mode",
   "REST API for a blog",
   "Real-time chat with rooms",
-  "Todo list with drag and drop",
-  "Dashboard for sales analytics",
+  "Mobile fitness tracker with Expo",
+  "Browser game with TypeScript Canvas",
+  "AI chatbot with streaming responses",
+  "Go microservice with PostgreSQL",
 ];
 
 const TEMPLATES: { emoji: string; label: string; tag: string; prompt: string }[] = [
@@ -54,6 +56,30 @@ const TEMPLATES: { emoji: string; label: string; tag: string; prompt: string }[]
   {
     emoji: "🐍", label: "FastAPI", tag: "Python + OpenAPI",
     prompt: "Build a Python FastAPI backend with Pydantic models, SQLAlchemy ORM, JWT auth, automatic OpenAPI docs, and CRUD endpoints for a resource.",
+  },
+  {
+    emoji: "📱", label: "Mobile App", tag: "Expo + React Native",
+    prompt: "Build a cross-platform mobile app with Expo and React Native using TypeScript. Include tab navigation with Expo Router, NativeWind styling, a list screen, a detail screen, and a native device feature like camera or location.",
+  },
+  {
+    emoji: "🐹", label: "Go API", tag: "Gin + PostgreSQL",
+    prompt: "Build a Go REST API with the Gin framework, PostgreSQL, JWT authentication middleware, structured logging, and CRUD endpoints. Include proper error handling and request validation.",
+  },
+  {
+    emoji: "🦀", label: "Rust API", tag: "Axum + Async",
+    prompt: "Build a Rust web API with Axum, Tokio async runtime, SQLx for PostgreSQL, JWT auth, and type-safe request/response handlers. Include proper error types and middleware.",
+  },
+  {
+    emoji: "🧠", label: "AI Chatbot", tag: "OpenAI + Streaming",
+    prompt: "Build an AI chatbot with React frontend and Node.js backend. Use OpenAI API for streaming chat completions. Support conversation history, system prompts, and model selection.",
+  },
+  {
+    emoji: "🎮", label: "Browser Game", tag: "Canvas + TypeScript",
+    prompt: "Build a fun 2D browser game using HTML5 Canvas and TypeScript with a game loop, collision detection, player movement, enemy AI, score tracking, and multiple levels.",
+  },
+  {
+    emoji: "📊", label: "Dashboard", tag: "React + Recharts",
+    prompt: "Build a beautiful analytics dashboard with React and Recharts. Include KPI cards, bar charts, line charts, data tables, date range filters, and mock data.",
   },
   {
     emoji: "⟠", label: "Smart Contract", tag: "Solidity + Hardhat",
@@ -523,9 +549,14 @@ export default function DashboardPage() {
 
         {/* ── Project Templates ─────────────────────────────────── */}
         <div className="w-full max-w-2xl mx-auto px-4 pb-10">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 text-center">
-            Or start from a template
-          </p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Or start from a template
+            </p>
+            <a href="/templates" className="text-[11px] text-primary hover:underline font-medium">
+              View all {"->"} 
+            </a>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {TEMPLATES.map((tpl) => (
               <button

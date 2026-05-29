@@ -21,11 +21,38 @@ function slugifyRepoName(name: string) {
 
 function inferLanguage(text: string): string {
   const n = text.toLowerCase();
-  if (/python|pandas|flask|django|fastapi|jupyter|machine.?learn|data.?sci|\.py\b/.test(n)) return "python";
-  if (/typescript|\.ts\b/.test(n)) return "typescript";
-  if (/html|css|landing.?page|portfolio|website|static|webpage|blog/.test(n)) return "html";
-  if (/node|express|api\b|server|backend|rest/.test(n)) return "nodejs";
-  if (/react|vue|next|nuxt|svelte|dashboard|frontend|ui\b|spa/.test(n)) return "nodejs";
+  // Blockchain / Web3 — highest specificity first
+  if (/\bvyper\b/.test(n)) return "vyper";
+  if (/\bmove\b.*(aptos|sui|lang)|\b(aptos|sui)\b.*\bmove\b|\bmove\b language/.test(n)) return "move";
+  if (/\bscrypt\b|scrypt.?ts|@scrypt.?inc|scrypt.?contract/.test(n)) return "scrypt";
+  if (/bitcoin.?sv|\bbsv\b|teranode|bsv.?sdk|satoshi.?vision|metanet|1sat.?ordinal|bsv.?ordinal/.test(n)) return "bsv";
+  if (/\bsolidity\b|smart.?contract|erc.?20|erc.?721|erc.?1155|\bnft.*(contract|mint|deploy)|\bdefi\b|hardhat|foundry|openzeppelin|msg\.sender/.test(n)) return "solidity";
+  if (/\bweb3\b|dapp|decentrali[zs]ed.?app|ethers\.js|wagmi|viem\b|metamask|wallet.?connect|rainbow.?kit/.test(n)) return "web3";
+  if (/\bsolana\b|\banchor\b.*(program|rust|framework)|spl.?token/.test(n)) return "rust";
+  if (/\bethereum\b|\bevm\b|\bblockchain\b|defi|yield.?farm|liquidity|amm\b|uniswap|aave\b/.test(n)) return "solidity";
+  // Other languages
+  if (/\brust\b|cargo\b|actix|axum|tokio/.test(n)) return "rust";
+  if (/\bgo\b|golang|gin\b|goroutine|go\.mod/.test(n)) return "go";
+  if (/\bjava\b|spring\b|maven|gradle|jvm/.test(n)) return "java";
+  if (/\bkotlin\b|ktor\b/.test(n)) return "kotlin";
+  if (/\bswift\b|vapor\b|swiftui/.test(n)) return "swift";
+  if (/\bruby\b|rails\b|sinatra\b|gemfile/.test(n)) return "ruby";
+  if (/\bphp\b|laravel|symfony|wordpress/.test(n)) return "php";
+  if (/\bc\+\+\b|cpp\b|cmake\b/.test(n)) return "cpp";
+  if (/\bscala\b|akka\b/.test(n)) return "scala";
+  if (/\bflutter\b|\bdart\b/.test(n)) return "dart";
+  if (/\belixir\b|phoenix\b/.test(n)) return "elixir";
+  if (/\bhaskell\b|cabal\b/.test(n)) return "haskell";
+  if (/\blua\b|love2d/.test(n)) return "lua";
+  if (/\bperl\b/.test(n)) return "perl";
+  if (/\bbash\b|shell.?script|\.sh\b/.test(n)) return "bash";
+  if (/\br\b|rstudio|tidyverse|shiny\b|ggplot/.test(n)) return "r";
+  if (/\bc#\b|csharp|\.net\b|asp\.net|dotnet/.test(n)) return "csharp";
+  if (/python|pandas|flask|django|fastapi|machine.?learn|data.?sci|jupyter|numpy|scipy/.test(n)) return "python";
+  if (/\btypescript\b|\.ts\b/.test(n)) return "typescript";
+  if (/\bapi\b|backend|server|express|node\.?js|rest\b|graphql|socket|websocket|database|mongo|postgres|mysql|sqlite|\bauth\b|login|dashboard|tracker|manager|monitor|\bapp\b/.test(n)) return "nodejs";
+  if (/\bhtml\b|\bcss\b|landing.?page|portfolio.?site|portfolio.?web|portfolio.?page|\bwebsite\b|static.?site|\bblog\b/.test(n)) return "html";
+  if (/expo|react.?native|\bmobile\b|ios\b|android\b/.test(n)) return "typescript";
   return "nodejs";
 }
 
@@ -120,6 +147,11 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const detectedLang = inferLanguage(description || projectName);
   const langLabel: Record<string, string> = {
     nodejs: "Node.js", typescript: "TypeScript", python: "Python", html: "HTML/CSS/JS",
+    go: "Go", rust: "Rust", java: "Java", kotlin: "Kotlin", swift: "Swift",
+    ruby: "Ruby", php: "PHP", cpp: "C++", csharp: "C#", c: "C", scala: "Scala",
+    dart: "Dart", elixir: "Elixir", haskell: "Haskell", lua: "Lua", perl: "Perl",
+    bash: "Bash", r: "R",
+    solidity: "Solidity", vyper: "Vyper", move: "Move", web3: "Web3/dApp", bsv: "Bitcoin SV", scrypt: "sCrypt",
   };
 
   const handleCreateWorkspace = async () => {
