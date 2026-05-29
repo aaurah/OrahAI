@@ -180,10 +180,10 @@ async function resolveAutoModel(message: string): Promise<{ provider: string; mo
   if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
   if (process.env.XAI_API_KEY) return { provider: "xai", modelName: "grok-3-mini" };
 
-  // Local Ollama as final fallback before cloud OpenAI proxy
+  // Local Ollama as last free fallback; if nothing works, return Groq which self-errors with a helpful message
   const localFallback = await getLocalOllamaModel();
   if (localFallback) return { provider: "ollama", modelName: localFallback };
-  return { provider: "openai", modelName: "gpt-4.1" };
+  return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
 }
 
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
@@ -888,7 +888,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       // ── Auto-fallback model chain ─────────────────────────────────────────
       // Build an ordered list of models to try. The user's requested model is
       // first; if it hits 429/413 we silently advance to the next entry.
-      // Local Ollama is appended as the final free fallback before cloud models.
+      // Local Ollama is the final free fallback; paid cloud models require their own API key.
       const localOllamaFallback = _cachedOllamaModel ? [`ollama:${_cachedOllamaModel}`] : [];
       const GLOBAL_FALLBACK_CHAIN = [
         ...localOllamaFallback,
@@ -901,6 +901,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         "openai:gpt-4.1",
       ];
       const isProviderConfigured = (p: string) => {
+        if (p === "openai") return !!makeOpenAIClient();
         if (p === "groq") return !!makeGroqClient();
         if (p === "anthropic") return !!getAnthropicClient();
         if (p === "ollama-remote") return !!makeOllamaRemoteClient();
@@ -908,7 +909,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         if (p === "xai") return !!makeXaiClient();
         if (p === "perplexity") return !!makePerplexityClient();
         if (p === "deepseek") return !!makeDeepSeekClient();
-        return true; // openai and ollama always available
+        return true; // ollama (local) always available
       };
       const _seenFallbacks = new Set<string>();
       const activeFallbacks: string[] = [];
@@ -1048,7 +1049,13 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
                 }
                 llmClient = deepSeekClient;
               } else {
-                llmClient = openai;
+                const openaiClient = makeOpenAIClient();
+                if (!openaiClient) {
+                  const errMsg = "OpenAI not configured. Add OPENAI_API_KEY in Replit Secrets (platform.openai.com/api-keys).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = openaiClient;
               }
 
               if (activeProvider === "ollama-remote") {
