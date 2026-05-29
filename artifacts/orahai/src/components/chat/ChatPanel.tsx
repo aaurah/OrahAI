@@ -65,6 +65,8 @@ interface ChatPanelProps {
   onApplyToPath?: (code: string, path: string) => void;
   onFileChange?: (path: string, action: "write" | "delete") => void;
   onStreamingChange?: (streaming: boolean) => void;
+  onRunInTerminal?: (cmd: string) => void;
+  onTerminalOpen?: () => void;
   autoDevEnabled?: boolean;
   growthCount?: number;
 }
@@ -118,7 +120,7 @@ interface QueuedEntry {
 }
 
 export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel(
-  { projectId, activeFilePath, activeFileContent, onApplyCode, onApplyToPath, onFileChange, onStreamingChange, autoDevEnabled, growthCount = 0 },
+  { projectId, activeFilePath, activeFileContent, onApplyCode, onApplyToPath, onFileChange, onStreamingChange, onRunInTerminal, onTerminalOpen, autoDevEnabled, growthCount = 0 },
   ref,
 ) {
   const [items, setItems] = useState<ListItem[]>([]);
@@ -620,6 +622,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               setItems((prev) => [...prev, runItem]);
               scrollBottom();
               appendExplore({ kind: "run", id: `run-${evt.idx}`, command: evt.command!, status: "running" });
+              // Auto-open terminal so AI-triggered runs stream there
+              onTerminalOpen?.();
 
             } else if (evt.type === "run_result") {
               const rid = `run-${evt.idx}-${assistantId}`;
@@ -1005,6 +1009,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                             onApplyToPath={onApplyToPath}
                             activeFilePath={activeFilePath}
                             projectId={projectId}
+                            onRunInTerminal={onRunInTerminal}
                           />
                           {msg.role === "assistant" && (exploreLog[msg.id]?.length ?? 0) > 0 && (
                             <div className="pt-1 border-t border-border/30">
@@ -1950,11 +1955,12 @@ function extractLastFilePath(text: string): string | undefined {
   return last;
 }
 
-function MsgContent({ content, isAssistant, onApply, onApplyToPath, activeFilePath, projectId }: {
+function MsgContent({ content, isAssistant, onApply, onApplyToPath, activeFilePath, projectId, onRunInTerminal }: {
   content: string; isAssistant: boolean;
   onApply?: (code: string) => void;
   onApplyToPath?: (code: string, path: string) => void;
   activeFilePath?: string; projectId: string;
+  onRunInTerminal?: (cmd: string) => void;
 }) {
   // Strip file-op blocks from rendered content so they don't show as raw text
   const cleaned = content
@@ -1980,7 +1986,8 @@ function MsgContent({ content, isAssistant, onApply, onApplyToPath, activeFilePa
               showApply={isAssistant && (!!onApply || !!onApplyToPath)}
               onApply={onApply} onApplyToPath={onApplyToPath}
               activeFilePath={activeFilePath} inferredPath={inferredPath}
-              projectId={projectId} />
+              projectId={projectId}
+              onRunInTerminal={onRunInTerminal} />
           );
         }
         // Update lastSeenPath from text before the next code block
@@ -2007,14 +2014,16 @@ function MsgContent({ content, isAssistant, onApply, onApplyToPath, activeFilePa
 
 const SHELL_LANGS = new Set(["bash", "sh", "shell", "zsh", "console", "terminal", "cmd"]);
 
-function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePath, inferredPath, projectId }: {
+function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePath, inferredPath, projectId, onRunInTerminal }: {
   lang: string; code: string; showApply: boolean;
   onApply?: (code: string) => void;
   onApplyToPath?: (code: string, path: string) => void;
   activeFilePath?: string; inferredPath?: string; projectId: string;
+  onRunInTerminal?: (cmd: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [sentToTerminal, setSentToTerminal] = useState(false);
   const [run, setRun] = useState<{ status: "idle" | "running" | "success" | "error"; output?: string; exitCode?: number | null }>({ status: "idle" });
   const [outputOpen, setOutputOpen] = useState(true);
   const [showPathInput, setShowPathInput] = useState(false);
@@ -2054,6 +2063,15 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
   };
 
   const handleRun = async () => {
+    if (sentToTerminal) return;
+    if (onRunInTerminal) {
+      // Preferred: pipe to the live terminal panel
+      onRunInTerminal(code);
+      setSentToTerminal(true);
+      setTimeout(() => setSentToTerminal(false), 3000);
+      return;
+    }
+    // Fallback: inline execution (no terminal callback provided)
     if (run.status === "running") return;
     setRun({ status: "running" }); setOutputOpen(true);
     try {
@@ -2104,14 +2122,21 @@ function CodeBlock({ lang, code, showApply, onApply, onApplyToPath, activeFilePa
             </button>
           )}
           {isShell && (
-            <button onClick={handleRun} disabled={run.status === "running"}
+            <button onClick={handleRun}
+              disabled={sentToTerminal || (!onRunInTerminal && run.status === "running")}
               className={cn(
                 "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors font-medium",
-                run.status === "running" ? "text-amber-400 opacity-70 cursor-not-allowed"
+                sentToTerminal ? "text-green-400 opacity-80 cursor-default"
+                  : run.status === "running" ? "text-amber-400 opacity-70 cursor-not-allowed"
+                  : onRunInTerminal ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
                   : "bg-primary/10 text-primary hover:bg-primary/20",
               )}>
-              {run.status === "running"
+              {sentToTerminal
+                ? <><Check className="w-3 h-3" /><span>Sent!</span></>
+                : run.status === "running"
                 ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Running…</span></>
+                : onRunInTerminal
+                ? <><TerminalIcon className="w-3 h-3" /><span>Run</span></>
                 : <><Play className="w-3 h-3" /><span>Run</span></>}
             </button>
           )}

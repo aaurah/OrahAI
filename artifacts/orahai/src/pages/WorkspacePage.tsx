@@ -559,6 +559,12 @@ export default function WorkspacePage() {
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
+              onTerminalOpen={() => { setTerminalOpen(true); setMobileTab("console"); }}
+              onRunInTerminal={async (cmd) => {
+                setTerminalOpen(true);
+                setMobileTab("console");
+                try { await api.post(`/api/runs/${project.id}`, { command: cmd }); } catch { /* ignore */ }
+              }}
             />
           </div>
         )}
@@ -689,6 +695,12 @@ export default function WorkspacePage() {
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
+              onTerminalOpen={() => { setTerminalOpen(true); setMobileTab("console"); }}
+              onRunInTerminal={async (cmd) => {
+                setTerminalOpen(true);
+                setMobileTab("console");
+                try { await api.post(`/api/runs/${project.id}`, { command: cmd }); } catch { /* ignore */ }
+              }}
             />
           </div>
         </div>
