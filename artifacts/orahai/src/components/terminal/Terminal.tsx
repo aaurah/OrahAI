@@ -87,16 +87,15 @@ function MobileTerminal({ projectId }: TerminalProps) {
 
     const onOutput = (data: { projectId: string; data: string }) => {
       if (data.projectId !== projectId) return;
-      const incoming = data.data.split("\n");
+      // Normalize CRLF → LF, then split into lines
+      const normalized = data.data.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const chunks = normalized.split("\n");
       setLines(prev => {
         const next = [...prev];
-        for (const chunk of incoming) {
-          if (chunk === "") { next.push(""); continue; }
-          if (next.length > 0 && !next[next.length - 1].endsWith("\n")) {
-            next[next.length - 1] += chunk;
-          } else {
-            next.push(chunk);
-          }
+        // Append first chunk to the last line (continuation), then push the rest
+        next[next.length - 1] = (next[next.length - 1] ?? "") + chunks[0];
+        for (let i = 1; i < chunks.length; i++) {
+          next.push(chunks[i]);
         }
         return next;
       });

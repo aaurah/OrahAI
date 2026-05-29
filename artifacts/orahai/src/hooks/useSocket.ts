@@ -14,13 +14,21 @@ export function useSocket(): Socket | null {
 
     consumerCount += 1;
 
-    if (!sharedSocket || !sharedSocket.connected) {
-      sharedSocket?.removeAllListeners();
+    // Only create a new socket if one doesn't exist at all.
+    // Don't recreate just because connected=false — it may still be connecting.
+    if (!sharedSocket) {
       sharedSocket = io(
         import.meta.env.VITE_API_URL ?? "",
-        { auth: { token }, transports: ["websocket"], reconnectionAttempts: 5 }
+        {
+          auth: { token },
+          transports: ["websocket"],
+          reconnectionAttempts: 10,
+          reconnectionDelay: 1000,
+        }
       );
       sharedSocket.on("connect", () => forceUpdate((n) => n + 1));
+      sharedSocket.on("disconnect", () => forceUpdate((n) => n + 1));
+      sharedSocket.on("connect_error", () => forceUpdate((n) => n + 1));
     }
 
     ref.current = sharedSocket;

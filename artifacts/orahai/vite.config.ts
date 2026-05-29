@@ -66,6 +66,18 @@ export default defineConfig({
     host: "0.0.0.0",
     allowedHosts: true,
     hmr: { overlay: false },
+    proxy: {
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        ws: false,
+      },
+      "/socket.io": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
     fs: {
       strict: true,
     },
