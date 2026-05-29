@@ -121,7 +121,7 @@ export function SecretsPanel({ projectId }: Props) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".env,text/plain"
+            accept="*"
             className="hidden"
             onChange={handleEnvFile}
           />
