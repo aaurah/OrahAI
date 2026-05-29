@@ -90,9 +90,10 @@ function ResultsGrid({ fields, rows }: { fields: string[]; rows: Record<string, 
 export function DatabasePanel({ projectId }: Props) {
   const [tab, setTab] = useState<Tab>("browse");
   const [customUrl, setCustomUrl] = useState("");
-  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [showUrlInput, setShowUrlInput] = useState(true);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const isInitialLoad = useRef(true);
 
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
@@ -146,7 +147,7 @@ export function DatabasePanel({ projectId }: Props) {
     }
   }, [projectId, effectiveUrl]);
 
-  const loadTables = useCallback(async () => {
+  const loadTables = useCallback(async (silent = false) => {
     setTablesLoading(true);
     try {
       const res = await api.get<{ tables: TableInfo[] }>(
@@ -154,16 +155,18 @@ export function DatabasePanel({ projectId }: Props) {
       );
       setTables(res.tables);
       setConnected(true);
+      isInitialLoad.current = false;
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? (e as Error).message;
       setConnected(false);
-      toast({ title: `Failed to load tables: ${msg}`, variant: "destructive" });
+      isInitialLoad.current = false;
+      if (!silent) toast({ title: `Failed to load tables: ${msg}`, variant: "destructive" });
     } finally {
       setTablesLoading(false);
     }
   }, [projectId, effectiveUrl]);
 
-  useEffect(() => { loadTables(); }, []);
+  useEffect(() => { loadTables(true); }, []);
 
   // ── Browse ──────────────────────────────────────────────────────────────────
 
@@ -339,7 +342,7 @@ export function DatabasePanel({ projectId }: Props) {
           <Settings2 className="w-3.5 h-3.5" />
         </button>
         <button
-          onClick={loadTables}
+          onClick={() => loadTables()}
           disabled={tablesLoading}
           title="Refresh tables"
           className="p-1 rounded hover:bg-muted text-muted-foreground transition-colors disabled:opacity-50"
@@ -467,7 +470,75 @@ export function DatabasePanel({ projectId }: Props) {
           {/* ── BROWSE tab ── */}
           {tab === "browse" && (
             <div className="flex flex-col flex-1 overflow-hidden">
-              {!selectedTable && (
+              {/* Not-connected onboarding screen */}
+              {connected === false && !tablesLoading && (
+                <div className="flex flex-col gap-4 p-4 overflow-y-auto flex-1">
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-sm font-semibold">Connect a database</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Paste a connection URL below, or add <code className="font-mono bg-muted px-1 rounded">DATABASE_URL</code> to your project secrets.
+                    </p>
+                  </div>
+
+                  {/* URL input — main hero */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Connection URL</label>
+                    <div className="flex items-center gap-1.5 bg-muted/30 border border-border rounded px-2.5 py-2">
+                      <Link2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <input
+                        value={customUrl}
+                        onChange={e => setCustomUrl(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && testConnection()}
+                        placeholder="postgres://user:pass@host:5432/db"
+                        className="flex-1 bg-transparent text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none"
+                      />
+                      {customUrl && (
+                        <button onClick={() => setCustomUrl("")} className="text-muted-foreground hover:text-foreground">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick-fill provider buttons */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">Quick-fill template</span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { label: "Neon",      prefix: "postgres://user:pass@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require" },
+                        { label: "Supabase",  prefix: "postgres://postgres:[pass]@db.[ref].supabase.co:5432/postgres" },
+                        { label: "Railway",   prefix: "postgres://postgres:[pass]@[host].railway.app:5432/railway" },
+                        { label: "Render",    prefix: "postgres://user:pass@[host].render.com/dbname" },
+                      ].map(({ label, prefix }) => (
+                        <button
+                          key={label}
+                          onClick={() => setCustomUrl(prefix)}
+                          className="flex items-center gap-1.5 h-7 px-2 rounded border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-left"
+                        >
+                          <Plus className="w-3 h-3 shrink-0" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={testConnection}
+                    disabled={connecting}
+                    className="flex items-center justify-center gap-2 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+                    {connecting ? "Connecting…" : "Connect"}
+                  </button>
+
+                  <div className="rounded border border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground space-y-1.5">
+                    <p className="font-semibold text-foreground/70">Or use a secret</p>
+                    <p>Open the <span className="font-medium text-foreground/80">Secrets</span> panel (🔑 in the toolbar) and add a secret named <code className="font-mono bg-muted px-1 rounded">DATABASE_URL</code>. The panel will auto-connect on the next open.</p>
+                  </div>
+                </div>
+              )}
+
+              {!selectedTable && connected !== false && (
                 <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground px-4">
                   <Table2 className="w-8 h-8 opacity-20" />
                   <p className="text-xs text-center">Select a table from the left to browse its data</p>
