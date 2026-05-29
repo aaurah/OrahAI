@@ -104,7 +104,11 @@ function LivePane({
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center bg-background gap-3">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Starting dev server…</p>
+        <p className="text-sm text-muted-foreground">Process running…</p>
+        <p className="text-xs text-muted-foreground/60 max-w-xs text-center">
+          If this is a web server, the live preview will appear once it binds a port.<br />
+          For scripts, check the <strong className="text-muted-foreground">Console</strong> tab for output.
+        </p>
       </div>
     );
   }
