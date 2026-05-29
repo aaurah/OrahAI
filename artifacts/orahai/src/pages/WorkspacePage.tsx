@@ -375,11 +375,11 @@ export default function WorkspacePage() {
   }
 
   const mobileTabs = [
-    { id: "files"   as MobileTab, label: "Files",   icon: <Files className="w-[18px] h-[18px]" /> },
-    { id: "editor"  as MobileTab, label: "Editor",  icon: <Code2 className="w-[18px] h-[18px]" /> },
+    { id: "ai"      as MobileTab, label: "AI",      icon: <MessageSquare className="w-[18px] h-[18px]" /> },
     { id: "console" as MobileTab, label: "Console", icon: <TerminalIcon className="w-[18px] h-[18px]" /> },
     { id: "preview" as MobileTab, label: "Preview", icon: <Globe className="w-[18px] h-[18px]" /> },
-    { id: "ai"      as MobileTab, label: "AI",      icon: <MessageSquare className="w-[18px] h-[18px]" /> },
+    { id: "editor"  as MobileTab, label: "Editor",  icon: <Code2 className="w-[18px] h-[18px]" /> },
+    { id: "files"   as MobileTab, label: "Files",   icon: <Files className="w-[18px] h-[18px]" /> },
   ];
 
   // Command palette commands
@@ -732,6 +732,10 @@ export default function WorkspacePage() {
         {moreMenuOpen && (
           <div ref={moreRef} className="absolute bottom-16 right-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
             {[
+              processRunning
+                ? { label: "Stop",     icon: <Square className="w-4 h-4 text-destructive" />,  action: () => { handleStop(); setMoreMenuOpen(false); } }
+                : { label: "▶  Run",   icon: <span className="text-sm">▶</span>,              action: () => { handleRun(); setMoreMenuOpen(false); } },
+              { label: "Auto-develop", icon: <span className="text-sm">🌱</span>, action: () => { setAutoDevEnabled(v => !v); setGrowthCount(0); setMoreMenuOpen(false); } },
               { label: "GitHub",   icon: <Github className="w-4 h-4" />,      action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
               { label: "Packages", icon: <span className="text-sm">📦</span>, action: () => { setMobileTab("editor"); setPackagesOpen(true); setMoreMenuOpen(false); } },
               { label: "MCP Tools", icon: <span className="text-sm">🔌</span>, action: () => { setMobileTab("editor"); setMcpOpen(true); setMoreMenuOpen(false); } },

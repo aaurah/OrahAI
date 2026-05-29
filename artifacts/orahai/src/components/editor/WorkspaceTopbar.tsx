@@ -166,14 +166,14 @@ export function WorkspaceTopbar({
           </button>
         )}
 
-        {/* ── Auto-develop button ─────────────────────────────────────── */}
+        {/* ── Auto-develop button — desktop only ──────────────────────── */}
         <button
           onClick={onAutoDevToggle}
           title={autoDevEnabled
             ? `Auto-develop ON — ${growthCount} growth cycle${growthCount !== 1 ? "s" : ""} run — click to stop`
             : "Auto-develop: AI grows your project like a tree, continuously"}
           className={cn(
-            "relative flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-semibold transition-all shrink-0 ml-1",
+            "relative hidden md:flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-semibold transition-all shrink-0 ml-1",
             autoDevEnabled
               ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/40"
               : "bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted border border-transparent",

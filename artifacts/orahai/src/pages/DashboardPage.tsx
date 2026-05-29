@@ -567,72 +567,57 @@ function ProjectCard({ project, hasGithubToken, onDeleted, onLinked }: {
       {/* Card — slides left on swipe */}
       <div
         ref={cardRef}
-        className="group relative p-4 rounded-xl border bg-card touch-pan-y will-change-transform select-none"
+        className="group relative rounded-xl border bg-card touch-pan-y will-change-transform select-none overflow-hidden"
         style={{ transform: "translateX(0)" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div className="flex items-start gap-3">
-          <span className="text-xl shrink-0">{icon}</span>
-          <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors">
-              {project.name}
-            </h3>
-            {project.description && (
-              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{project.description}</p>
-            )}
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-2">
-              <span className="capitalize">{project.language}</span>
-              {project.isPublic && (
-                <span className="flex items-center gap-0.5"><Globe className="w-2.5 h-2.5" />Public</span>
-              )}
-              <span className="ml-auto flex items-center gap-1">
-                <Clock className="w-2.5 h-2.5" />
-                {formatDistanceToNow(new Date(project.updatedAt))}
-              </span>
-            </div>
-
-            {/* GitHub status row */}
-            <div className="mt-2 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-              {project.githubRepo ? (
-                <a
-                  href={`https://github.com/${project.githubRepo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-[10px] text-primary hover:underline truncate max-w-full"
-                >
-                  <Github className="w-2.5 h-2.5 shrink-0" />
-                  <span className="truncate">{project.githubRepo}</span>
-                  <ExternalLink className="w-2 h-2 shrink-0 opacity-60" />
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setLinkOpen(true)}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-foreground/40 rounded px-1.5 py-0.5 transition-colors"
-                >
-                  <Github className="w-2.5 h-2.5" />
-                  Link to GitHub
-                </button>
-              )}
+        <div className="p-4 pb-3">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors leading-tight">
+                {project.name}
+              </h3>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-1">
+                <span className="capitalize bg-muted px-1.5 py-0.5 rounded-full">{project.language}</span>
+                {project.isPublic && (
+                  <span className="flex items-center gap-0.5"><Globe className="w-2.5 h-2.5" />Public</span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Desktop three-dot menu — hidden on touch */}
-          <div className="hidden sm:block relative" onClick={e => e.stopPropagation()}>
-            <MoreVertical className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 cursor-pointer"
-              onClick={() => navigate(`/workspace/${project.id}`)} />
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Clock className="w-2.5 h-2.5" />
+              {formatDistanceToNow(new Date(project.updatedAt))}
+            </span>
+
+            {/* Open button — visible on mobile, hover on desktop */}
+            <span className="flex items-center gap-1 text-xs font-semibold text-primary sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              Open <ArrowRight className="w-3 h-3" />
+            </span>
           </div>
         </div>
 
-        {/* Desktop hover overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-card/70 rounded-xl pointer-events-none sm:flex hidden">
-          <span className="flex items-center gap-1 text-xs font-medium text-primary">
-            Open <ArrowRight className="w-3.5 h-3.5" />
-          </span>
-        </div>
+        {/* GitHub row */}
+        {project.githubRepo && (
+          <div className="px-4 pb-3" onClick={e => e.stopPropagation()}>
+            <a
+              href={`https://github.com/${project.githubRepo}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary truncate"
+            >
+              <Github className="w-2.5 h-2.5 shrink-0" />
+              <span className="truncate">{project.githubRepo}</span>
+              <ExternalLink className="w-2 h-2 shrink-0 opacity-60" />
+            </a>
+          </div>
+        )}
       </div>
 
       {linkOpen && (
