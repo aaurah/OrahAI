@@ -2,7 +2,8 @@ import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { db, chatMessages, projects, memberships, files, mcpServers, projectSecrets } from "@workspace/db";
+import { db, chatMessages, projects, memberships, files, runs as runsTable, mcpServers, projectSecrets } from "@workspace/db";
+import { prepareWorkspace, installDeps, installPythonDeps, spawnProcess, stopProcess } from "../lib/processManager";
 import { eq, and, or, isNull, asc, desc, sql } from "drizzle-orm";
 import { discoverAllMcpTools, callMcpTool, type McpTool, type McpServerConfig } from "../lib/mcpClient";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
@@ -104,6 +105,147 @@ async function assertProjectAccess(projectId: string, userId: string) {
   )).limit(1);
   if (!p) throw createError("Project not found", 404);
   return p;
+}
+
+// ── Strip ANSI escape codes (for clean AI-readable output) ───────────────────
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[mGKHFABCDJhp]|\x1b\][^\x07]*\x07|\x1b[=>]/g, "");
+}
+
+// ── Detect the run command for a project ────────────────────────────────────
+async function detectAiRunCommand(projectId: string, language: string): Promise<string> {
+  const projectFiles = await db
+    .select({ path: files.path, content: files.content })
+    .from(files)
+    .where(and(eq(files.projectId, projectId), isNull(files.deletedAt)));
+
+  const paths = projectFiles.map(f => f.path.toLowerCase());
+
+  if (language === "python" || paths.some(p => p.includes("requirements.txt"))) {
+    for (const name of ["main.py", "app.py", "server.py", "run.py", "index.py"]) {
+      if (paths.some(p => p.endsWith(name))) return `python ${name}`;
+    }
+    const py = paths.find(p => p.endsWith(".py"));
+    return py ? `python ${py}` : "python main.py";
+  }
+  if (paths.some(p => p.endsWith("cargo.toml"))) return "cargo run";
+  if (paths.some(p => p.endsWith("go.mod"))) return "go run .";
+  if (language === "html") return 'python -m http.server 3000';
+
+  const pkgFile = projectFiles.find(f => f.path === "package.json");
+  if (pkgFile?.content) {
+    try {
+      const pkg = JSON.parse(pkgFile.content) as { scripts?: Record<string, string> };
+      const s = pkg.scripts ?? {};
+      if (s.dev)   return "npm run dev";
+      if (s.start) return "npm start";
+    } catch { /* ignore */ }
+  }
+  if (language === "typescript") return "npx --yes tsx src/index.ts";
+  return "node index.js";
+}
+
+// ── Run the project and capture output for the AI ────────────────────────────
+interface AiRunResult {
+  command: string;
+  output: string;
+  exitCode: number | null;
+  timedOut: boolean;
+}
+
+async function runProjectForAI(
+  projectId: string,
+  language: string,
+  runIdx: number,
+  send: (evt: object) => void,
+): Promise<AiRunResult> {
+  const command = await detectAiRunCommand(projectId, language);
+  const runId = cuid();
+
+  // Re-load files (may have just been written by WRITE ops)
+  const projectFiles = await db
+    .select({ path: files.path, content: files.content })
+    .from(files)
+    .where(and(eq(files.projectId, projectId), isNull(files.deletedAt)));
+
+  const dir = await prepareWorkspace(projectId, projectFiles);
+
+  // Install dependencies silently
+  await installDeps(dir);
+  await installPythonDeps(dir);
+
+  send({ type: "run_start", idx: runIdx, command });
+
+  const mp = await spawnProcess(projectId, runId, command, dir);
+
+  // Also insert a DB run record so the Console shows it
+  await db.insert(runsTable).values({
+    id: runId, projectId, command, status: "running",
+  }).catch(() => undefined);
+
+  return new Promise<AiRunResult>((resolve) => {
+    let settled = false;
+
+    const finish = (timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+
+      if (mp.alive) stopProcess(projectId);
+
+      const output = stripAnsi(mp.outputBuf)
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .trim()
+        .slice(0, 8000);
+
+      const exitCode = mp.exitCode;
+      const isServer = mp.port !== null;
+
+      // Update DB run record
+      db.update(runsTable).set({
+        status: exitCode === 0 ? "success" : (timedOut && isServer ? "running" : "error"),
+        output: output.slice(0, 50_000),
+        exitCode: exitCode ?? undefined,
+        completedAt: timedOut && isServer ? undefined : new Date(),
+      }).where(eq(runsTable.id, runId)).catch(() => undefined);
+
+      send({
+        type: "run_result",
+        idx: runIdx,
+        command,
+        output,
+        exitCode,
+        status: exitCode === 0 ? "success" : (timedOut && isServer ? "running" : "error"),
+      });
+
+      resolve({ command, output, exitCode, timedOut });
+    };
+
+    // Script exits naturally
+    mp.proc.once("close", () => setTimeout(() => finish(false), 300));
+
+    // Poll for port detection (server start)
+    let serverTimer: ReturnType<typeof setTimeout> | null = null;
+    const scriptTimer = setTimeout(() => finish(true), 20_000);
+
+    const portPoll = setInterval(() => {
+      if (!mp.alive) {
+        clearInterval(portPoll);
+        if (serverTimer) clearTimeout(serverTimer);
+        clearTimeout(scriptTimer);
+        return;
+      }
+      if (mp.port && !serverTimer) {
+        // Server started — give it a few more seconds to print useful output
+        clearTimeout(scriptTimer);
+        serverTimer = setTimeout(() => {
+          clearInterval(portPoll);
+          finish(true);
+        }, 5_000);
+      }
+    }, 400);
+  });
 }
 
 // ── Parse <<<WRITE:path>>> ... <<<END>>> and <<<DELETE:path>>> blocks ─────────
@@ -244,7 +386,7 @@ interface McpResult {
   serverName: string; toolName: string; ok: boolean; output: string;
 }
 
-function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: CmdResult[], mcpResults: McpResult[] = []): string {
+function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: CmdResult[], mcpResults: McpResult[] = [], runResults: AiRunResult[] = []): string {
   const lines: string[] = [`[Tool results from step ${step}]`];
 
   if (fileOps.length > 0) {
@@ -279,7 +421,24 @@ function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: C
     }
   }
 
-  const hasErrors = fileOps.some(o => !o.success) || cmds.some(c => c.status === "error" || (c.exitCode !== undefined && c.exitCode !== 0)) || mcpResults.some(r => !r.ok);
+  if (runResults.length > 0) {
+    lines.push("\nRun results:");
+    for (const r of runResults) {
+      lines.push(`\n$ ${r.command}`);
+      if (r.timedOut && r.exitCode === null) {
+        lines.push(`Status: Server/long-running process started (still running in background)`);
+      } else {
+        lines.push(`Exit code: ${r.exitCode ?? "?"}`);
+      }
+      if (r.output) {
+        const trimmed = r.output.slice(0, 6000);
+        lines.push(`Output:\n${trimmed}${r.output.length > 6000 ? "\n...(truncated)" : ""}`);
+      }
+    }
+  }
+
+  const runFailed = runResults.some(r => !r.timedOut && r.exitCode !== 0 && r.exitCode !== null);
+  const hasErrors = fileOps.some(o => !o.success) || cmds.some(c => c.status === "error" || (c.exitCode !== undefined && c.exitCode !== 0)) || mcpResults.some(r => !r.ok) || runFailed;
   if (hasErrors) {
     lines.push("\nSome operations had errors. Diagnose and fix them now — don't ask for permission.");
   } else {
@@ -725,13 +884,28 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           send({ type: "mcp_calls_done" });
         }
 
+        // ── <<<RUN>>> — run the project and capture output ───────────────────
+        const hasRunToken = /<<<RUN>>>/.test(stepContent);
+        const aiRunResults: AiRunResult[] = [];
+        if (hasRunToken) {
+          try {
+            const runResult = await runProjectForAI(project.id, project.language, step, send);
+            aiRunResults.push(runResult);
+          } catch (e) {
+            const errMsg = (e as Error).message ?? "Run failed";
+            logger.warn({ err: e }, "AI <<<RUN>>> failed");
+            send({ type: "run_result", idx: step, command: "?", output: errMsg, exitCode: -1, status: "error" });
+            aiRunResults.push({ command: "?", output: errMsg, exitCode: -1, timedOut: false });
+          }
+        }
+
         // If no actions were taken, the agent is done
-        if (fileOps.length === 0 && mcpCallOps.length === 0) break;
+        if (fileOps.length === 0 && mcpCallOps.length === 0 && !hasRunToken) break;
         if (step === maxSteps) break;
 
         // Feed results back so the agent can react and continue
         agentMessages.push({ role: "assistant", content: stepContent });
-        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults, mcpCallResults) });
+        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults, mcpCallResults, aiRunResults) });
       }
 
       const [saved] = await db.insert(chatMessages).values({
@@ -1453,9 +1627,22 @@ function buildSystemPrompt(
     `❌ NEVER claim you "added", "set", or "configured" a secret or environment variable. You cannot`,
     `   touch the Secrets panel — only the user can. When a secret is needed, say exactly:`,
     `   "Add VARIABLE_NAME to Project Secrets (⚙ Secrets panel in the sidebar), then click ▶ Run."`,
-    `❌ NEVER say "I will now run…", "I'm running…", "Running the evaluation…", or any variant that`,
-    `   implies you can execute processes. You cannot click ▶ Run or trigger execution. When the user`,
-    `   should run something, say: "Click ▶ Run — output will appear in the Terminal tab."`,
+    `✅ YOU CAN RUN the project directly — use <<<RUN>>> on its own line after writing files.`,
+    `   The project executes, stdout/stderr is captured, and the output is fed back to you.`,
+    `   Use this to verify code works, catch errors, and fix them immediately.`,
+    `   <<<RUN>>> uses the project's auto-detected start command (python main.py / npm run dev / etc.).`,
+    ``,
+    `   When to use <<<RUN>>>:`,
+    `   • After writing a script/CLI that should produce output — run it and verify`,
+    `   • After fixing a crash — run it and confirm the fix works`,
+    `   • When the user asks to "run", "test", or "try" the code`,
+    ``,
+    `   When NOT to use <<<RUN>>>:`,
+    `   • File-only changes with no runnable output (pure refactor, adding comments)`,
+    `   • When the user just asks a question about the code`,
+    `   • Long-running servers when the user only wants to check startup`,
+    ``,
+    `❌ NEVER say "I will now run…" without actually emitting <<<RUN>>>. Either run it or don't.`,
     `❌ NEVER show code in a markdown block and ask the user to copy it — use <<<WRITE>>> to apply it directly.`,
     `❌ NEVER write partial files or use placeholders like "// ... existing code ...", "// ... rest unchanged", "// TODO", or "// continues…". Write the FULL file every time.`,
     `❌ NEVER truncate a file mid-way and close with <<<END>>>. An incomplete file causes crashes. If a file is long, take as many tokens as needed — do NOT stop early.`,
@@ -1480,20 +1667,13 @@ function buildSystemPrompt(
     `Delete a file:`,
     `<<<DELETE:path/to/file.ext>>>`,
     ``,
+    `Run the project (starts project, captures stdout/stderr, feeds output back to you):`,
+    `<<<RUN>>>`,
+    ``,
     `- Paths are relative to project root. No leading "/" or "..".`,
     `- Multiple WRITE/DELETE blocks are fine in one response.`,
-    ``,
-    `════════════════════════════════════════════`,
-    `  HOW TO SHOW COMMANDS`,
-    `════════════════════════════════════════════`,
-    ``,
-    `Show commands in a fenced code block so the user can copy them:`,
-    `\`\`\`bash`,
-    `npm install`,
-    `npm run build`,
-    `\`\`\``,
-    ``,
-    `Do NOT prefix with "$ " expecting auto-execution — there is no sandbox. Commands are for reference only.`,
+    `- <<<RUN>>> MUST come AFTER all <<<WRITE>>> blocks in your response.`,
+    `- One <<<RUN>>> per response — it runs the project's detected start command.`,
     ``,
     `════════════════════════════════════════════`,
     `  PROJECT FILE TREE  (you have ALL of these)`,
