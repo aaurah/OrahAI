@@ -45,7 +45,7 @@ export const MODEL_GROUPS: ModelGroup[] = [
   {
     label: "OpenAI — GPT",
     provider: "openai",
-    note: "Set OPENAI_API_KEY in Replit Secrets to enable (platform.openai.com/api-keys)",
+    note: "Works via Replit AI integration — or add OPENAI_API_KEY for your own account",
     models: [
       { id: "openai:gpt-4.1",         name: "GPT-4.1",         provider: "openai", badge: "Latest",  vision: true,  description: "OpenAI flagship — best overall quality" },
       { id: "openai:gpt-4o",          name: "GPT-4o",           provider: "openai",                   vision: true,  description: "Fast multimodal model" },

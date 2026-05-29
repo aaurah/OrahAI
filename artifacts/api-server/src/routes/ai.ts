@@ -15,17 +15,27 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 
+// OpenAI: Replit AI integration proxy is the default (works without a personal key).
+// If OPENAI_API_KEY is also set it is preferred over the proxy key.
 function makeOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  const proxyBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  const proxyKey  = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const ownKey    = process.env.OPENAI_API_KEY;
+  if (!ownKey && !proxyKey) return null;
+  return new OpenAI({
+    ...(ownKey ? {} : { baseURL: proxyBase }),
+    apiKey: ownKey ?? proxyKey!,
+  });
 }
 
 function getAnthropicClient(): Anthropic | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
+  const proxyBase = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+  const proxyKey  = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
+  const ownKey    = process.env.ANTHROPIC_API_KEY;
+  const apiKey    = ownKey ?? proxyKey;
+  if (!apiKey && !proxyBase) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Anthropic({ apiKey } as any);
+  return new Anthropic({ ...(proxyBase && !ownKey ? { baseURL: proxyBase } : {}), apiKey: apiKey ?? "dummy" } as any);
 }
 
 function makeOllamaClient(): OpenAI {

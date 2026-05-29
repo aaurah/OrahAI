@@ -110,11 +110,11 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
         models: ["auto"],
       },
       openai: {
-        available: !!(process.env.OPENAI_API_KEY),
+        available: !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY),
         models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o3-mini"],
       },
       anthropic: {
-        available: !!(process.env.ANTHROPIC_API_KEY),
+        available: !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY),
         models: ["claude-opus-4-5", "claude-opus-4-8", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
       },
       gemini: {
