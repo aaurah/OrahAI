@@ -227,10 +227,50 @@ export function WorkspaceTopbar({
           </TooltipBtn>
         </div>
 
-        {/* Mobile: chevron dropdown hint */}
-        <button className="md:hidden ml-1 p-1.5 rounded hover:bg-muted text-muted-foreground">
-          <ChevronDown className="w-4 h-4" />
-        </button>
+        {/* Mobile: panel menu toggle */}
+        <div className="md:hidden relative ml-1" ref={mobileMenuRef}>
+          <button
+            onClick={() => setMobileMenuOpen(v => !v)}
+            className={cn(
+              "p-1.5 rounded transition-colors",
+              mobileMenuOpen ? "bg-muted text-foreground" : "hover:bg-muted text-muted-foreground hover:text-foreground",
+            )}
+            title="Panels"
+          >
+            {mobileMenuOpen ? <X className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          {mobileMenuOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-background shadow-lg py-1">
+              {[
+                { label: "Preview",  icon: <Globe className="w-4 h-4" />,         active: previewOpen,   onClick: () => { onPreviewToggle(); setMobileMenuOpen(false); } },
+                { label: "Console",  icon: <TerminalIcon className="w-4 h-4" />,  active: terminalOpen,  onClick: () => { onTerminalToggle(); setMobileMenuOpen(false); } },
+                { label: "AI Chat",  icon: <MessageSquare className="w-4 h-4" />, active: chatOpen,      onClick: () => { onChatToggle(); setMobileMenuOpen(false); } },
+                { label: "Database", icon: <Database className="w-4 h-4" />,      active: databaseOpen,  onClick: onDatabaseToggle ? () => { onDatabaseToggle(); setMobileMenuOpen(false); } : undefined },
+                { label: "Search",   icon: <Search className="w-4 h-4" />,        active: searchOpen,    onClick: () => { onSearchToggle(); setMobileMenuOpen(false); } },
+                { label: "Packages", icon: <Package className="w-4 h-4" />,       active: packagesOpen,  onClick: () => { onPackagesToggle(); setMobileMenuOpen(false); } },
+                { label: "GitHub",   icon: <Github className="w-4 h-4" />,        active: githubOpen,    onClick: () => { onGithubToggle(); setMobileMenuOpen(false); } },
+                { label: "Deploy",   icon: <Rocket className="w-4 h-4" />,        active: deployOpen,    onClick: () => { onDeployToggle(); setMobileMenuOpen(false); } },
+                { label: "Settings", icon: <Settings className="w-4 h-4" />,      active: settingsOpen,  onClick: () => { onSettingsToggle(); setMobileMenuOpen(false); } },
+              ].filter(item => item.onClick !== undefined).map(item => (
+                <button
+                  key={item.label}
+                  onClick={item.onClick}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors",
+                    item.active
+                      ? "text-foreground bg-muted"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                  )}
+                >
+                  {item.icon}
+                  {item.label}
+                  {item.active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {importOpen && <ImportProjectDialog onOpenChange={setImportOpen} />}
