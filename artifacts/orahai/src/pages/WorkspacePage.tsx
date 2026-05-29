@@ -394,7 +394,10 @@ export default function WorkspacePage() {
         onMcpToggle={() => openRightPanel(mcpOpen ? null : "mcp")}
         showMcp={isProjectOwner}
         databaseOpen={databaseOpen}
-        onDatabaseToggle={() => openRightPanel(databaseOpen ? null : "database")}
+        onDatabaseToggle={() => {
+          if (!databaseOpen) setMobileTab("editor");
+          openRightPanel(databaseOpen ? null : "database");
+        }}
         onCommandPalette={() => setCmdPaletteOpen(true)}
       />
 
@@ -606,6 +609,12 @@ export default function WorkspacePage() {
                     <button onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">← Back</button>
                   </div>
                   <div className="flex-1 overflow-hidden"><EditorSettingsPanel onClose={() => setSettingsOpen(false)} /></div>
+                </div>
+              ) : databaseOpen ? (
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  <div className="flex-1 overflow-hidden">
+                    <DatabasePanel projectId={project.id} />
+                  </div>
                 </div>
               ) : (
                 <div className="flex-1 overflow-hidden flex flex-col">
