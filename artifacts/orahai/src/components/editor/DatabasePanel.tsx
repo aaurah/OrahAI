@@ -129,6 +129,14 @@ export function DatabasePanel({ projectId }: Props) {
 
   const getParams = () => effectiveUrl ? `?url=${encodeURIComponent(effectiveUrl)}` : "";
 
+  // ── Persist custom URL to project secrets ──────────────────────────────────
+
+  useEffect(() => {
+    api.get<{ url: string | null }>(`/api/projects/${projectId}/database/url`)
+      .then((res) => { if (res.url) setCustomUrl(res.url); })
+      .catch(() => undefined);
+  }, [projectId]);
+
   // ── Connection ─────────────────────────────────────────────────────────────
 
   const testConnection = useCallback(async () => {
@@ -137,6 +145,9 @@ export function DatabasePanel({ projectId }: Props) {
       await api.post(`/api/projects/${projectId}/database/connect`, { url: effectiveUrl || undefined });
       setConnected(true);
       toast({ title: "Connected to database" });
+      if (effectiveUrl) {
+        api.put(`/api/projects/${projectId}/database/url`, { url: effectiveUrl }).catch(() => undefined);
+      }
       loadTables();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? (e as Error).message;

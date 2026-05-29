@@ -662,6 +662,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 return [...prev, newItem];
               });
               scrollBottom();
+
+            } else if (evt.type === "done") {
+              fetchMessages();
             }
           } catch { /* skip */ }
         }

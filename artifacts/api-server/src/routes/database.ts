@@ -57,6 +57,47 @@ async function runQuery(pool: Pool, sql: string, params: unknown[] = []) {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
+// GET /api/projects/:id/database/url — return the saved DATABASE_URL (revealed)
+router.get("/:projectId/database/url", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params["projectId"]);
+    await assertProjectAccess(projectId, req.user!.id);
+    const [secret] = await db.select({ id: projectSecrets.id, value: projectSecrets.value })
+      .from(projectSecrets)
+      .where(and(eq(projectSecrets.projectId, projectId), eq(projectSecrets.key, "DATABASE_URL")));
+    res.json({ url: secret?.value ?? null });
+  } catch (e) {
+    const err = e as Error & { statusCode?: number };
+    if (err.statusCode) return next(e);
+    next(createError(`Failed to load URL: ${err.message}`, 400));
+  }
+});
+
+// PUT /api/projects/:id/database/url — upsert DATABASE_URL in project secrets
+router.put("/:projectId/database/url", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params["projectId"]);
+    await assertProjectAccess(projectId, req.user!.id);
+    const { url } = z.object({ url: z.string().url() }).parse(req.body);
+    const [existing] = await db.select({ id: projectSecrets.id })
+      .from(projectSecrets)
+      .where(and(eq(projectSecrets.projectId, projectId), eq(projectSecrets.key, "DATABASE_URL")));
+    if (existing) {
+      await db.update(projectSecrets)
+        .set({ value: url, updatedAt: new Date() })
+        .where(eq(projectSecrets.id, existing.id));
+    } else {
+      const { cuid } = await import("../lib/cuid");
+      await db.insert(projectSecrets).values({ id: cuid(), projectId, key: "DATABASE_URL", value: url });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    const err = e as Error & { statusCode?: number };
+    if (err.statusCode) return next(e);
+    next(createError(`Failed to save URL: ${err.message}`, 400));
+  }
+});
+
 // POST /api/projects/:id/database/connect — test connection
 router.post("/:projectId/database/connect", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
