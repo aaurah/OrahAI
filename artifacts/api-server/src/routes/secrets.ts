@@ -86,7 +86,7 @@ router.post("/:projectId/secrets/import-env", async (req: AuthenticatedRequest, 
 
     // Parse .env content
     const pairs: { key: string; value: string }[] = [];
-    for (const raw of content.split(/\r?\n/)) {
+    for (const raw of content.split(/\r\n|\r|\n/)) {
       const line = raw.trim();
       if (!line || line.startsWith("#")) continue;
       // Strip leading "export "
