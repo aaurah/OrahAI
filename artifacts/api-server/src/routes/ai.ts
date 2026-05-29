@@ -35,7 +35,17 @@ function makeOllamaClient(): OpenAI {
 function makeOllamaRemoteClient(): OpenAI | null {
   const base = (process.env.OLLAMA_REMOTE_URL ?? "").replace(/\/$/, "");
   if (!base) return null;
-  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama", timeout: 120_000 });
+  return new OpenAI({
+    baseURL: `${base}/v1`,
+    apiKey: "ollama",
+    timeout: 120_000,
+    // Bypass ngrok / localtunnel / Cloudflare Tunnel browser-warning interstitial pages
+    defaultHeaders: {
+      "ngrok-skip-browser-warning": "true",
+      "bypass-tunnel-reminder": "true",
+      "user-agent": "OrahAI/1.0 (ollama-client)",
+    },
+  });
 }
 
 function makeGroqClient(): OpenAI | null {

@@ -37,6 +37,8 @@ interface ProviderStatus {
   version?: string;
   configured?: boolean;
   url?: string | null;
+  error?: string;
+  statusCode?: number;
 }
 
 interface ProvidersData {
@@ -1022,6 +1024,16 @@ function AiLibraryCard({ model, serverInstalled, remoteInstalled, pullingServer,
   );
 }
 
+interface RemoteTestResult {
+  ok: boolean;
+  stage?: string;
+  error?: string;
+  hint?: string;
+  steps?: Array<{ step: string; ok: boolean; detail?: string }>;
+  version?: string;
+  models?: string[];
+}
+
 function AiTab() {
   const [providers, setProviders] = useState<ProvidersData | null>(null);
   const [serverModels, setServerModels] = useState<OllamaModel[]>([]);
@@ -1034,9 +1046,29 @@ function AiTab() {
   const [customModel, setCustomModel] = useState("");
   const [libFilter, setLibFilter] = useState("all");
   const [installedEndpoint, setInstalledEndpoint] = useState<OllamaEndpoint>("server");
+  const [remoteTest, setRemoteTest] = useState<RemoteTestResult | null>(null);
+  const [remoteTestLoading, setRemoteTestLoading] = useState(false);
   const abortRefs = useRef<Record<string, AbortController>>({});
 
   const remoteConfigured = !!(providers?.["ollama-remote"]?.url);
+
+  const runRemoteTest = useCallback(async () => {
+    setRemoteTestLoading(true);
+    setRemoteTest(null);
+    try {
+      const result = await api.get<RemoteTestResult>("/api/ai/remote-test");
+      setRemoteTest(result);
+      if (result.ok) {
+        toast({ title: "Remote Ollama connected!", description: `v${result.version ?? "?"} · ${result.models?.length ?? 0} model(s)` });
+        void refresh();
+      }
+    } catch (e) {
+      setRemoteTest({ ok: false, hint: (e as Error).message });
+    } finally {
+      setRemoteTestLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -1188,15 +1220,90 @@ function AiTab() {
                 ? `${serverModels.length} model${serverModels.length !== 1 ? "s" : ""} installed`
                 : "Not running on this server"}
               models={providers?.ollama?.models} />
-            <AiProviderCard name="Ollama — Remote" icon={<Wifi className="w-4 h-4" />}
-              available={remoteAvailable} version={providers?.["ollama-remote"]?.version}
-              unavailableLabel={remoteConfigured ? "Unreachable" : "Not configured"}
-              note={!remoteConfigured
-                ? "Set OLLAMA_REMOTE_URL secret to connect"
-                : remoteAvailable
-                  ? `${remoteModels.length} model${remoteModels.length !== 1 ? "s" : ""} available`
-                  : "URL set but remote didn't respond"}
-              models={providers?.["ollama-remote"]?.models} />
+            {/* ── Ollama Remote card — with diagnostics ── */}
+            <div className={cn(
+              "rounded-xl border p-4 transition-colors",
+              remoteAvailable ? "border-green-500/20 bg-green-500/5" : "border-border bg-card",
+            )}>
+              <div className="flex items-center gap-3">
+                <div className={cn("p-2 rounded-lg shrink-0", remoteAvailable ? "bg-green-500/10 text-green-400" : "bg-muted text-muted-foreground")}>
+                  <Wifi className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">Ollama — Remote</span>
+                    {providers?.["ollama-remote"]?.version && (
+                      <span className="text-[10px] text-muted-foreground">v{providers["ollama-remote"].version}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {!remoteConfigured
+                      ? "Set OLLAMA_REMOTE_URL secret to connect"
+                      : remoteAvailable
+                        ? `${remoteModels.length} model${remoteModels.length !== 1 ? "s" : ""} available`
+                        : (providers?.["ollama-remote"]?.error ?? "URL set but remote didn't respond")}
+                  </p>
+                </div>
+                <div className="shrink-0">
+                  {remoteAvailable ? (
+                    <div className="flex items-center gap-1 text-green-400 text-xs font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Ready
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 text-muted-foreground text-xs">
+                      <XCircle className="w-3.5 h-3.5" /> {remoteConfigured ? "Unreachable" : "Not configured"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Test button — always visible if configured */}
+              {remoteConfigured && (
+                <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+                  <button
+                    onClick={runRemoteTest}
+                    disabled={remoteTestLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {remoteTestLoading
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Testing…</>
+                      : <><Activity className="w-3.5 h-3.5" />Test connection</>}
+                  </button>
+
+                  {/* Diagnostic result */}
+                  {remoteTest && (
+                    <div className={cn(
+                      "rounded-lg border p-3 text-xs space-y-2",
+                      remoteTest.ok ? "border-green-500/30 bg-green-500/5" : "border-destructive/30 bg-destructive/5",
+                    )}>
+                      {/* Step trace */}
+                      {remoteTest.steps && remoteTest.steps.length > 0 && (
+                        <div className="space-y-1">
+                          {remoteTest.steps.map(s => (
+                            <div key={s.step} className="flex items-center gap-2">
+                              {s.ok
+                                ? <CheckCircle2 className="w-3 h-3 text-green-400 shrink-0" />
+                                : <XCircle className="w-3 h-3 text-destructive shrink-0" />}
+                              <span className="text-muted-foreground font-mono">{s.step}</span>
+                              {s.detail && <span className="text-muted-foreground/70 truncate">{s.detail}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Hint / fix suggestion */}
+                      {remoteTest.hint && (
+                        <p className={cn("leading-snug", remoteTest.ok ? "text-green-400" : "text-destructive")}>
+                          {remoteTest.hint}
+                        </p>
+                      )}
+                      {remoteTest.ok && !remoteTest.hint && (
+                        <p className="text-green-400">Connected successfully — reload to refresh model list.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <AiProviderCard name="Groq — Free Cloud" icon={<Sparkles className="w-4 h-4" />}
               available={providers?.groq?.available ?? false}
               note={providers?.groq?.available

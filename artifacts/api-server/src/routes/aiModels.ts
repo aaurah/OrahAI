@@ -7,6 +7,13 @@ const router = Router();
 
 type OllamaEndpoint = "server" | "remote";
 
+// Headers that bypass tunnel browser-warning pages (ngrok, localtunnel, Cloudflare Tunnel, etc.)
+const TUNNEL_BYPASS_HEADERS: Record<string, string> = {
+  "ngrok-skip-browser-warning": "true",
+  "bypass-tunnel-reminder": "true",
+  "user-agent": "OrahAI/1.0 (ollama-client)",
+};
+
 function ollamaBase(endpoint: OllamaEndpoint = "server"): string {
   if (endpoint === "remote") {
     const url = (process.env.OLLAMA_REMOTE_URL ?? "").replace(/\/$/, "");
@@ -18,31 +25,56 @@ function ollamaBase(endpoint: OllamaEndpoint = "server"): string {
 async function ollamaFetch(path: string, endpoint: OllamaEndpoint = "server", options: RequestInit = {}) {
   const base = ollamaBase(endpoint);
   if (!base) throw new Error("Remote Ollama URL not configured");
+  const extraHeaders = endpoint === "remote" ? TUNNEL_BYPASS_HEADERS : {};
   const res = await fetch(`${base}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...extraHeaders, ...(options.headers ?? {}) },
   });
   return res;
 }
 
-async function probeOllama(endpoint: OllamaEndpoint): Promise<{ available: boolean; version?: string; models?: string[] }> {
+async function probeOllama(endpoint: OllamaEndpoint): Promise<{
+  available: boolean; version?: string; models?: string[];
+  error?: string; statusCode?: number;
+}> {
   try {
     const base = ollamaBase(endpoint);
-    if (!base) return { available: false };
-    const verRes = await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(3000) });
-    if (!verRes.ok) return { available: false };
+    if (!base) return { available: false, error: "URL not configured" };
+    const extraHeaders = endpoint === "remote" ? TUNNEL_BYPASS_HEADERS : {};
+    // Try /api/version — if non-JSON or non-2xx, the tunnel is showing a warning page
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let verRes: any;
+    try {
+      verRes = await fetch(`${base}/api/version`, {
+        headers: extraHeaders,
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (fetchErr) {
+      return { available: false, error: (fetchErr as Error).message ?? "Network error" };
+    }
+    if (!verRes.ok) {
+      return { available: false, statusCode: verRes.status as number, error: `HTTP ${verRes.status} — tunnel may be showing a login/warning page` };
+    }
+    const contentType: string = verRes.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return { available: false, error: "Got HTML instead of JSON — tunnel is intercepting the request (ngrok warning page?). The bypass headers were sent — try upgrading to ngrok paid or use Cloudflare Tunnel." };
+    }
     const ver = await verRes.json() as { version?: string };
-    const listRes = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listRes: any = await fetch(`${base}/api/tags`, {
+      headers: extraHeaders,
+      signal: AbortSignal.timeout(10_000),
+    });
     const listData = listRes.ok
       ? await listRes.json() as { models?: Array<{ name: string }> }
       : { models: [] };
     return {
       available: true,
       version: ver.version,
-      models: (listData.models ?? []).map(m => m.name),
+      models: (listData.models ?? []).map((m: { name: string }) => m.name),
     };
-  } catch {
-    return { available: false };
+  } catch (err) {
+    return { available: false, error: (err as Error).message ?? "Unknown error" };
   }
 }
 
@@ -133,6 +165,8 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
         models: remoteProbe.models ?? [],
         configured: !!ollamaBase("remote"),
         url: ollamaBase("remote") || null,
+        error: remoteProbe.available ? undefined : remoteProbe.error,
+        statusCode: remoteProbe.statusCode,
       },
     };
 
@@ -289,6 +323,96 @@ router.post("/warmup", requireAuth, async (req: AuthenticatedRequest, res: Respo
       return next(createError(`Warmup failed: ${txt}`, warmRes.status));
     }
     return res.json({ ok: true, model, endpoint, keepAlive });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/ai/remote-test — detailed connectivity diagnostic ────────────────
+router.get("/remote-test", requireAuth, async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const base = ollamaBase("remote");
+    if (!base) {
+      res.json({ ok: false, stage: "config", error: "OLLAMA_REMOTE_URL is not set in Replit Secrets." });
+      return;
+    }
+
+    const steps: Array<{ step: string; ok: boolean; detail?: string }> = [];
+
+    // Stage 1: DNS / network reach
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let verRes: any;
+    try {
+      verRes = await fetch(`${base}/api/version`, {
+        headers: TUNNEL_BYPASS_HEADERS,
+        signal: AbortSignal.timeout(10_000),
+      });
+      steps.push({ step: "network_reach", ok: true, detail: `HTTP ${verRes.status}` });
+    } catch (err) {
+      const msg = (err as Error).message ?? "Unknown error";
+      steps.push({ step: "network_reach", ok: false, detail: msg });
+      res.json({ ok: false, stage: "network", steps, hint: msg.includes("ENOTFOUND") || msg.includes("ECONNREFUSED")
+        ? "Cannot reach the remote URL. Make sure your tunnel is running and the URL is correct."
+        : msg.includes("timeout") || msg.includes("AbortError")
+          ? "Connection timed out after 10 s. The remote Ollama may be sleeping or on a slow network."
+          : msg });
+      return;
+    }
+
+    // Stage 2: HTTP status OK
+    const statusCode = verRes.status as number;
+    if (!verRes.ok) {
+      steps.push({ step: "http_status", ok: false, detail: `HTTP ${statusCode}` });
+      res.json({ ok: false, stage: "http", steps,
+        hint: statusCode === 401 || statusCode === 403
+          ? "Authentication required — your tunnel is protected. Ensure the tunnel has no password, or configure it to allow bypass headers."
+          : statusCode === 404
+            ? "Path not found. Make sure the URL is the base URL of Ollama (no path suffix needed)."
+            : `Tunnel returned HTTP ${statusCode}. It may be showing a login/error page.` });
+      return;
+    }
+    steps.push({ step: "http_status", ok: true, detail: `HTTP ${statusCode}` });
+
+    // Stage 3: Content-Type check (tunnel warning pages return HTML)
+    const ct: string = verRes.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      steps.push({ step: "content_type", ok: false, detail: `Content-Type: ${ct}` });
+      res.json({ ok: false, stage: "content_type", steps,
+        hint: "The server returned HTML instead of JSON — the tunnel is showing a browser warning page. The bypass header was sent but didn't work. Try ngrok paid or Cloudflare Tunnel (no interstitial)." });
+      return;
+    }
+    steps.push({ step: "content_type", ok: true, detail: ct });
+
+    // Stage 4: Parse JSON version
+    let ver: { version?: string } = {};
+    try {
+      ver = await verRes.json() as { version?: string };
+      steps.push({ step: "json_parse", ok: true, detail: `Ollama v${ver.version ?? "?"}` });
+    } catch {
+      steps.push({ step: "json_parse", ok: false, detail: "Invalid JSON in response" });
+      res.json({ ok: false, stage: "json", steps, hint: "Connected but response was not valid JSON." });
+      return;
+    }
+
+    // Stage 5: List models
+    let models: string[] = [];
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const listRes: any = await fetch(`${base}/api/tags`, {
+        headers: TUNNEL_BYPASS_HEADERS,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (listRes.ok) {
+        const data = await listRes.json() as { models?: Array<{ name: string }> };
+        models = (data.models ?? []).map((m: { name: string }) => m.name);
+      }
+      steps.push({ step: "list_models", ok: true, detail: `${models.length} model(s)` });
+    } catch {
+      steps.push({ step: "list_models", ok: false, detail: "Could not list models" });
+    }
+
+    res.json({ ok: true, steps, version: ver.version, models,
+      hint: models.length === 0
+        ? "Connected! But no models are installed on the remote. Run `ollama pull llama3` (or any model) on that machine."
+        : undefined });
   } catch (err) { next(err); }
 });
 
