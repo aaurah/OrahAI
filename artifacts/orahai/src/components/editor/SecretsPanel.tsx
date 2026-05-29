@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Trash2, Eye, EyeOff, KeyRound, Loader2, X, Check } from "lucide-react";
+import { useState, useRef } from "react";
+import { Plus, Trash2, Eye, EyeOff, KeyRound, Loader2, X, Check, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
@@ -23,6 +23,8 @@ export function SecretsPanel({ projectId }: Props) {
   const [editValue, setEditValue] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAdd = async () => {
     if (!newKey.trim() || saving) return;
@@ -81,6 +83,33 @@ export function SecretsPanel({ projectId }: Props) {
     }
   };
 
+  const handleEnvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!e.target.files) return;
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > 500_000) { toast({ title: "File too large (max 500 KB)", variant: "destructive" }); return; }
+    setImporting(true);
+    try {
+      const content = await file.text();
+      const res = await api.post<{ data: { created: number; updated: number; total: number } }>(
+        `/api/projects/${projectId}/secrets/import-env`,
+        { content }
+      );
+      await mutate();
+      const { created, updated } = res.data;
+      const parts: string[] = [];
+      if (created) parts.push(`${created} added`);
+      if (updated) parts.push(`${updated} updated`);
+      toast({ title: `.env imported — ${parts.join(", ")}` });
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      toast({ title: e.response?.data?.message ?? "Import failed", variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 h-10 border-b border-border shrink-0">
@@ -88,13 +117,30 @@ export function SecretsPanel({ projectId }: Props) {
           <KeyRound className="w-3.5 h-3.5" />
           Secrets
         </div>
-        <button
-          onClick={() => { setAdding(v => !v); setNewKey(""); setNewValue(""); }}
-          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Add secret"
-        >
-          {adding ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".env,text/plain"
+            className="hidden"
+            onChange={handleEnvFile}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Import .env file"
+          >
+            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          </button>
+          <button
+            onClick={() => { setAdding(v => !v); setNewKey(""); setNewValue(""); }}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="Add secret"
+          >
+            {adding ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -134,9 +180,14 @@ export function SecretsPanel({ projectId }: Props) {
               <p className="text-sm font-medium">No secrets yet</p>
               <p className="text-xs text-muted-foreground mt-1">Store API keys and env vars here. They're masked and never exposed in logs.</p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setAdding(true)} className="text-xs">
-              <Plus className="w-3.5 h-3.5 mr-1" /> Add secret
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setAdding(true)} className="text-xs">
+                <Plus className="w-3.5 h-3.5 mr-1" /> Add secret
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing} className="text-xs">
+                <Upload className="w-3.5 h-3.5 mr-1" /> Import .env
+              </Button>
+            </div>
           </div>
         )}
 
