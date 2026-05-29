@@ -145,7 +145,7 @@ export function WorkspaceTopbar({
             className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20"
           >
             <Square className="w-3.5 h-3.5 fill-current" />
-            <span className="hidden sm:inline">Stop</span>
+            <span>Stop</span>
           </button>
         ) : (
           <button
@@ -159,9 +159,9 @@ export function WorkspaceTopbar({
             )}
           >
             {isRunning ? (
-              <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span className="hidden sm:inline">Starting</span></>
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Starting…</span></>
             ) : (
-              <><Play className="w-3.5 h-3.5 fill-current" /><span className="hidden sm:inline">Run</span></>
+              <><Play className="w-3.5 h-3.5 fill-current" /><span>Run</span></>
             )}
           </button>
         )}
