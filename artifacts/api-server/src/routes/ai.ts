@@ -44,6 +44,85 @@ function makeGroqClient(): OpenAI | null {
   return new OpenAI({ baseURL: "https://api.groq.com/openai/v1", apiKey });
 }
 
+function makeGeminiClient(): OpenAI | null {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    apiKey,
+  });
+}
+
+function makeXaiClient(): OpenAI | null {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ baseURL: "https://api.x.ai/v1", apiKey });
+}
+
+function makePerplexityClient(): OpenAI | null {
+  const apiKey = process.env.PERPLEXITY_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ baseURL: "https://api.perplexity.ai", apiKey });
+}
+
+function makeDeepSeekClient(): OpenAI | null {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ baseURL: "https://api.deepseek.com/v1", apiKey });
+}
+
+// ── Smart Auto-routing ────────────────────────────────────────────────────────
+// Analyzes message intent and returns the best available provider:model
+function resolveAutoModel(message: string): { provider: string; modelName: string } {
+  const msg = message.toLowerCase();
+
+  // Search / research / "latest" / "current events" → Perplexity Sonar
+  const isSearch =
+    /\b(search|find|look up|what is the latest|current(ly)?|news|today|recent|live|real.?time|browse|web)\b/.test(msg);
+  if (isSearch && process.env.PERPLEXITY_API_KEY) {
+    return { provider: "perplexity", modelName: "sonar-pro" };
+  }
+
+  // Code / debug / implement / write → DeepSeek V3 (best coding model)
+  const isCode =
+    /\b(code|function|class|bug|error|fix|implement|write|create|build|refactor|debug|compile|run|test|script|api|endpoint|component|module)\b/.test(msg);
+  if (isCode && process.env.DEEPSEEK_API_KEY) {
+    return { provider: "deepseek", modelName: "deepseek-chat" };
+  }
+
+  // Reasoning / math / logic / explain → DeepSeek R1 or Groq Qwen
+  const isReason =
+    /\b(reason|explain why|prove|math|calculate|formula|logic|step.?by.?step|analyze|analysis|compare|evaluate|think|how does|why does)\b/.test(msg);
+  if (isReason) {
+    if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-reasoner" };
+    if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "qwen/qwen3-32b" };
+  }
+
+  // Image / vision / screenshot / design → Gemini Flash (vision)
+  const isVision =
+    /\b(image|photo|screenshot|picture|diagram|chart|graph|figure|visual|look at|what do you see)\b/.test(msg);
+  if (isVision) {
+    if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
+    if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
+  }
+
+  // Long document / large context → Gemini Pro or Claude
+  const isLongContext =
+    /\b(document|summarize|entire|whole|all of|full|long|thousands|pages|report)\b/.test(msg);
+  if (isLongContext) {
+    if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-pro-preview-06-05" };
+    if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-opus-4-5" };
+  }
+
+  // Default priority: DeepSeek (code-first IDE) → Groq (free) → GPT → Gemini → Anthropic → xAI
+  if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
+  if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
+  if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
+  if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
+  if (process.env.XAI_API_KEY) return { provider: "xai", modelName: "grok-3-mini" };
+  return { provider: "openai", modelName: "gpt-4.1" };
+}
+
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
   return msgs
     .filter(m => m.role !== "system")
@@ -467,8 +546,22 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
       const { message, fileContext, filePath, imageData, imageMimeType, images, mode, model: modelField } = parsed.data;
       const colonIdx = (modelField ?? "").indexOf(":");
-      const provider = colonIdx >= 0 ? (modelField ?? "").slice(0, colonIdx) : "openai";
-      const modelName = colonIdx >= 0 ? (modelField ?? "").slice(colonIdx + 1) : (modelField ?? "gpt-4.1");
+      const rawProvider = colonIdx >= 0 ? (modelField ?? "").slice(0, colonIdx) : "openai";
+      const rawModelName = colonIdx >= 0 ? (modelField ?? "").slice(colonIdx + 1) : (modelField ?? "gpt-4.1");
+
+      // Resolve "auto" → best model for this message
+      let provider: string;
+      let modelName: string;
+      let autoResolved = false;
+      if (rawProvider === "auto") {
+        const resolved = resolveAutoModel(message);
+        provider = resolved.provider;
+        modelName = resolved.modelName;
+        autoResolved = true;
+      } else {
+        provider = rawProvider;
+        modelName = rawModelName;
+      }
 
       // Mode → capability settings
       const MODE_CONFIG = {
@@ -540,6 +633,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
       registerJob(project.id);
 
+      // If auto-routing resolved the model, tell the client which model was picked
+      if (autoResolved) {
+        send({ type: "model_resolved", model: `${provider}:${modelName}` });
+      }
+
       const modeNote = mode === "lite"
         ? "\n\nMODE: Lite — give a concise, direct answer. Skip lengthy preamble. Write files only if truly necessary."
         : mode === "power"
@@ -610,7 +708,11 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         if (p === "groq") return !!makeGroqClient();
         if (p === "anthropic") return !!getAnthropicClient();
         if (p === "ollama-remote") return !!makeOllamaRemoteClient();
-        return true; // openai (Replit AI proxy) and ollama always available
+        if (p === "gemini") return !!makeGeminiClient();
+        if (p === "xai") return !!makeXaiClient();
+        if (p === "perplexity") return !!makePerplexityClient();
+        if (p === "deepseek") return !!makeDeepSeekClient();
+        return true; // openai and ollama always available
       };
       const _seenFallbacks = new Set<string>();
       const activeFallbacks: string[] = [];
@@ -644,15 +746,23 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           attemptedModels.add(curModelKey);
           // Groq free tier has tight per-request limits — enforce them dynamically
           const curMaxTokens = activeProvider === "groq" ? Math.min(maxTokens, 3000) : maxTokens;
-          const isOllama = activeProvider === "ollama" || activeProvider === "ollama-remote";
+          // Providers that use max_tokens (not max_completion_tokens)
+          const isOllama = activeProvider === "ollama" || activeProvider === "ollama-remote"
+            || activeProvider === "gemini" || activeProvider === "xai"
+            || activeProvider === "perplexity" || activeProvider === "deepseek"
+            || activeProvider === "groq";
 
           // Per-provider user-message char limit: prevents long pastes from blowing
           // the model's context window. Stored message is always the full original.
           const MSG_CHAR_LIMIT: Record<string, number> = {
-            groq:          20_000,
-            openai:       400_000,
-            anthropic:    400_000,
-            ollama:       100_000,
+            groq:            20_000,
+            openai:         400_000,
+            anthropic:      400_000,
+            gemini:         800_000,
+            xai:            200_000,
+            perplexity:      50_000,
+            deepseek:       200_000,
+            ollama:         100_000,
             "ollama-remote": 100_000,
           };
           const msgLimit = MSG_CHAR_LIMIT[activeProvider] ?? 100_000;
@@ -709,6 +819,38 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
                   send({ type: "delta", content: errMsg }); stepFailed = true; break;
                 }
                 llmClient = groqClient;
+              } else if (activeProvider === "gemini") {
+                const geminiClient = makeGeminiClient();
+                if (!geminiClient) {
+                  const errMsg = "Gemini not configured. Add GOOGLE_API_KEY in Replit Secrets (get a free key at aistudio.google.com/apikey).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = geminiClient;
+              } else if (activeProvider === "xai") {
+                const xaiClient = makeXaiClient();
+                if (!xaiClient) {
+                  const errMsg = "xAI Grok not configured. Add XAI_API_KEY in Replit Secrets (console.x.ai).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = xaiClient;
+              } else if (activeProvider === "perplexity") {
+                const perplexityClient = makePerplexityClient();
+                if (!perplexityClient) {
+                  const errMsg = "Perplexity Sonar not configured. Add PERPLEXITY_API_KEY in Replit Secrets (perplexity.ai/api).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = perplexityClient;
+              } else if (activeProvider === "deepseek") {
+                const deepSeekClient = makeDeepSeekClient();
+                if (!deepSeekClient) {
+                  const errMsg = "DeepSeek not configured. Add DEEPSEEK_API_KEY in Replit Secrets (platform.deepseek.com).";
+                  stepContent = errMsg; allContent += errMsg;
+                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
+                }
+                llmClient = deepSeekClient;
               } else {
                 llmClient = openai;
               }

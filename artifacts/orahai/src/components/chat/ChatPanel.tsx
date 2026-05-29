@@ -22,7 +22,12 @@ import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, mak
 
 // Models that may incur API costs — require a one-time-per-session confirmation
 const isPaidModel = (model: string) =>
-  model.startsWith("openai:") || model.startsWith("anthropic:");
+  model.startsWith("openai:") ||
+  model.startsWith("anthropic:") ||
+  model.startsWith("gemini:") ||
+  model.startsWith("xai:") ||
+  model.startsWith("perplexity:") ||
+  model.startsWith("deepseek:");
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -159,6 +164,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [editQueuedText, setEditQueuedText] = useState("");
   const [exploreLog, setExploreLog] = useState<Record<string, ExploreEntry[]>>({});
   const [exploreOpen, setExploreOpen] = useState<Record<string, boolean>>({});
+  const [autoResolvedModel, setAutoResolvedModel] = useState<string | null>(null);
 
   // ── GPU VRAM Monitor ───────────────────────────────────────────────────────
   interface GpuModel {
@@ -523,6 +529,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setAgentStep(1);
       abortedRef.current = false;
       abortRef.current = new AbortController();
+      setAutoResolvedModel(null); // reset auto-resolved model on each new request
     }
 
     const signal = parallel ? myAbort!.signal : abortRef.current!.signal;
@@ -574,7 +581,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               from?: string; to?: string; reason?: string;
             };
 
-            if (evt.type === "model_switch" && evt.to) {
+            if (evt.type === "model_resolved" && evt.to == null && (evt as unknown as Record<string,string>).model) {
+              const resolved = (evt as unknown as Record<string,string>).model;
+              setAutoResolvedModel(resolved);
+
+            } else if (evt.type === "model_switch" && evt.to) {
               const label = evt.to.includes(":") ? evt.to.split(":")[1] : evt.to;
               const reasonLabel = evt.reason === "too_large" ? "request too large" : evt.reason === "daily_limit" ? "daily limit reached" : "rate limit";
               toast({ title: `⚡ Switched to ${label}`, description: `Auto-fallback (${reasonLabel})` });
@@ -1369,7 +1380,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               )}
             >
               <Bot className="w-3 h-3" />
-              <span className="max-w-[72px] truncate">{getModelShortName(aiModel)}</span>
+              <span className="max-w-[80px] truncate">
+                {aiModel === "auto:auto" && autoResolvedModel
+                  ? `Auto → ${getModelShortName(autoResolvedModel)}`
+                  : getModelShortName(aiModel)}
+              </span>
               {isPaidModel(aiModel) && (
                 <DollarSign className="w-2.5 h-2.5 text-amber-400 shrink-0" />
               )}
@@ -1416,11 +1431,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       </div>
                     )}
 
-                    {/* Static model groups (cloud + ollama catalog) */}
-                    {MODEL_GROUPS.filter(g =>
-                      g.provider !== "ollama" &&
-                      (g.provider !== "openai" && g.provider !== "anthropic" || enabledPaidProviders.has(g.provider))
-                    ).map(group => (
+                    {/* Static model groups (cloud providers + groq + ollama catalog) */}
+                    {MODEL_GROUPS.filter(g => {
+                      if (g.provider === "ollama") return false; // handled as live models above
+                      const PAID_PROVIDERS = ["openai","anthropic","gemini","xai","perplexity","deepseek"];
+                      if (PAID_PROVIDERS.includes(g.provider) && !enabledPaidProviders.has(g.provider)) return false;
+                      return true;
+                    }).map(group => (
                       <div key={group.label}>
                         <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
                           <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
@@ -1456,33 +1473,35 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                     ))}
                   </div>
                   {/* Footer: paid provider toggles + manage link */}
-                  <div className="border-t border-border/40 px-3 pt-2 pb-1.5 space-y-1">
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Paid Providers</p>
+                  <div className="border-t border-border/40 px-3 pt-2 pb-1.5 space-y-0.5">
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Enable Providers (your API keys)</p>
                     {([
-                      { provider: "openai",    label: "OpenAI",    sub: "via Replit proxy" },
-                      { provider: "anthropic", label: "Anthropic", sub: "needs API key" },
+                      { provider: "openai",     label: "OpenAI",     sub: "OPENAI_API_KEY" },
+                      { provider: "anthropic",  label: "Anthropic",  sub: "ANTHROPIC_API_KEY" },
+                      { provider: "gemini",     label: "Gemini",     sub: "GOOGLE_API_KEY" },
+                      { provider: "xai",        label: "xAI Grok",   sub: "XAI_API_KEY" },
+                      { provider: "perplexity", label: "Perplexity", sub: "PERPLEXITY_API_KEY" },
+                      { provider: "deepseek",   label: "DeepSeek",   sub: "DEEPSEEK_API_KEY" },
                     ] as const).map(({ provider, label, sub }) => {
                       const on = enabledPaidProviders.has(provider);
                       return (
                         <button key={provider} type="button"
                           onClick={() => togglePaidProvider(provider)}
-                          className="w-full flex items-center gap-2.5 px-1 py-1 rounded-lg hover:bg-muted/60 transition-colors"
+                          className="w-full flex items-center gap-2.5 px-1 py-0.5 rounded-lg hover:bg-muted/60 transition-colors"
                         >
-                          {/* pill toggle */}
                           <div className={cn(
-                            "w-8 h-4 rounded-full transition-colors relative shrink-0",
-                            on ? "bg-amber-500" : "bg-muted-foreground/25",
+                            "w-7 h-3.5 rounded-full transition-colors relative shrink-0",
+                            on ? "bg-primary" : "bg-muted-foreground/25",
                           )}>
                             <div className={cn(
-                              "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
-                              on ? "translate-x-4" : "translate-x-0.5",
+                              "absolute top-[1px] w-[11px] h-[11px] bg-white rounded-full shadow transition-transform",
+                              on ? "translate-x-[14px]" : "translate-x-[1px]",
                             )} />
                           </div>
-                          <span className={cn("flex-1 text-left text-xs font-medium", on ? "text-foreground" : "text-muted-foreground")}>
+                          <span className={cn("flex-1 text-left text-[11px] font-medium", on ? "text-foreground" : "text-muted-foreground")}>
                             {label}
                           </span>
-                          <DollarSign className="w-2.5 h-2.5 text-amber-400/70 shrink-0" />
-                          <span className="text-[9px] text-muted-foreground/60 shrink-0">{sub}</span>
+                          <code className="text-[8px] text-muted-foreground/50 shrink-0 font-mono">{sub}</code>
                         </button>
                       );
                     })}

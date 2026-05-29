@@ -72,17 +72,47 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
     }
 
     const providers: Record<string, unknown> = {
+      auto: {
+        available: true,
+        description: "Smart routing — picks the best available model for your task",
+        models: ["auto"],
+      },
       openai: {
         available: !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY),
-        models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+        models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o3-mini"],
       },
       anthropic: {
         available: !!(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY),
-        models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+        models: ["claude-opus-4-5", "claude-opus-4-8", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+      },
+      gemini: {
+        available: !!(process.env.GOOGLE_API_KEY),
+        configured: !!(process.env.GOOGLE_API_KEY),
+        models: ["gemini-2.5-pro-preview-06-05", "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-pro"],
+        note: "Requires GOOGLE_API_KEY secret (aistudio.google.com/apikey)",
+      },
+      xai: {
+        available: !!(process.env.XAI_API_KEY),
+        configured: !!(process.env.XAI_API_KEY),
+        models: ["grok-3", "grok-3-mini", "grok-2"],
+        note: "Requires XAI_API_KEY secret (console.x.ai)",
+      },
+      perplexity: {
+        available: !!(process.env.PERPLEXITY_API_KEY),
+        configured: !!(process.env.PERPLEXITY_API_KEY),
+        models: ["sonar-pro", "sonar", "sonar-reasoning-pro", "sonar-reasoning"],
+        note: "Requires PERPLEXITY_API_KEY secret (perplexity.ai/api)",
+      },
+      deepseek: {
+        available: !!(process.env.DEEPSEEK_API_KEY),
+        configured: !!(process.env.DEEPSEEK_API_KEY),
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        note: "Requires DEEPSEEK_API_KEY secret (platform.deepseek.com)",
       },
       groq: {
         available: groqKey,
-        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b"],
+        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b"],
+        note: "Free API key at console.groq.com",
       },
       ollama: {
         available: serverProbe.available,
