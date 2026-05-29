@@ -155,10 +155,10 @@ export function McpPanel({ projectId }: Props) {
 
   const testServer = async (id: string) => {
     setTestResults(prev => ({ ...prev, [id]: { loading: true, ok: false, tools: [] } }));
+    setExpanded(prev => ({ ...prev, [id]: true }));
     try {
       const res = await api.post<{ data: TestResult }>(`/api/projects/${projectId}/mcp/${id}/test`);
       setTestResults(prev => ({ ...prev, [id]: { ...res.data, loading: false } }));
-      setExpanded(prev => ({ ...prev, [id]: true }));
     } catch (e) {
       setTestResults(prev => ({ ...prev, [id]: { ok: false, error: (e as Error).message, tools: [], loading: false } }));
     }
@@ -327,6 +327,9 @@ export function McpPanel({ projectId }: Props) {
                     <span className={cn("text-xs font-medium truncate", !server.enabled && "text-muted-foreground/60")}>
                       {server.name}
                     </span>
+                    {test?.loading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground shrink-0" />}
+                    {!test?.loading && test?.ok === true && <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />}
+                    {!test?.loading && test && !test.ok && <XCircle className="w-3 h-3 text-destructive shrink-0" />}
                     {!server.enabled && (
                       <span className="text-[10px] text-muted-foreground/60 shrink-0">(off)</span>
                     )}
