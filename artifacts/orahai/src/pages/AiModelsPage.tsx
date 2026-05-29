@@ -62,7 +62,7 @@ function formatBytes(bytes: number): string {
 // ── Provider Status Card ──────────────────────────────────────────────────────
 
 function ProviderCard({
-  name, icon, available, version, models, note,
+  name, icon, available, version, models, note, unavailableLabel,
 }: {
   name: string;
   icon: React.ReactNode;
@@ -70,6 +70,7 @@ function ProviderCard({
   version?: string;
   models?: string[];
   note?: string;
+  unavailableLabel?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -95,7 +96,7 @@ function ProviderCard({
             </div>
           ) : (
             <div className="flex items-center gap-1 text-muted-foreground text-xs">
-              <XCircle className="w-3.5 h-3.5" /> Not configured
+              <XCircle className="w-3.5 h-3.5" /> {unavailableLabel ?? "Not configured"}
             </div>
           )}
           {models && models.length > 0 && (
@@ -497,10 +498,11 @@ export default function AiModelsPage() {
               <ProviderCard name="Ollama — Remote" icon={<Wifi className="w-4 h-4" />}
                 available={remoteAvailable}
                 version={providers?.["ollama-remote"]?.version}
+                unavailableLabel={remoteConfigured ? "Unreachable" : "Not configured"}
                 note={
-                  !remoteConfigured ? "Set OLLAMA_REMOTE_URL secret" :
+                  !remoteConfigured ? "Add OLLAMA_REMOTE_URL to Secrets to connect" :
                   remoteAvailable ? `${remoteModels.length} model${remoteModels.length !== 1 ? "s" : ""} available` :
-                  "Unreachable — check URL"
+                  "URL is set but the remote didn't respond — check it's running"
                 }
                 models={providers?.["ollama-remote"]?.models} />
             </div>

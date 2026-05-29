@@ -69,6 +69,3 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-GROQ_API_KEY = "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"
-ANTHROPIC_API_KEY = "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"
-OLLAMA_REMOTE_URL = "https://streamy-yasuko-vagariously.ngrok-free.dev"
