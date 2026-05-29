@@ -293,6 +293,22 @@ async function dispatch(
   }
 }
 
+// ── 0. Health / info  GET /api/mcp ────────────────────────────────────────────
+// No auth required — lets external status pages and AI clients check liveness.
+router.get("/", (_req, res: Response) => {
+  res.json({
+    ok: true,
+    name: "orahai",
+    version: "1.0.0",
+    protocolVersion: "2025-03-26",
+    transport: ["streamable-http", "sse"],
+    endpoints: {
+      http: "POST /api/mcp",
+      sse: "GET /api/mcp/sse",
+    },
+  });
+});
+
 // ── 1. Streamable HTTP transport  POST /api/mcp ───────────────────────────────
 router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
