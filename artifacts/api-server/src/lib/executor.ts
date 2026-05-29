@@ -57,6 +57,15 @@ async function installDeps(dir: string): Promise<string> {
   }
 }
 
+const ENTRY_STUBS: { pattern: RegExp; file: string; stub: string }[] = [
+  { pattern: /python\s+(\S+\.py)/, file: "$1",
+    stub: '# Entry file not found.\n# Create this file and add your Python code to get started!\nprint("Hello! Add your code to this file.")\n' },
+  { pattern: /node\s+(\S+\.js)/, file: "$1",
+    stub: '// Entry file not found.\n// Create this file and add your Node.js code to get started!\nconsole.log("Hello! Add your code to this file.");\n' },
+  { pattern: /npx.*tsx?\s+(\S+\.[jt]s)/, file: "$1",
+    stub: '// Entry file not found.\nconsole.log("Hello! Add your code to this file.");\n' },
+];
+
 export async function runInProject(
   projectId: string,
   command: string,
@@ -74,6 +83,20 @@ export async function runInProject(
       if (e.code !== "EEXIST") throw e;
     });
     await fs.writeFile(fullPath, f.content ?? "", "utf8").catch(() => undefined);
+  }
+
+  // If the entry point file doesn't exist, write a helpful stub so the user
+  // sees a clear message instead of a confusing "No such file" OS error.
+  for (const { pattern, file, stub } of ENTRY_STUBS) {
+    const m = command.match(pattern);
+    if (!m) continue;
+    const entryName = file.replace("$1", m[1]);
+    const entryPath = path.join(dir, entryName);
+    if (!(await fileExists(entryPath))) {
+      await fs.mkdir(path.dirname(entryPath), { recursive: true }).catch(() => undefined);
+      await fs.writeFile(entryPath, stub, "utf8").catch(() => undefined);
+    }
+    break;
   }
 
   // Auto-install npm/yarn/pnpm deps if package.json present and node_modules missing

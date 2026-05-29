@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import {
   Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
   ArrowLeft, Github, Globe, KeyRound, Rocket, Upload, ChevronDown, Sprout,
-  Search, Package, Settings, Command, PlugZap, Database,
+  Search, Package, Settings, Command, PlugZap, Database, X,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
 import { cn } from "@/lib/utils";
@@ -78,6 +78,19 @@ export function WorkspaceTopbar({
   onCommandPalette,
 }: Props) {
   const [importOpen, setImportOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [mobileMenuOpen]);
 
   const runStatus = latestRun?.status;
   const dotColor =
