@@ -84,20 +84,23 @@ router.post("/:projectId/secrets/import-env", async (req: AuthenticatedRequest, 
     await assertProjectOwner(projectId, req.user!.id);
     const { content } = z.object({ content: z.string().max(500_000) }).parse(req.body);
 
-    // Parse .env content
+    // Parse .env content — lenient parser handles BOM, quotes, comments, export prefix
+    const cleaned = content.replace(/^\uFEFF/, ""); // strip UTF-8 BOM
     const pairs: { key: string; value: string }[] = [];
-    for (const raw of content.split(/\r\n|\r|\n/)) {
+    for (const raw of cleaned.split(/\r\n|\r|\n/)) {
       const line = raw.trim();
       if (!line || line.startsWith("#")) continue;
       // Strip leading "export "
       const stripped = line.replace(/^export\s+/, "");
       const eqIdx = stripped.indexOf("=");
       if (eqIdx === -1) continue;
-      const key = stripped.slice(0, eqIdx).trim().toUpperCase();
-      if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) continue;
+      // Sanitize key: uppercase, replace non-alphanumeric/underscore with _
+      const rawKey = stripped.slice(0, eqIdx).trim();
+      if (!rawKey) continue;
+      const key = rawKey.toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/^([0-9])/, "_$1");
       let value = stripped.slice(eqIdx + 1);
       // Strip inline comments (only if value isn't quoted)
-      if (!/^["']/.test(value)) {
+      if (!/^["']/.test(value.trim())) {
         const commentIdx = value.indexOf(" #");
         if (commentIdx !== -1) value = value.slice(0, commentIdx);
       }
@@ -109,7 +112,7 @@ router.post("/:projectId/secrets/import-env", async (req: AuthenticatedRequest, 
       pairs.push({ key, value });
     }
 
-    if (pairs.length === 0) return next(createError("No valid key=value pairs found in file", 400));
+    if (pairs.length === 0) return next(createError("No KEY=VALUE pairs found. Make sure the file contains lines like: API_KEY=abc123", 400));
 
     // Load existing secrets for this project
     const existing = await db.select({ id: projectSecrets.id, key: projectSecrets.key })

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Plus, Trash2, Eye, EyeOff, KeyRound, Loader2, X, Check, Upload } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, KeyRound, Loader2, X, Check, Upload, ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
@@ -14,6 +14,8 @@ interface Props {
 export function SecretsPanel({ projectId }: Props) {
   const { secrets, mutate } = useProjectSecrets(projectId);
   const [adding, setAdding] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasteContent, setPasteContent] = useState("");
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -25,6 +27,29 @@ export function SecretsPanel({ projectId }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importContent = async (content: string) => {
+    setImporting(true);
+    try {
+      const res = await api.post<{ data: { created: number; updated: number; total: number } }>(
+        `/api/projects/${projectId}/secrets/import-env`,
+        { content }
+      );
+      await mutate();
+      const { created, updated } = res.data;
+      const parts: string[] = [];
+      if (created) parts.push(`${created} added`);
+      if (updated) parts.push(`${updated} updated`);
+      toast({ title: `Secrets imported — ${parts.join(", ")}` });
+      setPasting(false);
+      setPasteContent("");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      toast({ title: e.response?.data?.message ?? "Import failed", variant: "destructive" });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleAdd = async () => {
     if (!newKey.trim() || saving) return;
@@ -89,25 +114,14 @@ export function SecretsPanel({ projectId }: Props) {
     e.target.value = "";
     if (!file) return;
     if (file.size > 500_000) { toast({ title: "File too large (max 500 KB)", variant: "destructive" }); return; }
-    setImporting(true);
-    try {
-      const content = await file.text();
-      const res = await api.post<{ data: { created: number; updated: number; total: number } }>(
-        `/api/projects/${projectId}/secrets/import-env`,
-        { content }
-      );
-      await mutate();
-      const { created, updated } = res.data;
-      const parts: string[] = [];
-      if (created) parts.push(`${created} added`);
-      if (updated) parts.push(`${updated} updated`);
-      toast({ title: `.env imported — ${parts.join(", ")}` });
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      toast({ title: e.response?.data?.message ?? "Import failed", variant: "destructive" });
-    } finally {
-      setImporting(false);
-    }
+    const content = await file.text();
+    await importContent(content);
+  };
+
+  const openPaste = () => {
+    setPasting(true);
+    setAdding(false);
+    setPasteContent("");
   };
 
   return (
@@ -118,13 +132,14 @@ export function SecretsPanel({ projectId }: Props) {
           Secrets
         </div>
         <div className="flex items-center gap-1">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="*"
-            className="hidden"
-            onChange={handleEnvFile}
-          />
+          <input ref={fileInputRef} type="file" accept="*" className="hidden" onChange={handleEnvFile} />
+          <button
+            onClick={openPaste}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="Paste bulk secrets"
+          >
+            <ClipboardPaste className="w-4 h-4" />
+          </button>
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
@@ -134,7 +149,7 @@ export function SecretsPanel({ projectId }: Props) {
             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
           </button>
           <button
-            onClick={() => { setAdding(v => !v); setNewKey(""); setNewValue(""); }}
+            onClick={() => { setAdding(v => !v); setPasting(false); setNewKey(""); setNewValue(""); }}
             className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             title="Add secret"
           >
@@ -144,6 +159,38 @@ export function SecretsPanel({ projectId }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
+
+        {/* Bulk paste box */}
+        {pasting && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Paste your secrets below</p>
+            <p className="text-[10px] text-muted-foreground/70">One per line: <span className="font-mono">KEY=value</span></p>
+            <textarea
+              autoFocus
+              value={pasteContent}
+              onChange={e => setPasteContent(e.target.value)}
+              placeholder={"API_KEY=abc123\nDATABASE_URL=postgres://...\nSECRET_TOKEN=xyz"}
+              rows={8}
+              className="w-full rounded-md border border-border bg-background px-2.5 py-2 text-xs font-mono text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/40"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                onClick={() => importContent(pasteContent)}
+                disabled={!pasteContent.trim() || importing}
+              >
+                {importing ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                Save all
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { setPasting(false); setPasteContent(""); }}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Single secret form */}
         {adding && (
           <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
             <p className="text-xs font-medium text-muted-foreground">New secret</p>
@@ -171,7 +218,7 @@ export function SecretsPanel({ projectId }: Props) {
           </div>
         )}
 
-        {secrets.length === 0 && !adding && (
+        {secrets.length === 0 && !adding && !pasting && (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-4">
             <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
               <KeyRound className="w-5 h-5 text-muted-foreground" />
@@ -180,9 +227,12 @@ export function SecretsPanel({ projectId }: Props) {
               <p className="text-sm font-medium">No secrets yet</p>
               <p className="text-xs text-muted-foreground mt-1">Store API keys and env vars here. They're masked and never exposed in logs.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-center">
               <Button size="sm" variant="outline" onClick={() => setAdding(true)} className="text-xs">
                 <Plus className="w-3.5 h-3.5 mr-1" /> Add secret
+              </Button>
+              <Button size="sm" variant="outline" onClick={openPaste} className="text-xs">
+                <ClipboardPaste className="w-3.5 h-3.5 mr-1" /> Paste bulk
               </Button>
               <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing} className="text-xs">
                 <Upload className="w-3.5 h-3.5 mr-1" /> Import .env
