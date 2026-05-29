@@ -18,6 +18,8 @@ import aiModelsRouter from "./aiModels";
 import adminRouter from "./admin";
 import databaseRouter from "./database";
 import vercelRouter from "./vercel";
+import userProfileRouter from "./userProfile";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -40,5 +42,7 @@ router.use("/mcp", mcpServerRouter);
 router.use("/admin", adminRouter);
 router.use("/projects", databaseRouter);
 router.use("/vercel", vercelRouter);
+router.use("/users", userProfileRouter);
+router.use("/notifications", notificationsRouter);
 
 export default router;

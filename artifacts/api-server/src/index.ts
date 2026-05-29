@@ -7,6 +7,8 @@ import { runEmailNormalizationMigration } from "./lib/emailMigration";
 import { runDomainsMigration } from "./lib/domainsMigration";
 import { runMcpMigration } from "./lib/mcpMigration";
 import { runVercelMigration } from "./lib/vercelMigration";
+import { runStarsMigration } from "./lib/starsMigration";
+import { runNotificationsMigration } from "./lib/notificationsMigration";
 import { setIo } from "./lib/ioSingleton";
 import { config } from "./lib/config";
 
@@ -24,7 +26,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-Promise.all([runEmailNormalizationMigration(), runDomainsMigration(), runMcpMigration(), runVercelMigration()])
+Promise.all([runEmailNormalizationMigration(), runDomainsMigration(), runMcpMigration(), runVercelMigration(), runStarsMigration(), runNotificationsMigration()])
   .then(() => {
     const httpServer = createServer(app);
 

@@ -1,7 +1,7 @@
 import { Router, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { db, projects, files, memberships, runs, chatMessages } from "@workspace/db";
-import { eq, and, or, isNull, ilike, sql, asc } from "drizzle-orm";
+import { db, projects, files, memberships, runs, chatMessages, projectStars, notifications, users } from "@workspace/db";
+import { eq, and, or, isNull, ilike, sql, asc, desc } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
@@ -504,6 +504,8 @@ function starterFiles(language: string, projectName: string) {
 router.get("/community", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const search = String(req.query.search ?? "").trim();
+    const language = String(req.query.language ?? "").trim();
+    const sort = String(req.query.sort ?? "newest");
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     const offset = (page - 1) * limit;
@@ -512,7 +514,12 @@ router.get("/community", async (req: AuthenticatedRequest, res: Response, next: 
       isNull(projects.deletedAt) as ReturnType<typeof eq>,
       sql`${projects.isPublic} = true` as unknown as ReturnType<typeof eq>,
       ...(search ? [ilike(projects.name, `%${search}%`) as ReturnType<typeof eq>] : []),
+      ...(language ? [eq(projects.language, language) as ReturnType<typeof eq>] : []),
     ];
+
+    const orderClause = sort === "stars"
+      ? [sql`(SELECT COUNT(*) FROM project_stars WHERE project_id = ${projects.id}) DESC`]
+      : [desc(projects.updatedAt)];
 
     const rows = await db
       .select({
@@ -523,12 +530,17 @@ router.get("/community", async (req: AuthenticatedRequest, res: Response, next: 
         ownerId: projects.ownerId,
         ownerName: sql<string | null>`(SELECT name FROM users WHERE id = ${projects.ownerId})`,
         ownerUsername: sql<string>`(SELECT username FROM users WHERE id = ${projects.ownerId})`,
+        ownerAvatarUrl: sql<string | null>`(SELECT avatar_url FROM users WHERE id = ${projects.ownerId})`,
         updatedAt: projects.updatedAt,
         fileCount: sql<number>`(SELECT COUNT(*) FROM files WHERE project_id = ${projects.id} AND deleted_at IS NULL AND is_dir = false)`,
+        starCount: sql<number>`(SELECT COUNT(*) FROM project_stars WHERE project_id = ${projects.id})`,
+        isStarred: req.user
+          ? sql<boolean>`EXISTS(SELECT 1 FROM project_stars WHERE project_id = ${projects.id} AND user_id = ${req.user.id})`
+          : sql<boolean>`false`,
       })
       .from(projects)
       .where(and(...conditions))
-      .orderBy(asc(projects.updatedAt))
+      .orderBy(...orderClause)
       .limit(limit)
       .offset(offset);
 
@@ -538,6 +550,51 @@ router.get("/community", async (req: AuthenticatedRequest, res: Response, next: 
       .where(and(...conditions));
 
     res.json({ data: rows, total: Number(totalCount), page, limit });
+  } catch (err) { next(err); }
+});
+
+// ── Star / unstar a project ───────────────────────────────────────────────────
+
+router.post("/:id/star", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params["id"]);
+    const userId = req.user!.id;
+
+    const [project] = await db.select({ id: projects.id, name: projects.name, ownerId: projects.ownerId, isPublic: projects.isPublic })
+      .from(projects).where(and(eq(projects.id, projectId), isNull(projects.deletedAt))).limit(1);
+    if (!project) return next(createError("Project not found", 404));
+    if (!project.isPublic) {
+      // Allow owner to star their own private project; others need public access
+      const [member] = await db.select({ id: memberships.id })
+        .from(memberships).where(and(eq(memberships.userId, userId), sql`workspace_id = (SELECT workspace_id FROM projects WHERE id = ${projectId})`)).limit(1);
+      if (!member && project.ownerId !== userId) return next(createError("Not authorized", 403));
+    }
+
+    const [existing] = await db.select({ id: projectStars.id })
+      .from(projectStars).where(and(eq(projectStars.projectId, projectId), eq(projectStars.userId, userId))).limit(1);
+
+    if (existing) {
+      await db.execute(sql`DELETE FROM project_stars WHERE id = ${existing.id}`);
+    } else {
+      await db.insert(projectStars).values({ id: cuid(), projectId, userId });
+      // Notify project owner (but not if starring own project)
+      if (project.ownerId !== userId) {
+        const [actor] = await db.select({ name: users.name, username: users.username }).from(users).where(eq(users.id, userId)).limit(1);
+        await db.insert(notifications).values({
+          id: cuid(),
+          userId: project.ownerId,
+          type: "star",
+          message: `${actor?.name ?? actor?.username ?? "Someone"} starred your project "${project.name}"`,
+          link: `/workspace/${projectId}`,
+          actorName: actor?.name ?? actor?.username ?? null,
+        });
+      }
+    }
+
+    const [{ count }] = await db.select({ count: sql<number>`COUNT(*)` })
+      .from(projectStars).where(eq(projectStars.projectId, projectId));
+
+    res.json({ data: { starred: !existing, starCount: Number(count) } });
   } catch (err) { next(err); }
 });
 
@@ -577,6 +634,19 @@ router.post("/:id/fork", requireAuth, async (req: AuthenticatedRequest, res: Res
       await db.insert(files).values(
         sourceFiles.map(f => ({ ...f, id: cuid(), projectId: forkedId, createdAt: new Date(), updatedAt: new Date() }))
       );
+    }
+
+    // Notify original project owner about the fork
+    if (source.ownerId !== req.user!.id) {
+      const [actor] = await db.select({ name: users.name, username: users.username }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+      await db.insert(notifications).values({
+        id: cuid(),
+        userId: source.ownerId,
+        type: "fork",
+        message: `${actor?.name ?? actor?.username ?? "Someone"} forked your project "${source.name}"`,
+        link: `/workspace/${source.id}`,
+        actorName: actor?.name ?? actor?.username ?? null,
+      }).catch(() => null);
     }
 
     res.status(201).json({ data: { id: forkedId, name: source.name }, message: `Forked from ${source.name}` });

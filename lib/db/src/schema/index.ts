@@ -198,3 +198,29 @@ export const projectDomains = pgTable("project_domains", {
 }, (t) => [uniqueIndex("project_domains_project_domain_idx").on(t.projectId, t.domain)]);
 
 export type ProjectDomain = typeof projectDomains.$inferSelect;
+
+// ── Project Stars ─────────────────────────────────────────────────────────────
+
+export const projectStars = pgTable("project_stars", {
+  id:        text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId:    text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("project_stars_project_user_idx").on(t.projectId, t.userId)]);
+
+export type ProjectStar = typeof projectStars.$inferSelect;
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export const notifications = pgTable("notifications", {
+  id:        text("id").primaryKey(),
+  userId:    text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type:      text("type").notNull(),
+  message:   text("message").notNull(),
+  link:      text("link"),
+  isRead:    boolean("is_read").notNull().default(false),
+  actorName: text("actor_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type Notification = typeof notifications.$inferSelect;

@@ -1,0 +1,349 @@
+import { useState } from "react";
+import { useLocation } from "wouter";
+import { Sparkles, Search, ArrowRight, Loader2 } from "lucide-react";
+import { Navbar } from "@/components/layout/Navbar";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Badge } from "@/components/ui/Badge";
+import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { useWorkspaces } from "@/hooks/useWorkspaces";
+import { toast } from "@/hooks/useToast";
+import type { ApiResponse } from "@/types";
+
+interface Template {
+  id: string;
+  emoji: string;
+  name: string;
+  description: string;
+  language: string;
+  category: string;
+  tags: string[];
+  prompt: string;
+  difficulty: "Beginner" | "Intermediate" | "Advanced";
+}
+
+const TEMPLATES: Template[] = [
+  {
+    id: "react-vite",
+    emoji: "⚛️", name: "React + Vite",
+    description: "Modern React app with Vite, TypeScript, Tailwind CSS, and React Router. Perfect starting point for SPAs.",
+    language: "typescript", category: "web",
+    tags: ["React", "Vite", "TypeScript", "Tailwind"],
+    difficulty: "Beginner",
+    prompt: "Build a complete React app with Vite, TypeScript, Tailwind CSS, and React Router. Include a home page, about page, navigation, and reusable UI components.",
+  },
+  {
+    id: "nextjs",
+    emoji: "▲", name: "Next.js App",
+    description: "Full-stack Next.js 14 app with App Router, TypeScript, Tailwind, server components, and API routes.",
+    language: "typescript", category: "web",
+    tags: ["Next.js", "TypeScript", "Full-stack"],
+    difficulty: "Intermediate",
+    prompt: "Build a Next.js 14 app with TypeScript, Tailwind CSS, App Router, server components, and API routes. Include a home page, navigation, and a data fetching example.",
+  },
+  {
+    id: "express-api",
+    emoji: "⚡", name: "Express REST API",
+    description: "Production-ready Express API with TypeScript, JWT auth, PostgreSQL, Zod validation, and full CRUD.",
+    language: "nodejs", category: "backend",
+    tags: ["Express", "Node.js", "REST", "JWT"],
+    difficulty: "Intermediate",
+    prompt: "Build a production-ready Express REST API with TypeScript, JWT authentication, PostgreSQL, Zod input validation, error handling middleware, and CRUD endpoints for a resource.",
+  },
+  {
+    id: "fastapi",
+    emoji: "🐍", name: "FastAPI",
+    description: "Python FastAPI backend with Pydantic, SQLAlchemy, JWT auth, and auto-generated OpenAPI docs.",
+    language: "python", category: "backend",
+    tags: ["Python", "FastAPI", "OpenAPI"],
+    difficulty: "Intermediate",
+    prompt: "Build a Python FastAPI backend with Pydantic models, SQLAlchemy ORM, JWT auth, automatic OpenAPI docs, and CRUD endpoints for a resource.",
+  },
+  {
+    id: "django",
+    emoji: "🟢", name: "Django App",
+    description: "Full-stack Django web app with models, views, templates, user auth, and admin panel.",
+    language: "python", category: "backend",
+    tags: ["Python", "Django", "Full-stack"],
+    difficulty: "Intermediate",
+    prompt: "Build a full-stack Django web app with models, views, templates, user authentication, and Django admin. Include a home page, user dashboard, and CRUD operations.",
+  },
+  {
+    id: "vue-app",
+    emoji: "💚", name: "Vue 3 App",
+    description: "Vue 3 app with Vite, TypeScript, Pinia state management, and Vue Router.",
+    language: "typescript", category: "web",
+    tags: ["Vue", "Pinia", "TypeScript"],
+    difficulty: "Beginner",
+    prompt: "Build a Vue 3 app with Vite, TypeScript, Pinia for state management, and Vue Router. Include components, a store, and routing between pages.",
+  },
+  {
+    id: "svelte",
+    emoji: "🔥", name: "SvelteKit",
+    description: "SvelteKit full-stack app with routing, load functions, form actions, and TypeScript.",
+    language: "typescript", category: "web",
+    tags: ["Svelte", "SvelteKit", "Full-stack"],
+    difficulty: "Intermediate",
+    prompt: "Build a SvelteKit app with TypeScript, routing, server-side load functions, form actions, and a simple data store.",
+  },
+  {
+    id: "graphql-api",
+    emoji: "🔗", name: "GraphQL API",
+    description: "Apollo Server GraphQL API with Node.js, TypeScript, resolvers, mutations, and subscriptions.",
+    language: "typescript", category: "backend",
+    tags: ["GraphQL", "Apollo", "Node.js"],
+    difficulty: "Advanced",
+    prompt: "Build a GraphQL API with Apollo Server, Node.js, and TypeScript. Include queries, mutations, and subscriptions. Add a simple schema for a blog with posts and comments.",
+  },
+  {
+    id: "chat-app",
+    emoji: "💬", name: "Real-time Chat",
+    description: "Real-time chat app with Socket.IO, Express, React, and multiple rooms.",
+    language: "nodejs", category: "web",
+    tags: ["Socket.IO", "Real-time", "React"],
+    difficulty: "Intermediate",
+    prompt: "Build a real-time chat app with Socket.IO, Express backend, and React frontend. Support multiple rooms, online users list, and message history.",
+  },
+  {
+    id: "portfolio",
+    emoji: "🎨", name: "Portfolio Site",
+    description: "Personal developer portfolio with projects, skills, blog, and contact form.",
+    language: "html", category: "web",
+    tags: ["Portfolio", "HTML", "CSS"],
+    difficulty: "Beginner",
+    prompt: "Build a beautiful personal developer portfolio website with a hero section, about me, skills, projects grid, blog, and contact form. Use modern CSS with animations.",
+  },
+  {
+    id: "todo-app",
+    emoji: "✅", name: "Todo App",
+    description: "Full-featured todo app with drag-and-drop, filtering, local persistence, and dark mode.",
+    language: "typescript", category: "web",
+    tags: ["React", "DnD", "TypeScript"],
+    difficulty: "Beginner",
+    prompt: "Build a full-featured todo list app with React and TypeScript. Support drag-and-drop reordering, priority levels, due dates, filtering, and localStorage persistence.",
+  },
+  {
+    id: "discord-bot",
+    emoji: "🤖", name: "Discord Bot",
+    description: "Discord bot with slash commands, embed messages, roles management, and event listeners.",
+    language: "nodejs", category: "backend",
+    tags: ["Discord", "Bot", "Node.js"],
+    difficulty: "Intermediate",
+    prompt: "Build a Discord bot with discord.js, slash commands, embed messages, role management, and event listeners for messages and reactions.",
+  },
+  {
+    id: "ai-chatbot",
+    emoji: "🧠", name: "AI Chatbot",
+    description: "LLM-powered chatbot with streaming responses, conversation history, and system prompts.",
+    language: "typescript", category: "ai",
+    tags: ["AI", "OpenAI", "Streaming"],
+    difficulty: "Intermediate",
+    prompt: "Build an AI chatbot with React frontend and Node.js backend. Use OpenAI API for streaming chat completions. Support conversation history, system prompts, and model selection.",
+  },
+  {
+    id: "image-gen",
+    emoji: "🖼️", name: "AI Image Generator",
+    description: "Image generation app using DALL-E or Stable Diffusion with prompt history and gallery.",
+    language: "typescript", category: "ai",
+    tags: ["AI", "Images", "DALL-E"],
+    difficulty: "Beginner",
+    prompt: "Build an AI image generation app using OpenAI's DALL-E API. Include a prompt input, style options, image gallery with download, and generation history.",
+  },
+  {
+    id: "smart-contract",
+    emoji: "⟠", name: "Smart Contract",
+    description: "Solidity smart contract with Hardhat, ERC-20 token, tests, and deployment scripts.",
+    language: "solidity", category: "blockchain",
+    tags: ["Solidity", "ERC-20", "Hardhat"],
+    difficulty: "Advanced",
+    prompt: "Build a Solidity smart contract with Hardhat. Include an ERC-20 token with minting, burning, and transfer functions. Add deployment scripts and comprehensive tests.",
+  },
+  {
+    id: "dashboard",
+    emoji: "📊", name: "Analytics Dashboard",
+    description: "Beautiful data dashboard with charts, tables, KPI cards, and real-time updates.",
+    language: "typescript", category: "web",
+    tags: ["Dashboard", "Charts", "React"],
+    difficulty: "Intermediate",
+    prompt: "Build a beautiful analytics dashboard with React and Recharts. Include KPI cards, bar charts, line charts, data tables, date range filters, and mock data.",
+  },
+  {
+    id: "ecommerce",
+    emoji: "🛒", name: "E-commerce Store",
+    description: "Full e-commerce store with product listing, cart, checkout, and order management.",
+    language: "typescript", category: "web",
+    tags: ["E-commerce", "React", "Full-stack"],
+    difficulty: "Advanced",
+    prompt: "Build a full e-commerce store with React frontend and Node.js backend. Include product listing, search, filters, shopping cart, checkout flow, and order management.",
+  },
+  {
+    id: "rest-client",
+    emoji: "🔌", name: "REST API Client",
+    description: "API testing tool like Postman — request builder, collections, history, and response viewer.",
+    language: "typescript", category: "web",
+    tags: ["API", "Testing", "Tool"],
+    difficulty: "Intermediate",
+    prompt: "Build a REST API client tool like a simplified Postman. Include request builder with method/URL/headers/body, collections, request history, and formatted response viewer.",
+  },
+];
+
+const CATEGORIES = [
+  { id: "all",        label: "All",        emoji: "✨" },
+  { id: "web",        label: "Web",        emoji: "🌐" },
+  { id: "backend",    label: "Backend",    emoji: "⚙️" },
+  { id: "ai",         label: "AI",         emoji: "🧠" },
+  { id: "blockchain", label: "Blockchain", emoji: "⟠" },
+];
+
+const DIFFICULTY_COLORS = {
+  Beginner:     "bg-green-500/10 text-green-600 dark:text-green-400",
+  Intermediate: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
+  Advanced:     "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+export default function TemplatesPage() {
+  const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const { workspaces } = useWorkspaces();
+  const [category, setCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState<string | null>(null);
+
+  const filtered = TEMPLATES.filter(t => {
+    const matchesCat = category === "all" || t.category === category;
+    const matchesSearch = !search || t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.description.toLowerCase().includes(search.toLowerCase()) ||
+      t.tags.some(tag => tag.toLowerCase().includes(search.toLowerCase()));
+    return matchesCat && matchesSearch;
+  });
+
+  const handleUse = async (template: Template) => {
+    if (!user) { navigate("/login"); return; }
+    const wsId = workspaces[0]?.id;
+    if (!wsId) { toast({ title: "No workspace found", variant: "destructive" }); return; }
+
+    setCreating(template.id);
+    try {
+      const res = await api.post<ApiResponse<{ id: string }>>("/api/projects", {
+        workspaceId: wsId,
+        name: template.name,
+        description: template.description,
+        language: template.language,
+        isPublic: false,
+        aiPrompt: template.prompt,
+      });
+      toast({ title: `Creating "${template.name}"…` });
+      navigate(`/workspace/${res.data.id}`);
+    } catch (err: unknown) {
+      toast({ title: (err as Error).message ?? "Failed to create project", variant: "destructive" });
+      setCreating(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col min-h-screen bg-background">
+      <Navbar />
+
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-10">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mb-4">
+            <Sparkles className="w-3.5 h-3.5" />
+            {TEMPLATES.length} templates
+          </div>
+          <h1 className="text-3xl font-bold mb-2">Start from a template</h1>
+          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+            Choose a template to jumpstart your project. Every template comes pre-configured and ready to run.
+          </p>
+        </div>
+
+        {/* Search + Category filter */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-8">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search templates…"
+              className="pl-9"
+            />
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {CATEGORIES.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setCategory(c.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  category === c.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span>{c.emoji}</span>
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Grid */}
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
+            <Sparkles className="w-12 h-12 opacity-20" />
+            <p className="text-sm">No templates match your search.</p>
+            <Button variant="outline" onClick={() => { setSearch(""); setCategory("all"); }}>Clear filters</Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map(t => (
+              <div
+                key={t.id}
+                className="flex flex-col rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-md transition-all group overflow-hidden"
+              >
+                <div className="flex-1 p-5 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xl shrink-0">
+                        {t.emoji}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-sm">{t.name}</h3>
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${DIFFICULTY_COLORS[t.difficulty]}`}>
+                          {t.difficulty}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground line-clamp-3">{t.description}</p>
+
+                  <div className="flex flex-wrap gap-1">
+                    {t.tags.slice(0, 3).map(tag => (
+                      <Badge key={tag} variant="secondary" className="text-[10px] h-4 px-1.5">{tag}</Badge>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="px-5 pb-4">
+                  <Button
+                    size="sm"
+                    className="w-full gap-2 group-hover:gap-3 transition-all"
+                    onClick={() => handleUse(t)}
+                    disabled={creating === t.id}
+                  >
+                    {creating === t.id ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" />Creating…</>
+                    ) : (
+                      <>Use template<ArrowRight className="w-3.5 h-3.5" /></>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

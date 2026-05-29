@@ -13,6 +13,8 @@ import StaticPage from "@/pages/StaticPage";
 import ExplorePage from "@/pages/ExplorePage";
 import VisionPage from "@/pages/VisionPage";
 import AdminPage from "@/pages/AdminPage";
+import ProfilePage from "@/pages/ProfilePage";
+import TemplatesPage from "@/pages/TemplatesPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -34,6 +36,8 @@ function Router() {
       <Route path="/settings/mcp-server" component={SettingsPage} />
       <Route path="/ai-models" component={AiModelsPage} />
       <Route path="/admin" component={AdminPage} />
+      <Route path="/templates" component={TemplatesPage} />
+      <Route path="/u/:username" component={ProfilePage} />
       <Route path="/privacy">{() => <StaticPage page="privacy" />}</Route>
       <Route path="/terms">{() => <StaticPage page="terms" />}</Route>
       <Route component={NotFound} />
