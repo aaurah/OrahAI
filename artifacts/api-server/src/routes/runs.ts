@@ -6,7 +6,13 @@ import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { createError } from "../middlewares/errorHandler";
 import { cuid } from "../lib/cuid";
 import { logger } from "../lib/logger";
-import { runInProject } from "../lib/executor";
+import {
+  prepareWorkspace,
+  installDeps,
+  spawnProcess,
+  stopProcess,
+  getProcess,
+} from "../lib/processManager";
 
 const router = Router();
 
@@ -73,6 +79,7 @@ async function assertProjectAccess(projectId: string, userId: string) {
   return p;
 }
 
+// ── POST /api/runs/:projectId — start a run ─────────────────────────────────
 router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = String(req.params.projectId);
@@ -81,7 +88,6 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
-    // Detect smart default when no command supplied
     let command = parsed.data.command;
     if (!command) {
       const setup = await detectProjectSetup(project.id, project.language);
@@ -89,14 +95,13 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
     }
 
     // Sanitize common AI-generated malformed patterns
-    // e.g. "npm install react" meant as install+run but missing &&
     if (/^npm install\s+npm\s/.test(command)) {
-      // "npm install npm run dev" → "npm install && npm run dev"
       command = command.replace(/^npm install\s+(npm\s+run\s+)/, "npm install && $1");
     }
+
     const runId = cuid();
     const [run] = await db.insert(runs).values({
-      id: runId, projectId: project.id, command, status: "queued",
+      id: runId, projectId: project.id, command, status: "running",
     }).returning();
 
     const sandboxUrl = process.env.SANDBOX_URL;
@@ -109,32 +114,78 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
         db.update(runs).set({ status: "error", output: "Sandbox service unavailable", completedAt: new Date() })
           .where(eq(runs.id, run.id)).catch((e: unknown) => logger.warn({ err: e }, "Failed to update run status"));
       });
-    } else {
-      // Run locally using the built-in executor
-      (async () => {
-        try {
-          const projectFiles = await db
-            .select({ path: files.path, content: files.content })
-            .from(files)
-            .where(and(eq(files.projectId, project.id), isNull(files.deletedAt)));
-
-          const result = await runInProject(project.id, command, projectFiles);
-          await db.update(runs)
-            .set({ status: result.status, output: result.output, exitCode: result.exitCode, completedAt: new Date() })
-            .where(eq(runs.id, run.id));
-        } catch (e) {
-          logger.warn({ err: e }, "Local executor error");
-          await db.update(runs)
-            .set({ status: "error", output: String((e as Error).message ?? "Execution failed"), completedAt: new Date() })
-            .where(eq(runs.id, run.id));
-        }
-      })();
+      return res.status(202).json({ data: run });
     }
+
+    // Local persistent execution
+    (async () => {
+      try {
+        const projectFiles = await db
+          .select({ path: files.path, content: files.content })
+          .from(files)
+          .where(and(eq(files.projectId, project.id), isNull(files.deletedAt)));
+
+        const dir = await prepareWorkspace(project.id, projectFiles);
+
+        // Stream install output before starting the main process
+        const installOutput = await installDeps(dir);
+        if (installOutput) {
+          const { getIo } = await import("../lib/ioSingleton");
+          getIo()?.to(`project:${projectId}`).emit("terminal:output", {
+            projectId, runId: run.id, data: installOutput,
+          });
+        }
+
+        // Spawn the long-running process
+        const mp = await spawnProcess(project.id, run.id, command, dir);
+
+        // Update run to running state
+        await db.update(runs).set({ status: "running" }).where(eq(runs.id, run.id));
+
+        // When process exits, update the DB record
+        mp.proc.once("close", async (code) => {
+          await db.update(runs).set({
+            status: code === 0 ? "success" : "error",
+            output: mp.outputBuf.slice(-50_000),
+            exitCode: code ?? -1,
+            completedAt: new Date(),
+          }).where(eq(runs.id, run.id)).catch(() => undefined);
+        });
+      } catch (e) {
+        logger.warn({ err: e }, "Local executor error");
+        await db.update(runs).set({
+          status: "error",
+          output: String((e as Error).message ?? "Execution failed"),
+          completedAt: new Date(),
+        }).where(eq(runs.id, run.id));
+      }
+    })();
 
     res.status(202).json({ data: run });
   } catch (err) { next(err); }
 });
 
+// ── DELETE /api/runs/:projectId/stop — kill running process ─────────────────
+router.delete("/:projectId/stop", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params.projectId);
+    await assertProjectAccess(projectId, req.user!.id);
+    const stopped = stopProcess(projectId);
+    res.json({ data: { stopped } });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/runs/:projectId/status — check running process status ───────────
+router.get("/:projectId/status", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params.projectId);
+    await assertProjectAccess(projectId, req.user!.id);
+    const mp = getProcess(projectId);
+    res.json({ data: { running: !!mp?.alive, port: mp?.port ?? null, runId: mp?.runId ?? null } });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/runs/:projectId — list runs ────────────────────────────────────
 router.get("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = String(req.params.projectId);
@@ -144,6 +195,7 @@ router.get("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: Re
   } catch (err) { next(err); }
 });
 
+// ── GET /api/runs/:projectId/:runId — single run ────────────────────────────
 router.get("/:projectId/:runId", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = String(req.params.projectId);
@@ -156,6 +208,7 @@ router.get("/:projectId/:runId", requireAuth, async (req: AuthenticatedRequest, 
   } catch (err) { next(err); }
 });
 
+// ── POST /api/runs/callback/result — sandbox callback ───────────────────────
 router.post("/callback/result", async (req, res, next) => {
   try {
     const internalKey = process.env.SANDBOX_INTERNAL_KEY;
