@@ -1,4 +1,5 @@
 import { Router, type Response, type NextFunction } from "express";
+import { exec as _exec } from "child_process";
 import { z } from "zod";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
@@ -445,6 +446,67 @@ function extractMcpCalls(content: string): McpCallOp[] {
   return ops;
 }
 
+// ── Extract <<<READ:path>>> on-demand file fetch requests ─────────────────────
+function extractReadOps(content: string): string[] {
+  const paths: string[] = [];
+  const re = /<<<READ:([^\n>]+)>>>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const p = m[1].trim();
+    if (p && !p.includes("..") && !p.startsWith("/")) paths.push(p);
+  }
+  return [...new Set(paths)];
+}
+
+// ── Extract <<<SEARCH:pattern>>> code search requests ─────────────────────────
+function extractSearchOps(content: string): string[] {
+  const patterns: string[] = [];
+  const re = /<<<SEARCH:([^\n>]+)>>>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const p = m[1].trim();
+    if (p) patterns.push(p);
+  }
+  return [...new Set(patterns)];
+}
+
+// ── Extract <<<CMD:command>>> arbitrary shell command requests ─────────────────
+const BLOCKED_CMD_PATTERNS = [
+  /rm\s+-rf\s+\//, /^rm\s+-rf\s+~/, /mkfs/, /dd\s+if=\/dev\/zero/, /:(){ :|:& };:/,
+  /shutdown/, /reboot/, /init\s+0/, /chmod\s+-R\s+777\s+\//, /chown\s+-R.*\//,
+];
+
+function extractCmdOps(content: string): string[] {
+  const cmds: string[] = [];
+  const re = /<<<CMD:([^\n]+)>>>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const cmd = m[1].trim();
+    if (!cmd) continue;
+    const blocked = BLOCKED_CMD_PATTERNS.some(p => p.test(cmd));
+    if (!blocked) cmds.push(cmd);
+  }
+  return cmds;
+}
+
+// ── Run a one-shot command in the project workspace ──────────────────────────
+interface CmdExResult { cmd: string; stdout: string; stderr: string; exitCode: number }
+
+function runCmdInProject(cmd: string, dir: string): Promise<CmdExResult> {
+  return new Promise(resolve => {
+    _exec(cmd, { cwd: dir, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({
+        cmd,
+        stdout: stripAnsi(stdout ?? "").slice(0, 4000),
+        stderr: stripAnsi(stderr ?? "").slice(0, 2000),
+        exitCode: (err as NodeJS.ErrnoException | null)?.code !== undefined
+          ? Number((err as NodeJS.ErrnoException).code)
+          : (err ? 1 : 0),
+      });
+    });
+  });
+}
+
 // ── Extract @filename mentions from a user message ────────────────────────────
 function extractMentions(message: string): string[] {
   const re = /@([\w./-]+)/g;
@@ -525,10 +587,65 @@ interface CmdResult {
 interface McpResult {
   serverName: string; toolName: string; ok: boolean; output: string;
 }
+interface ReadResult {
+  path: string; content: string; found: boolean;
+}
+interface SearchResult {
+  pattern: string; matches: Array<{ path: string; lineNumber: number; line: string }>;
+}
 
-function buildContinuationMessage(step: number, fileOps: FileOpResult[], cmds: CmdResult[], mcpResults: McpResult[] = [], runResults: AiRunResult[] = []): string {
+function buildContinuationMessage(
+  step: number,
+  fileOps: FileOpResult[],
+  cmds: CmdResult[],
+  mcpResults: McpResult[] = [],
+  runResults: AiRunResult[] = [],
+  readResults: ReadResult[] = [],
+  searchResults: SearchResult[] = [],
+  cmdExResults: CmdExResult[] = [],
+): string {
   const lines: string[] = [`[Tool results from step ${step}]`];
 
+  // ── READ results ────────────────────────────────────────────────────────────
+  if (readResults.length > 0) {
+    lines.push("\nFile reads:");
+    for (const r of readResults) {
+      if (r.found) {
+        lines.push(`\n--- ${r.path} ---`);
+        lines.push(r.content + (r.content.length >= 8000 ? "\n...(truncated to 8000 chars)" : ""));
+      } else {
+        lines.push(`  ✗ READ ${r.path} — file not found`);
+      }
+    }
+  }
+
+  // ── SEARCH results ──────────────────────────────────────────────────────────
+  if (searchResults.length > 0) {
+    lines.push("\nSearch results:");
+    for (const r of searchResults) {
+      if (r.matches.length === 0) {
+        lines.push(`  Pattern "${r.pattern}": no matches`);
+      } else {
+        lines.push(`  Pattern "${r.pattern}": ${r.matches.length} match(es)`);
+        for (const m of r.matches) {
+          lines.push(`    ${m.path}:${m.lineNumber}  ${m.line}`);
+        }
+      }
+    }
+  }
+
+  // ── CMD results ─────────────────────────────────────────────────────────────
+  if (cmdExResults.length > 0) {
+    lines.push("\nShell command results:");
+    for (const r of cmdExResults) {
+      lines.push(`\n$ ${r.cmd}`);
+      lines.push(`Exit code: ${r.exitCode}`);
+      if (r.stdout) lines.push(`stdout:\n${r.stdout}`);
+      if (r.stderr) lines.push(`stderr:\n${r.stderr}`);
+    }
+  }
+
+  // ── File op results ─────────────────────────────────────────────────────────
   if (fileOps.length > 0) {
     lines.push("\nFile operations:");
     for (const op of fileOps) {
@@ -1078,6 +1195,69 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
 
         const cmdResults: CmdResult[] = [];
 
+        // ── <<<READ:path>>> — on-demand file fetch ────────────────────────────
+        const readOps = extractReadOps(stepContent);
+        const readResults: ReadResult[] = [];
+        if (readOps.length > 0) {
+          for (const filePath of readOps) {
+            const [row] = await db.select({ content: files.content })
+              .from(files)
+              .where(and(eq(files.projectId, project.id), eq(files.path, filePath), isNull(files.deletedAt)))
+              .limit(1);
+            if (row) {
+              readResults.push({ path: filePath, content: row.content.slice(0, 8000), found: true });
+              send({ type: "file_read", path: filePath });
+            } else {
+              readResults.push({ path: filePath, content: "", found: false });
+            }
+          }
+        }
+
+        // ── <<<SEARCH:pattern>>> — code search across project files ───────────
+        const searchPatterns = extractSearchOps(stepContent);
+        const searchResults: SearchResult[] = [];
+        if (searchPatterns.length > 0) {
+          const allProjectFiles = await db
+            .select({ path: files.path, content: files.content })
+            .from(files)
+            .where(and(eq(files.projectId, project.id), isNull(files.deletedAt), eq(files.isDir, false)))
+            .limit(200);
+          for (const pattern of searchPatterns) {
+            const q = pattern.toLowerCase();
+            const matches: Array<{ path: string; lineNumber: number; line: string }> = [];
+            for (const f of allProjectFiles) {
+              if (matches.length >= 30) break;
+              const lines = f.content.split("\n");
+              lines.forEach((line, idx) => {
+                if (matches.length < 30 && line.toLowerCase().includes(q)) {
+                  matches.push({ path: f.path, lineNumber: idx + 1, line: line.trim().slice(0, 200) });
+                }
+              });
+            }
+            searchResults.push({ pattern, matches });
+            send({ type: "search_result", pattern, count: matches.length });
+          }
+        }
+
+        // ── <<<CMD:command>>> — arbitrary shell command ────────────────────────
+        const cmdOps = extractCmdOps(stepContent);
+        const cmdExResults: CmdExResult[] = [];
+        if (cmdOps.length > 0) {
+          const currentFiles = await db
+            .select({ path: files.path, content: files.content })
+            .from(files)
+            .where(and(eq(files.projectId, project.id), isNull(files.deletedAt)));
+          const wsDir = await prepareWorkspace(project.id, currentFiles);
+          // Install deps once so commands like npm/pip work
+          await Promise.all([installDeps(wsDir), installPythonDeps(wsDir)]).catch(() => undefined);
+          for (const cmd of cmdOps) {
+            send({ type: "cmd_start", cmd });
+            const result = await runCmdInProject(cmd, wsDir);
+            cmdExResults.push(result);
+            send({ type: "cmd_done", cmd, exitCode: result.exitCode });
+          }
+        }
+
         // ── MCP tool calls ────────────────────────────────────────────────────
         const mcpCallOps = extractMcpCalls(stepContent);
         const mcpCallResults: McpResult[] = [];
@@ -1120,12 +1300,13 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         }
 
         // If no actions were taken, the agent is done
-        if (fileOps.length === 0 && mcpCallOps.length === 0 && !hasRunToken) break;
+        const hasNewTools = readOps.length > 0 || searchPatterns.length > 0 || cmdOps.length > 0;
+        if (fileOps.length === 0 && mcpCallOps.length === 0 && !hasRunToken && !hasNewTools) break;
         if (step === maxSteps) break;
 
         // Feed results back so the agent can react and continue
         agentMessages.push({ role: "assistant", content: stepContent });
-        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults, mcpCallResults, aiRunResults) });
+        agentMessages.push({ role: "user", content: buildContinuationMessage(step, fileOpResults, cmdResults, mcpCallResults, aiRunResults, readResults, searchResults, cmdExResults) });
       }
 
       const [saved] = await db.insert(chatMessages).values({
@@ -1876,24 +2057,49 @@ function buildSystemPrompt(
     `✅ When in doubt about a detail, make the best reasonable assumption and proceed.`,
     ``,
     `════════════════════════════════════════════`,
-    `  HOW TO WRITE AND DELETE FILES`,
+    `  COPILOT TOOLS — your full toolkit`,
     `════════════════════════════════════════════`,
     ``,
-    `Write a file (FULL content required):`,
+    `You are a sovereign developer Copilot. Think step-by-step before making changes.`,
+    `Prefer minimal, surgical edits over large rewrites. Use tools when needed.`,
+    ``,
+    `── READ ── Fetch a file's full content on demand:`,
+    `<<<READ:path/to/file.ext>>>`,
+    `The file content is fed back to you in the next step. Use this when a file wasn't`,
+    `included in context below, or you need the latest version after a write.`,
+    ``,
+    `── SEARCH ── Search for a pattern across all project files:`,
+    `<<<SEARCH:function name or symbol>>>`,
+    `Returns up to 30 matching lines with file path and line number. Use to locate`,
+    `usages, definitions, or any string across the entire codebase.`,
+    ``,
+    `── CMD ── Run an arbitrary shell command in the project workspace:`,
+    `<<<CMD:npm install express>>>`,
+    `<<<CMD:pip install requests>>>`,
+    `<<<CMD:git log --oneline -10>>>`,
+    `<<<CMD:ls -la src/>>>`,
+    `Output (stdout + stderr) is captured and fed back to you. Max 30 s per command.`,
+    `Multiple CMD blocks are fine in one step. Use for installs, git ops, file listing,`,
+    `lint checks, test runs — anything a developer would type in a terminal.`,
+    ``,
+    `── WRITE ── Write a file (FULL content required):`,
     `<<<WRITE:path/to/file.ext>>>`,
     `(entire file content — no snippets, no "rest of file unchanged")`,
     `<<<END>>>`,
     ``,
-    `Delete a file:`,
+    `── DELETE ── Delete a file:`,
     `<<<DELETE:path/to/file.ext>>>`,
     ``,
-    `Run the project (starts project, captures stdout/stderr, feeds output back to you):`,
+    `── RUN ── Run the project (captures stdout/stderr, feeds output back to you):`,
     `<<<RUN>>>`,
     ``,
-    `- Paths are relative to project root. No leading "/" or "..".`,
-    `- Multiple WRITE/DELETE blocks are fine in one response.`,
-    `- <<<RUN>>> MUST come AFTER all <<<WRITE>>> blocks in your response.`,
-    `- One <<<RUN>>> per response — it runs the project's detected start command.`,
+    `Tool ordering rules:`,
+    `- READ/SEARCH before writing if you need to inspect something first`,
+    `- CMD installs BEFORE WRITE if new packages are needed`,
+    `- WRITE before <<<RUN>>> — all files must exist before running`,
+    `- <<<RUN>>> MUST be the last token in your response`,
+    `- One <<<RUN>>> per response; multiple READ/SEARCH/CMD/WRITE/DELETE are fine`,
+    `- All paths are relative to project root — no leading "/" or ".."`,
     ``,
     `════════════════════════════════════════════`,
     `  PROJECT FILE TREE  (you have ALL of these)`,
