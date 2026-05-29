@@ -1,0 +1,100 @@
+<<<WRITE:public/index.html>>>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OrahDEX - MCP Server Evaluation Backend</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center justify-start p-6">
+  <header class="w-full max-w-4xl mb-8">
+    <h1 class="text-4xl font-extrabold text-gray-900 mb-2">OrahDEX</h1>
+    <p class="text-gray-700 text-lg">MCP Server Evaluation Backend Project</p>
+  </header>
+
+  <main class="w-full max-w-4xl bg-white rounded shadow p-6 space-y-6">
+
+    <section>
+      <h2 class="text-2xl font-semibold border-b border-gray-200 pb-2 mb-4">Project Overview</h2>
+      <p class="text-gray-700 leading-relaxed">
+        This project is a Python backend focused on evaluating MCP (Model Context Protocol) servers by orchestrating AI agent evaluations using the Anthropic Claude model.
+        It includes scripts for running evaluations of MCP servers by querying them with complex test questions and analyzing tool usage and responses.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-semibold border-b border-gray-200 pb-2 mb-4">Key Functionalities</h2>
+      <ul class="list-disc list-inside space-y-2 text-gray-700">
+        <li>Runs evaluation harness that sends realistic, complex questions to MCP servers and collects detailed responses and summaries.</li>
+        <li>Uses Anthropic's Claude API to simulate intelligent agents that utilize MCP server tools to answer evaluation questions.</li>
+        <li>Supports multiple MCP connection transports, including stdio and streamable HTTP, to interface with different MCP server types.</li>
+        <li>Parses evaluation XML files with QA pairs describing questions and expected answers for testing MCP server effectiveness.</li>
+        <li>Includes a connection abstraction layer to manage MCP sessions and tool calls asynchronously.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-semibold border-b border-gray-200 pb-2 mb-4">Project Details</h2>
+      <dl class="text-gray-800">
+        <dt class="font-semibold">Language & Framework</dt>
+        <dd>Python 3 with asyncio, using the MCP Python SDK and Anthropic Python client</dd>
+
+        <dt class="mt-4 font-semibold">Entry Point</dt>
+        <dd><code>main.py</code> (runs evaluation scripts and manages MCP connections)</dd>
+
+        <dt class="mt-4 font-semibold">Core Components</dt>
+        <dd>
+          <ul class="list-disc list-inside">
+            <li><code>scripts/evaluation.py</code> - Main evaluation logic using Claude agent</li>
+            <li><code>scripts/connections.py</code> - MCP connection implementations for stdio, streamable HTTP, and SSE</li>
+            <li><code>main.py</code> - Entrypoint initializing and running evaluations</li>
+          </ul>
+        </dd>
+
+        <dt class="mt-4 font-semibold">External Dependencies</dt>
+        <dd>
+          <ul class="list-disc list-inside">
+            <li>anthropic - Anthropic Claude API client</li>
+            <li>mcp - MCP SDK for server and client interactions</li>
+            <li>asyncio - Python async framework</li>
+          </ul>
+        </dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-semibold border-b border-gray-200 pb-2 mb-4">How to Run Locally</h2>
+      <pre class="bg-gray-100 rounded p-4 overflow-x-auto text-gray-900">
+# Install dependencies
+pip install -r .agents/skills/mcp-builder/scripts/requirements.txt
+
+# Run evaluation
+python main.py
+      </pre>
+      <p class="text-gray-700 mt-2">This launches the evaluation harness that will execute predefined complex questions against a configured MCP server using the Anthropic Claude model.</p>
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-semibold border-b border-gray-200 pb-2 mb-4">Additional Notes</h2>
+      <p class="text-gray-700">
+        This project does not include a frontend UI. It is a backend-only evaluation framework focused on AI-driven MCP server assessment.
+      </p>
+      <p class="text-gray-700 mt-1 italic">Preview in this static page represents an overview and documentation summary of the project functionality.</p>
+    </section>
+
+  </main>
+
+  <footer class="w-full max-w-4xl text-center mt-12 mb-6 text-gray-500 text-sm">
+    &copy; 2024 OrahDEX Project
+  </footer>
+</body>
+</html>
+<<<END>>>
+
+This project is a Python-based backend evaluation system designed to test and analyze MCP servers using an Anthropic Claude-powered AI agent. It organizes complex question-answer evaluations against MCP servers to measure their effectiveness and provides tooling to manage MCP connections and run these evaluations asynchronously.
+
+---
+The project is a Python backend evaluation framework for MCP servers, using Anthropic's Claude model to run complex, multi-step test questions. It manages asynchronous MCP connections and tool calls to assess the server's ability to handle realistic, multi-tool workflows.
+
+A static project overview page has been created as public/index.html, detailing the backend's purpose, key components, dependencies, and usage instructions for a local run. There is no frontend UI, so this static overview is the best representation for the preview. Open the Preview tab to view it.
