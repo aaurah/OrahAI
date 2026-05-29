@@ -71,11 +71,58 @@ function makeDeepSeekClient(): OpenAI | null {
   return new OpenAI({ baseURL: "https://api.deepseek.com/v1", apiKey });
 }
 
-// ── Smart Auto-routing ────────────────────────────────────────────────────────
-// Analyzes message intent and returns the best available provider:model
-function resolveAutoModel(message: string): { provider: string; modelName: string } {
-  const msg = message.toLowerCase();
+// ── Local Ollama model cache ───────────────────────────────────────────────────
+// Caches the first available local model for 5 min to avoid blocking requests
+let _cachedOllamaModel: string | null = null;
+let _ollamaModelCheckedAt = 0;
 
+async function getLocalOllamaModel(): Promise<string | null> {
+  const now = Date.now();
+  if (_cachedOllamaModel !== null || (now - _ollamaModelCheckedAt < 5 * 60 * 1000 && _ollamaModelCheckedAt > 0)) {
+    return _cachedOllamaModel;
+  }
+  try {
+    const base = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, "");
+    const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) { _ollamaModelCheckedAt = now; return null; }
+    const data = await res.json() as { models?: Array<{ name: string }> };
+    const models = (data.models ?? []).map((m) => m.name);
+    // Prefer code-focused models, then general ones
+    const preferred = ["qwen2.5-coder", "deepseek-coder", "codellama", "llama3", "llama", "mistral", "gemma", "phi"];
+    for (const pref of preferred) {
+      const found = models.find((m) => m.startsWith(pref));
+      if (found) { _cachedOllamaModel = found; _ollamaModelCheckedAt = now; return found; }
+    }
+    _cachedOllamaModel = models[0] ?? null;
+    _ollamaModelCheckedAt = now;
+    return _cachedOllamaModel;
+  } catch {
+    _ollamaModelCheckedAt = Date.now();
+    return null;
+  }
+}
+
+// ── Smart Auto-routing ────────────────────────────────────────────────────────
+// Ollama-first: when no paid keys are set the IDE runs 100% free on local models.
+// Paid APIs are optional upgrades — used only when their key is present.
+async function resolveAutoModel(message: string): Promise<{ provider: string; modelName: string }> {
+  const msg = message.toLowerCase();
+  const hasAnyPaidKey =
+    process.env.DEEPSEEK_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.XAI_API_KEY ||
+    process.env.PERPLEXITY_API_KEY;
+
+  // ── Free-only mode: no paid keys → always use local Ollama ────────────────
+  if (!hasAnyPaidKey) {
+    const local = await getLocalOllamaModel();
+    if (local) return { provider: "ollama", modelName: local };
+    return { provider: "openai", modelName: "gpt-4.1" }; // OpenAI proxy fallback
+  }
+
+  // ── Hybrid mode: paid keys present — smart-route by task, fall back to local
   // Search / research / "latest" / "current events" → Perplexity Sonar
   const isSearch =
     /\b(search|find|look up|what is the latest|current(ly)?|news|today|recent|live|real.?time|browse|web)\b/.test(msg);
@@ -114,12 +161,16 @@ function resolveAutoModel(message: string): { provider: string; modelName: strin
     if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-opus-4-5" };
   }
 
-  // Default priority: DeepSeek (code-first IDE) → Groq (free) → GPT → Gemini → Anthropic → xAI
+  // Default priority: DeepSeek (code-first IDE) → Groq → Gemini → Anthropic → xAI → local Ollama
   if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
   if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
   if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
   if (process.env.XAI_API_KEY) return { provider: "xai", modelName: "grok-3-mini" };
+
+  // Local Ollama as final fallback before cloud OpenAI proxy
+  const localFallback = await getLocalOllamaModel();
+  if (localFallback) return { provider: "ollama", modelName: localFallback };
   return { provider: "openai", modelName: "gpt-4.1" };
 }
 
@@ -567,7 +618,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       let modelName: string;
       let autoResolved = false;
       if (rawProvider === "auto") {
-        const resolved = resolveAutoModel(message);
+        const resolved = await resolveAutoModel(message);
         provider = resolved.provider;
         modelName = resolved.modelName;
         autoResolved = true;
@@ -708,7 +759,10 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       // ── Auto-fallback model chain ─────────────────────────────────────────
       // Build an ordered list of models to try. The user's requested model is
       // first; if it hits 429/413 we silently advance to the next entry.
+      // Local Ollama is appended as the final free fallback before cloud models.
+      const localOllamaFallback = _cachedOllamaModel ? [`ollama:${_cachedOllamaModel}`] : [];
       const GLOBAL_FALLBACK_CHAIN = [
+        ...localOllamaFallback,
         "groq:llama-3.3-70b-versatile",
         "groq:llama-3.1-8b-instant",
         "groq:gemma2-9b-it",

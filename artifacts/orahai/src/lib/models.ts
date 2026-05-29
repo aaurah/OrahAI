@@ -31,14 +31,14 @@ export const MODEL_GROUPS: ModelGroup[] = [
   {
     label: "Auto",
     provider: "auto",
-    note: "Automatically picks the best available model for your task",
+    note: "Prefers local Ollama — falls back to cloud only when a key is set",
     models: [
       {
         id: "auto:auto",
         name: "Auto (Smart Routing)",
         provider: "auto",
-        badge: "Smart",
-        description: "Routes to the best model: code → DeepSeek V3, search → Sonar, reasoning → R1/Qwen, general → Llama/GPT",
+        badge: "Free",
+        description: "Defaults to local Ollama (free). When API keys are present: code → DeepSeek, search → Sonar, reasoning → R1/Qwen",
       },
     ],
   },
@@ -122,9 +122,9 @@ export const MODEL_GROUPS: ModelGroup[] = [
     ],
   },
   {
-    label: "Ollama — Local",
+    label: "Ollama — Free, Local",
     provider: "ollama",
-    note: "Set OLLAMA_BASE_URL secret (default: http://localhost:11434)",
+    note: "Runs on your server — free, no API key needed",
     models: [
       { id: "ollama:llama3.2:1b",        name: "Llama 3.2 1B",        provider: "ollama", badge: "Tiny",  size: "~0.8 GB",  description: "Fastest, minimal quality" },
       { id: "ollama:llama3.2:3b",        name: "Llama 3.2 3B",        provider: "ollama", badge: "Small", size: "~1.9 GB",  description: "Good balance of speed and quality" },

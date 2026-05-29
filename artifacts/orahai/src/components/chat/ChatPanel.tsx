@@ -144,6 +144,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [liveOllamaModels, setLiveOllamaModels] = useState<ModelDef[]>([]);
   const [liveRemoteModels, setLiveRemoteModels] = useState<ModelDef[]>([]);
+  const ollamaAutoInitDone = useRef(false);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -232,6 +233,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   const hotModel = gpuModels.find(m => m.name === currentModelName || m.name.startsWith(currentModelName.split(":")[0]));
   const isWarm = !!hotModel;
+
+  // On first mount: if the user hasn't set a model yet, auto-select the best
+  // available local Ollama model so the IDE works free out of the box.
+  useEffect(() => {
+    if (ollamaAutoInitDone.current) return;
+    ollamaAutoInitDone.current = true;
+    if (localStorage.getItem("orahai_ai_model")) return; // user already chose a model
+    api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server")
+      .then(res => {
+        if (!res.ollamaAvailable || !res.models?.length) return;
+        const preferred = ["qwen2.5-coder", "deepseek-coder", "codellama", "llama3", "llama", "mistral", "gemma", "phi"];
+        const names = res.models.map(m => m.name);
+        let pick = names[0];
+        for (const pref of preferred) {
+          const found = names.find(n => n.startsWith(pref));
+          if (found) { pick = found; break; }
+        }
+        if (pick) {
+          const modelId = `ollama:${pick}`;
+          setAiModel(modelId);
+          localStorage.setItem("orahai_ai_model", modelId);
+        }
+      })
+      .catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch live Ollama models (both endpoints) when the model picker opens
   useEffect(() => {
@@ -1567,19 +1594,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
                 <div className="absolute bottom-full right-0 mb-1.5 w-72 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
                   <div className="max-h-80 overflow-y-auto">
-                    {/* Ollama Server models */}
+                    {/* OrahAI Free (Local) — Ollama Server models */}
                     {(liveOllamaModels.length > 0 || (ollamaLoading && liveOllamaModels.length === 0)) && (
                       <div>
-                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Ollama — Server</span>
-                          {ollamaLoading && <span className="text-[8px] text-muted-foreground">Loading…</span>}
+                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-green-950/40 backdrop-blur border-b border-green-900/30">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                            <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">OrahAI — Free, Local</span>
+                          </div>
+                          {ollamaLoading
+                            ? <span className="text-[8px] text-muted-foreground">Loading…</span>
+                            : <span className="text-[8px] text-green-500/70">no API key needed</span>
+                          }
                         </div>
                         {liveOllamaModels.map(model => (
                           <button key={model.id}
                             onClick={() => { setAiModel(model.id); localStorage.setItem("orahai_ai_model", model.id); setModelPickerOpen(false); }}
                             className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === model.id && "text-primary bg-primary/5")}>
                             <span className="flex-1 font-mono font-medium truncate">{model.name}</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Server</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Free</span>
                           </button>
                         ))}
                       </div>
@@ -1602,18 +1635,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                       </div>
                     )}
 
-                    {/* Static model groups (cloud providers + groq + ollama catalog) */}
+                    {/* Static model groups (auto + cloud providers + groq + ollama catalog) */}
                     {MODEL_GROUPS.filter(g => {
                       if (g.provider === "ollama") return false; // handled as live models above
                       const PAID_PROVIDERS = ["openai","anthropic","gemini","xai","perplexity","deepseek"];
                       if (PAID_PROVIDERS.includes(g.provider) && !enabledPaidProviders.has(g.provider)) return false;
                       return true;
-                    }).map(group => (
+                    }).map(group => {
+                      const isPaidProvider = ["openai","anthropic","gemini","xai","perplexity","deepseek"].includes(group.provider);
+                      return (
                       <div key={group.label}>
                         <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
-                          {group.note && (
-                            <span className="text-[8px] text-amber-500/90 font-medium truncate max-w-[110px]">{group.note}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
+                            {isPaidProvider && (
+                              <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">Pro</span>
+                            )}
+                          </div>
+                          {group.note && !isPaidProvider && (
+                            <span className="text-[8px] text-muted-foreground/70 font-medium truncate max-w-[120px]">{group.note}</span>
                           )}
                         </div>
                         {group.models.map(model => (
@@ -1641,7 +1681,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                           </button>
                         ))}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {/* Footer: paid provider toggles + manage link */}
                   <div className="border-t border-border/40 px-3 pt-2 pb-1.5 space-y-0.5">
