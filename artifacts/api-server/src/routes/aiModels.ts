@@ -111,7 +111,15 @@ router.get("/providers", requireAuth, async (_req: AuthenticatedRequest, res: Re
       },
       groq: {
         available: groqKey,
-        models: groqModels.length ? groqModels : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct", "qwen/qwen3-32b"],
+        models: groqModels.length ? groqModels : [
+          "llama-3.3-70b-versatile",
+          "llama-3.1-8b-instant",
+          "meta-llama/llama-4-scout-17b-16e-instruct",
+          "meta-llama/llama-4-maverick-17b-128e-instruct",
+          "qwen/qwen3-32b",
+          "compound-beta",
+          "compound-beta-mini",
+        ],
         note: "Free API key at console.groq.com",
       },
       ollama: {

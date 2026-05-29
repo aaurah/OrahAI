@@ -117,8 +117,8 @@ export const MODEL_GROUPS: ModelGroup[] = [
       { id: "groq:meta-llama/llama-4-scout-17b-16e-instruct",       name: "Llama 4 Scout 17B",      provider: "groq", badge: "New",     description: "Meta Llama 4 Scout — multimodal" },
       { id: "groq:meta-llama/llama-4-maverick-17b-128e-instruct",   name: "Llama 4 Maverick 17B",   provider: "groq", badge: "New",     description: "Meta Llama 4 Maverick — large context" },
       { id: "groq:qwen/qwen3-32b",                                  name: "Qwen 3 32B",             provider: "groq", badge: "Reason",  description: "Alibaba Qwen 3 — strong reasoning" },
-      { id: "groq:groq/compound",                                   name: "Groq Compound",          provider: "groq", badge: "Best",    description: "Groq's compound model — best quality" },
-      { id: "groq:groq/compound-mini",                              name: "Groq Compound Mini",     provider: "groq", badge: "Fast",    description: "Groq's compound mini — fast & smart" },
+      { id: "groq:compound-beta",                                    name: "Groq Compound",          provider: "groq", badge: "Best",    description: "Groq's compound model — best quality" },
+      { id: "groq:compound-beta-mini",                              name: "Groq Compound Mini",     provider: "groq", badge: "Fast",    description: "Groq's compound mini — fast & smart" },
     ],
   },
   {

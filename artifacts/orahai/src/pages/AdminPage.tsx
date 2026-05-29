@@ -1200,19 +1200,33 @@ function AiTab() {
             <AiProviderCard name="Groq — Free Cloud" icon={<Sparkles className="w-4 h-4" />}
               available={providers?.groq?.available ?? false}
               note={providers?.groq?.available
-                ? `${(providers.groq.models ?? []).length} models — Llama 3.3, Mixtral, DeepSeek R1`
+                ? `${(providers.groq.models ?? []).length} models — Llama 4, Qwen 3, Compound`
                 : "Free — set GROQ_API_KEY secret"}
               models={providers?.groq?.models} />
             <AiProviderCard name="OpenAI — GPT" icon={<Cloud className="w-4 h-4" />}
               available={providers?.openai?.available ?? false}
-              note="gpt-4.1, gpt-4o, o3-mini" models={providers?.openai?.models} />
+              note={providers?.openai?.available ? "gpt-4.1, gpt-4o, o3-mini" : "Set OPENAI_API_KEY secret"}
+              models={providers?.openai?.models} />
             <AiProviderCard name="Anthropic — Claude" icon={<Zap className="w-4 h-4" />}
               available={providers?.anthropic?.available ?? false}
-              note="Set ANTHROPIC_API_KEY secret" models={providers?.anthropic?.models} />
-            <div className="rounded-xl border border-dashed border-border bg-card p-4 flex flex-col items-center justify-center gap-1.5 text-center">
-              <Cpu className="w-5 h-5 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">More providers (Gemini, xAI, DeepSeek) activate when their API key secrets are set</p>
-            </div>
+              note={providers?.anthropic?.available ? "Claude Opus, Sonnet, Haiku" : "Set ANTHROPIC_API_KEY secret"}
+              models={providers?.anthropic?.models} />
+            <AiProviderCard name="Google — Gemini" icon={<Cpu className="w-4 h-4" />}
+              available={providers?.gemini?.available ?? false}
+              note={providers?.gemini?.available ? "Gemini 2.5 Pro, Flash, 2.0 Flash" : "Set GOOGLE_API_KEY secret (aistudio.google.com)"}
+              models={providers?.gemini?.models} />
+            <AiProviderCard name="xAI — Grok" icon={<Bot className="w-4 h-4" />}
+              available={providers?.xai?.available ?? false}
+              note={providers?.xai?.available ? "Grok 3, Grok 3 Mini, Grok 2" : "Set XAI_API_KEY secret (console.x.ai)"}
+              models={providers?.xai?.models} />
+            <AiProviderCard name="Perplexity — Sonar" icon={<Wifi className="w-4 h-4" />}
+              available={providers?.perplexity?.available ?? false}
+              note={providers?.perplexity?.available ? "Sonar Pro, Sonar Reasoning — live web search" : "Set PERPLEXITY_API_KEY secret (perplexity.ai/api)"}
+              models={providers?.perplexity?.models} />
+            <AiProviderCard name="DeepSeek" icon={<Sparkles className="w-4 h-4" />}
+              available={providers?.deepseek?.available ?? false}
+              note={providers?.deepseek?.available ? "DeepSeek V3 (code) + R1 (reasoning)" : "Set DEEPSEEK_API_KEY secret (platform.deepseek.com)"}
+              models={providers?.deepseek?.models} />
           </div>
         )}
       </section>

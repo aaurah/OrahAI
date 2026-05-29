@@ -639,12 +639,13 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       let fileCharLimit: number = MODE_CONFIG[mode].fileCharLimit;
       let totalFileChars: number = MODE_CONFIG[mode].totalFileChars;
 
-      // Groq free tier has tight per-request token limits — apply conservative overrides
+      // Groq free tier — cap output tokens per model capability; context limits are generous
       if (provider === "groq") {
-        maxTokens      = Math.min(maxTokens, 3000);
-        fileCharLimit  = Math.min(fileCharLimit, 800);
-        totalFileChars = Math.min(totalFileChars, 3000);
-        historyLimit   = Math.min(historyLimit, 6);
+        // Compound models support up to 8192 output tokens; Llama/Qwen up to 8192 too
+        maxTokens      = Math.min(maxTokens, 8000);
+        fileCharLimit  = Math.min(fileCharLimit, 4000);
+        totalFileChars = Math.min(totalFileChars, 20000);
+        historyLimit   = Math.min(historyLimit, 8);
       }
 
       const allImages: { data: string; mimeType: string }[] = images?.length
