@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Plus, Search, Code2, Globe, Clock, ArrowRight, FolderOpen,
   Download, MoreVertical, Trash2, ExternalLink, Loader2,
-  Sparkles, Send, Github, Lock, CheckCircle2, ChevronDown, ChevronUp, X,
+  Sparkles, Send, Github, Lock, CheckCircle2, ChevronDown, ChevronUp, X, Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatDistanceToNow, cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
+import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, makeOllamaRemoteModelDef, type ModelDef } from "@/lib/models";
 import type { ProjectWithCounts, ApiResponse, Project } from "@/types";
 
 const LANGUAGE_ICONS: Record<string, string> = {
@@ -135,6 +136,46 @@ export default function DashboardPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [createStep, setCreateStep] = useState<"idle" | "project" | "github">("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // AI model selector
+  const [aiModel, setAiModel] = useState<string>(() => localStorage.getItem("orahai_ai_model") ?? DEFAULT_MODEL);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [liveOllamaModels, setLiveOllamaModels] = useState<ModelDef[]>([]);
+  const [ollamaLoading, setOllamaLoading] = useState(false);
+  const modelInitDone = useRef(false);
+
+  // Fetch live Ollama models when picker opens
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    setOllamaLoading(true);
+    api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server")
+      .then(res => {
+        setLiveOllamaModels(res.ollamaAvailable ? (res.models ?? []).map(m => makeOllamaModelDef(m.name)) : []);
+      })
+      .catch(() => setLiveOllamaModels([]))
+      .finally(() => setOllamaLoading(false));
+  }, [modelPickerOpen]);
+
+  // On first load: auto-select the best local Ollama model if no saved preference
+  useEffect(() => {
+    if (modelInitDone.current || localStorage.getItem("orahai_ai_model")) { modelInitDone.current = true; return; }
+    modelInitDone.current = true;
+    api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server")
+      .then(res => {
+        if (!res.ollamaAvailable || !res.models?.length) return;
+        const preferred = ["qwen2.5-coder", "deepseek-coder", "codellama", "llama3", "llama", "mistral", "gemma", "phi"];
+        const names = res.models.map(m => m.name);
+        let pick = names[0];
+        for (const pref of preferred) { const f = names.find(n => n.startsWith(pref)); if (f) { pick = f; break; } }
+        if (pick) { const id = `ollama:${pick}`; setAiModel(id); localStorage.setItem("orahai_ai_model", id); }
+      })
+      .catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pickModel = (id: string) => { setAiModel(id); localStorage.setItem("orahai_ai_model", id); setModelPickerOpen(false); };
+  const isOllamaModel = aiModel.startsWith("ollama:") || aiModel.startsWith("ollama-remote:");
+  const isPaidModel = (m: string) => /^(openai|anthropic|gemini|xai|perplexity|deepseek):/.test(m);
 
   // GitHub push option
   const [pushToGitHub, setPushToGitHub] = useState(false);
@@ -285,6 +326,106 @@ export default function DashboardPage() {
                 ))}
               </div>
             )}
+
+            {/* ── AI model selector ──────────────────────────── */}
+            <div className="border-t border-border/60 px-4 py-2 flex items-center gap-2">
+              <Bot className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground shrink-0">AI model</span>
+              <div className="relative ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setModelPickerOpen(v => !v)}
+                  disabled={isCreating}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors disabled:opacity-40",
+                    modelPickerOpen
+                      ? "border-primary/40 text-primary bg-primary/10"
+                      : "border-border/60 text-muted-foreground hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {isOllamaModel && <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />}
+                  <span className="max-w-[130px] truncate">{getModelShortName(aiModel)}</span>
+                  {isPaidModel(aiModel) && <span className="text-amber-400 text-[9px] font-bold">Pro</span>}
+                  <ChevronDown className={cn("w-3 h-3 transition-transform shrink-0", modelPickerOpen && "rotate-180")} />
+                </button>
+
+                {modelPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
+                    <div className="absolute bottom-full right-0 mb-1.5 w-72 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                      <div className="max-h-72 overflow-y-auto">
+
+                        {/* OrahAI Free Local — live Ollama models */}
+                        {(liveOllamaModels.length > 0 || ollamaLoading) && (
+                          <div>
+                            <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-green-950/40 backdrop-blur border-b border-green-900/30">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                                <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">OrahAI — Free, Local</span>
+                              </div>
+                              {ollamaLoading
+                                ? <span className="text-[8px] text-muted-foreground">Loading…</span>
+                                : <span className="text-[8px] text-green-500/70">no API key needed</span>
+                              }
+                            </div>
+                            {liveOllamaModels.map(m => (
+                              <button key={m.id} onClick={() => pickModel(m.id)}
+                                className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === m.id && "text-primary bg-primary/5")}>
+                                <span className="flex-1 font-mono font-medium truncate">{m.name}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Free</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Static groups: auto + groq + paid (if unlocked) */}
+                        {MODEL_GROUPS.filter(g => {
+                          if (g.provider === "ollama" || g.provider === "ollama-remote") return false;
+                          const PAID = ["openai","anthropic","gemini","xai","perplexity","deepseek"];
+                          if (PAID.includes(g.provider)) {
+                            try { const enabled = new Set(JSON.parse(localStorage.getItem("orahai_enabled_paid_providers") ?? "[]") as string[]); return enabled.has(g.provider); }
+                            catch { return false; }
+                          }
+                          return true;
+                        }).map(group => {
+                          const isPaid = ["openai","anthropic","gemini","xai","perplexity","deepseek"].includes(group.provider);
+                          return (
+                            <div key={group.label}>
+                              <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
+                                  {isPaid && <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">Pro</span>}
+                                </div>
+                                {!isPaid && group.note && (
+                                  <span className="text-[8px] text-muted-foreground/70 truncate max-w-[120px]">{group.note}</span>
+                                )}
+                              </div>
+                              {group.models.map(m => (
+                                <button key={m.id} onClick={() => pickModel(m.id)}
+                                  className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === m.id && "text-primary bg-primary/5")}>
+                                  <span className="flex-1 font-medium truncate">{m.name}</span>
+                                  {m.badge && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/40 font-medium shrink-0">{m.badge}</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="border-t border-border/40 px-3 py-2">
+                        <a href="/ai-models" onClick={() => setModelPickerOpen(false)}
+                          className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-primary transition-colors">
+                          <Bot className="w-3 h-3" />
+                          Manage models & pull new ones →
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* ── GitHub push option ─────────────────────────── */}
             <div className="border-t border-border/60 px-4 py-2.5">
