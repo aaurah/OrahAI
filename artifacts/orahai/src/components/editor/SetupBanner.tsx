@@ -67,21 +67,21 @@ export function SetupBanner({ projectId, onDismiss, onAiSetup }: SetupBannerProp
       `Framework detected: ${framework}. ` +
       (installCmd ? `Install command: ${installCmd}. ` : "") +
       (devCmd ? `Dev command: ${devCmd}. ` : "") +
-      (scriptList ? `\nScripts:\n${scriptList}\n` : "") +
+      (scriptList ? `\nAvailable scripts:\n${scriptList}\n` : "") +
       (envVars.length ? `Needs env vars: ${envVars.join(", ")}.\n` : "") +
       `\nPlease do ALL of the following right now:\n` +
       `1. Read ALL project files to understand what this project is and does\n` +
-      `2. Identify the framework, entry points, components, and styling\n` +
-      `3. Create a working static preview by writing these files:\n` +
-      `   - public/index.html — a complete, self-contained HTML page that visually represents this project. ` +
-      `Use CDN links for any libraries (React via CDN, Tailwind CDN, Chart.js, etc.) — NO build step. ` +
-      `Recreate the actual UI from the source files as faithfully as possible.\n` +
-      `   - If the project has CSS/JS files that can run without compilation, inline or reference them\n` +
-      `4. For backend/API-only projects: create public/index.html as a polished project overview showing ` +
-      `what the API does, its endpoints, tech stack, and how to run it locally\n` +
-      `5. After writing files, give a 2-sentence summary of what the project is\n\n` +
-      `Important: The preview can only serve static HTML/CSS/JS — no Node.js server. ` +
-      `Make the preview self-contained and functional. Do this now without asking.`;
+      `2. Identify the framework, entry points, dependencies, and purpose\n` +
+      `3. Set up the project correctly:\n` +
+      `   - If this is a FRONTEND or FULLSTACK project (React, Vue, Svelte, Next.js, Vite, etc.):\n` +
+      `     Create/fix public/index.html or the correct entry file so it works when Run is clicked.\n` +
+      `     Recreate the UI faithfully using the source files. Use CDN links for any libraries — NO build step.\n` +
+      `   - If this is a BACKEND, SCRIPT, CLI, or EVALUATION project (Python scripts, Express API, CLI tools, etc.):\n` +
+      `     DO NOT create a public/index.html page. Instead, verify the run command is correct and\n` +
+      `     tell the user to click ▶ Run and watch the Terminal tab for output.\n` +
+      `4. If env vars are needed, tell the user exactly what to add in Project Secrets\n` +
+      `5. Give a 2-sentence summary of what the project does and how to use it\n\n` +
+      `Do all of this now without asking.`;
     onAiSetup(prompt);
   };
 

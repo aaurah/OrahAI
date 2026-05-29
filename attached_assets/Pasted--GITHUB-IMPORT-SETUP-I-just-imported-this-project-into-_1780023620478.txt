@@ -1,0 +1,32 @@
+[GITHUB IMPORT SETUP] I just imported this project into OrahAI. Framework detected: Python. Install command: pip install -r requirements.txt. Dev command: python main.py. 
+Please do ALL of the following right now:
+1. Read ALL project files to understand what this project is and does
+2. Identify the framework, entry points, components, and styling
+3. Create a working static preview by writing these files:
+   - public/index.html — a complete, self-contained HTML page that visually represents this project. Use CDN links for any libraries (React via CDN, Tailwind CDN, Chart.js, etc.) — NO build step. Recreate the actual UI from the source files as faithfully as possible.
+   - If the project has CSS/JS files that can run without compilation, inline or reference them
+4. For backend/API-only projects: create public/index.html as a polished project overview showing what the API does, its endpoints, tech stack, and how to run it locally
+5. After writing files, give a 2-sentence summary of what the project is
+
+Important: The preview can only serve static HTML/CSS/JS — no Node.js server. Make the preview self-contained and functional. Do this now without asking.
+
+This project is a Python backend framework designed to evaluate MCP servers using Anthropic Claude AI agents that run complex multi-tool evaluation questions asynchronously. It includes connection abstractions for multiple MCP transports and does not provide a frontend UI, so the static page above serves as a polished project overview and usage guide.
+
+---
+The static preview page public/index.html has been created successfully, providing a detailed and polished overview of the OrahDEX MCP server evaluation backend project.
+
+This project is a Python backend framework for MCP server evaluation utilizing Anthropic Claude to automate complex multi-tool questions. It has no built-in frontend UI, so the static HTML serves as a comprehensive documentation and usage guide.
+
+You can install dependencies via `pip install -r requirements.txt` and run evaluations using `python main.py`. Use the Terminal tab for runtime logs. The static overview page is accessible in the Frontend tab.
+
+No further steps are needed unless you want to add a dynamic web UI or API endpoints.
+
+
+
+
+
+Lite
+Economy
+Power
+
+GP
