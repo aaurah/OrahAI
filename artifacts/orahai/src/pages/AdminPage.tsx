@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -84,7 +85,9 @@ export default function AdminPage() {
     try {
       const res = await api.get<{ data: Stats }>("/api/admin/stats");
       setStats(res.data);
-    } catch { } finally { setStatsLoading(false); }
+    } catch (e) {
+      toast({ title: "Failed to load stats", description: (e as Error).message, variant: "destructive" });
+    } finally { setStatsLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -435,7 +438,9 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
       setUsers(res.data.users);
       setTotal(res.data.total);
       setPages(res.data.pages);
-    } catch { } finally { setLoading(false); }
+    } catch (e) {
+      toast({ title: "Failed to load users", description: (e as Error).message, variant: "destructive" });
+    } finally { setLoading(false); }
   }, [page, debouncedSearch]);
 
   useEffect(() => { setPage(1); }, [debouncedSearch]);
@@ -453,7 +458,9 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
         if (endpoint === "revoke-admin") return { ...u, isAdmin: false };
         return u;
       }));
-    } catch { } finally { setActing(null); }
+    } catch (e) {
+      toast({ title: "Action failed", description: (e as Error).message, variant: "destructive" });
+    } finally { setActing(null); }
   };
 
   const handleDelete = async (id: string, email: string) => {
@@ -462,7 +469,9 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
     try {
       await api.delete(`/api/admin/users/${id}`);
       load();
-    } catch { } finally { setActing(null); }
+    } catch (e) {
+      toast({ title: "Failed to delete user", description: (e as Error).message, variant: "destructive" });
+    } finally { setActing(null); }
   };
 
   return (
@@ -648,7 +657,9 @@ function ProjectsTab() {
       setProjects(res.data.projects);
       setTotal(res.data.total);
       setPages(res.data.pages);
-    } catch { } finally { setLoading(false); }
+    } catch (e) {
+      toast({ title: "Failed to load projects", description: (e as Error).message, variant: "destructive" });
+    } finally { setLoading(false); }
   }, [page, debouncedSearch, language]);
 
   useEffect(() => { setPage(1); }, [debouncedSearch, language]);
@@ -660,7 +671,9 @@ function ProjectsTab() {
     try {
       await api.delete(`/api/admin/projects/${id}`);
       load();
-    } catch { } finally { setDeleting(null); }
+    } catch (e) {
+      toast({ title: "Failed to delete project", description: (e as Error).message, variant: "destructive" });
+    } finally { setDeleting(null); }
   };
 
   return (
@@ -762,7 +775,9 @@ function RunsTab() {
     try {
       const res = await api.get<{ data: AdminRun[] }>("/api/admin/runs?limit=50");
       setRunsList(res.data);
-    } catch { } finally { setLoading(false); }
+    } catch (e) {
+      toast({ title: "Failed to load runs", description: (e as Error).message, variant: "destructive" });
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);

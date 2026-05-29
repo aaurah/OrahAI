@@ -21,10 +21,11 @@ const ITEMS: { id: LeftPanel; icon: React.ElementType; label: string }[] = [
   { id: "deploy", icon: Rocket,    label: "Deploy"          },
 ];
 
-export function ActivityBar({ leftPanel, onLeftPanel, isOwner = true }: Props) {
+export function ActivityBar({ leftPanel, onLeftPanel, hasGithub, isOwner = true }: Props) {
   const visible = ITEMS.filter(i => {
     if (i.id === "deploy") return true;
     if (i.id === "tools") return isOwner;
+    if (i.id === "git") return hasGithub !== false;
     return true;
   });
 

@@ -86,15 +86,16 @@ export function CodeEditor({ projectId, file, onSave, onDirtyChange, onCodeActio
     };
   }, [file.path]);
 
-  // Update content when file changes externally
+  // Update content when the file changes externally (e.g. AI writes).
+  // Guard: if the user has unsaved local edits (isDirty), don't clobber their work.
   useEffect(() => {
-    if (editorRef.current) {
-      const editor = editorRef.current as { getValue: () => string; setValue: (v: string) => void };
-      if (editor.getValue() !== file.content) {
-        editor.setValue(file.content);
-        setIsDirty(false);
-        onDirtyChange?.(file.path, false);
-      }
+    if (!editorRef.current) return;
+    const editor = editorRef.current as { getValue: () => string; setValue: (v: string) => void };
+    if (isDirty) return;
+    if (editor.getValue() !== file.content) {
+      editor.setValue(file.content);
+      setIsDirty(false);
+      onDirtyChange?.(file.path, false);
     }
   }, [file.content]);
 

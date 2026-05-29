@@ -1,4 +1,3 @@
-- [Ollama setup](ollama-setup.md) — installed via Nix (not direct download, CDN blocked); workflow name "Ollama AI Service"; uses port 11434
-- [Express 5 route patterns](express5-route-patterns.md) — path-to-regexp v8 rejects legacy `(*)`/`(.*)` — use query params for values with special chars
-- [Live preview proxy](live-preview-proxy.md) — `/api/preview/:projectId/live` proxies to running process port; rewrites absolute HTML paths to go through proxy.
-- [Process manager architecture](process-manager.md) — all runs use persistent spawn (not exec); output streams via Socket.IO, not HTTP response body; Terminal must listen for socket events.
+- [CodeEditor external-update guard](codeeditor-update.md) — must check isDirty before calling editor.setValue() on external file changes or AI writes silently clobber unsaved user work.
+- [Toast remove delay](toast-delay.md) — shadcn use-toast.ts scaffolds with TOAST_REMOVE_DELAY=1000000 (never dismissed); set to 5000ms.
+- [ActivityBar hasGithub](activitybar-props.md) — hasGithub prop must be explicitly destructured AND used in the filter; easy to define in interface but forget in function signature.

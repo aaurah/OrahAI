@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 
 interface PreviewPanelProps {
   projectId: string;
-  language?: string;
   githubRepo?: string | null;
   refreshKey?: number;
   livePort?: number | null;

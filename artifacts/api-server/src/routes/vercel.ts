@@ -182,7 +182,12 @@ router.get("/deployments/:id/status", async (req: AuthenticatedRequest, res: Res
     }
 
     const newStatus = statusJson.readyState ?? row.status;
-    const newUrl = statusJson.url ? `https://${statusJson.url}` : row.url;
+    const rawVercelUrl = statusJson.url;
+    const newUrl = rawVercelUrl
+      ? (rawVercelUrl.startsWith("http://") || rawVercelUrl.startsWith("https://")
+          ? rawVercelUrl
+          : `https://${rawVercelUrl}`)
+      : row.url;
 
     await db.execute(sql`
       UPDATE vercel_deployments

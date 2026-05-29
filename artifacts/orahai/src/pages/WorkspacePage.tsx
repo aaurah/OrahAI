@@ -90,17 +90,6 @@ export default function WorkspacePage() {
   const chatRef = useRef<ChatPanelHandle>(null);
   const promptFiredRef = useRef(false);
 
-  // Helper: which right panel is active (first match wins)
-  const activeRightPanel: RightPanel = chatOpen ? "chat"
-    : githubOpen    ? "github"
-    : secretsOpen   ? "secrets"
-    : deployOpen    ? "deploy"
-    : debugOpen     ? "debug"
-    : packagesOpen  ? "packages"
-    : settingsOpen  ? "settings"
-    : mcpOpen       ? "mcp"
-    : databaseOpen  ? "database"
-    : null;
 
   const openRightPanel = (p: RightPanel) => {
     if (p === "chat" || p === null) {
@@ -184,9 +173,8 @@ export default function WorkspacePage() {
     return () => clearInterval(intervalId);
   }, [autoDevEnabled]);
 
-  useEffect(() => {
-    if (project) setPreviewOpen(true);
-  }, [project?.id]);
+  // Note: preview is opened automatically when a port is detected via socket (process:port event)
+  // or when the user explicitly runs code. We intentionally do NOT force it open on page load.
 
   // ── Socket: process lifecycle events ────────────────────────────────────────
   useEffect(() => {
@@ -442,6 +430,7 @@ export default function WorkspacePage() {
         <ActivityBar
           leftPanel={leftPanel}
           onLeftPanel={setLeftPanel}
+          hasGithub={!!project.githubRepo}
           isOwner={isProjectOwner}
         />
         {leftPanel !== null && (
@@ -527,7 +516,6 @@ export default function WorkspacePage() {
               <div className="flex-1 min-w-0 border-l border-border flex-shrink-0 flex flex-col overflow-hidden">
                 <PreviewPanel
                   projectId={project.id}
-                  language={project.language}
                   githubRepo={project.githubRepo}
                   refreshKey={fileRefreshKey}
                   livePort={livePort}
@@ -671,7 +659,6 @@ export default function WorkspacePage() {
             <div className="h-full flex flex-col overflow-hidden">
               <PreviewPanel
                 projectId={project.id}
-                language={project.language}
                 githubRepo={project.githubRepo}
                 refreshKey={fileRefreshKey}
                 livePort={livePort}
