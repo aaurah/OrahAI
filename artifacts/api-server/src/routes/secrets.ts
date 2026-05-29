@@ -77,6 +77,63 @@ router.patch("/:projectId/secrets/:id", async (req: AuthenticatedRequest, res: R
   } catch (err) { next(err); }
 });
 
+// POST /:projectId/secrets/import-env — bulk-import from .env file text
+router.post("/:projectId/secrets/import-env", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = String(req.params["projectId"]);
+    await assertProjectOwner(projectId, req.user!.id);
+    const { content } = z.object({ content: z.string().max(500_000) }).parse(req.body);
+
+    // Parse .env content
+    const pairs: { key: string; value: string }[] = [];
+    for (const raw of content.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      // Strip leading "export "
+      const stripped = line.replace(/^export\s+/, "");
+      const eqIdx = stripped.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = stripped.slice(0, eqIdx).trim().toUpperCase();
+      if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) continue;
+      let value = stripped.slice(eqIdx + 1);
+      // Strip inline comments (only if value isn't quoted)
+      if (!/^["']/.test(value)) {
+        const commentIdx = value.indexOf(" #");
+        if (commentIdx !== -1) value = value.slice(0, commentIdx);
+      }
+      // Strip surrounding quotes
+      value = value.trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      pairs.push({ key, value });
+    }
+
+    if (pairs.length === 0) return next(createError("No valid key=value pairs found in file", 400));
+
+    // Load existing secrets for this project
+    const existing = await db.select({ id: projectSecrets.id, key: projectSecrets.key })
+      .from(projectSecrets).where(eq(projectSecrets.projectId, projectId));
+    const existingMap = new Map(existing.map(e => [e.key, e.id]));
+
+    let created = 0, updated = 0;
+    for (const { key, value } of pairs) {
+      const existingId = existingMap.get(key);
+      if (existingId) {
+        await db.update(projectSecrets)
+          .set({ value, updatedAt: new Date() })
+          .where(eq(projectSecrets.id, existingId));
+        updated++;
+      } else {
+        await db.insert(projectSecrets).values({ id: cuid(), projectId, key, value });
+        created++;
+      }
+    }
+
+    res.json({ data: { created, updated, total: pairs.length } });
+  } catch (err) { next(err); }
+});
+
 router.delete("/:projectId/secrets/:id", async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = String(req.params["projectId"]);
