@@ -1,33 +1,30 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Globe, RefreshCw, ExternalLink, Monitor, Github,
-  Loader2, Plus, X, AlertCircle,
+  Loader2, Plus, X, AlertCircle, Zap, Circle,
 } from "lucide-react";
 import { API_BASE, api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { Run } from "@/types";
 
 interface PreviewPanelProps {
   projectId: string;
   language?: string;
   githubRepo?: string | null;
-  latestRun?: Run | null;
   refreshKey?: number;
-  onOpenConsole?: () => void;
+  livePort?: number | null;
+  isRunning?: boolean;
 }
 
-// ── Tab model ──────────────────────────────────────────────────────────────
-
-type TabKind = "local" | "url" | "github";
+type TabKind = "local" | "live" | "url" | "github";
 
 interface PreviewTab {
   id: string;
   kind: TabKind;
   label: string;
-  icon: "monitor" | "github" | "globe";
-  url?: string;          // for url/github kinds
+  icon: "monitor" | "github" | "globe" | "zap";
+  url?: string;
   iframeKey: number;
-  pinned?: boolean;      // preset tabs can't be closed
+  pinned?: boolean;
 }
 
 let _tabCounter = 0;
@@ -71,6 +68,60 @@ function LocalPane({
           onError={() => setLoading(false)}
         />
       )}
+    </div>
+  );
+}
+
+function LivePane({
+  projectId, iframeKey, isRunning, livePort, onRefresh,
+}: {
+  projectId: string; iframeKey: number; isRunning?: boolean; livePort?: number | null; onRefresh: () => void;
+}) {
+  const BASE = API_BASE || "";
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const src = `${BASE}/api/preview/${projectId}/live/`;
+
+  useEffect(() => { setLoading(true); setError(false); }, [iframeKey, projectId]);
+
+  if (!isRunning && !livePort) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center bg-background gap-4 px-6 text-center">
+        <div className="w-10 h-10 rounded-full border-2 border-border flex items-center justify-center">
+          <Zap className="w-5 h-5 text-muted-foreground opacity-40" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-foreground mb-1">Dev server not running</p>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Click <strong className="text-foreground">▶ Run</strong> to start your project. The live preview will appear here once the server is ready.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isRunning && !livePort) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center bg-background gap-3">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Starting dev server…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-0">
+      {loading && !error && <Spinner />}
+      {error && <EmptyState onRetry={onRefresh} message="Could not reach the dev server. Try refreshing." />}
+      <iframe
+        key={`live-${iframeKey}-${livePort}`}
+        src={src}
+        className={cn("w-full h-full border-0", (loading || error) && "hidden")}
+        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin allow-top-navigation"
+        title="Live Preview"
+        onLoad={() => setLoading(false)}
+        onError={() => { setLoading(false); setError(true); }}
+      />
     </div>
   );
 }
@@ -124,18 +175,17 @@ function EmptyState({ onRetry, message }: { onRetry: () => void; message?: strin
   );
 }
 
-// ── Icon helper ────────────────────────────────────────────────────────────
-
 function TabIcon({ icon, className }: { icon: PreviewTab["icon"]; className?: string }) {
   const cls = cn("w-3 h-3 shrink-0", className);
   if (icon === "monitor") return <Monitor className={cls} />;
   if (icon === "github")  return <Github className={cls} />;
+  if (icon === "zap")     return <Zap className={cls} />;
   return <Globe className={cls} />;
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanelProps) {
+export function PreviewPanel({ projectId, githubRepo, refreshKey, livePort, isRunning }: PreviewPanelProps) {
   const BASE = API_BASE || "";
 
   const githubPagesUrl = githubRepo
@@ -143,17 +193,26 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
     : null;
 
   const buildPresetTabs = (): PreviewTab[] => [
-    { id: "frontend",  kind: "local",   label: "Frontend",    icon: "monitor", iframeKey: 0, pinned: true },
-    ...(githubPagesUrl ? [{ id: "live", kind: "github" as TabKind, label: "Live", icon: "github" as const, iframeKey: 0, pinned: true, url: githubPagesUrl }] : []),
+    { id: "live",     kind: "live",   label: "Live",     icon: "zap",     iframeKey: 0, pinned: true },
+    { id: "frontend", kind: "local",  label: "Static",   icon: "monitor", iframeKey: 0, pinned: true },
+    ...(githubPagesUrl ? [{ id: "ghpages", kind: "github" as TabKind, label: "GitHub Pages", icon: "github" as const, iframeKey: 0, pinned: true, url: githubPagesUrl }] : []),
   ];
 
   const [tabs, setTabs] = useState<PreviewTab[]>(buildPresetTabs);
-  const [activeId, setActiveId] = useState<string>("frontend");
+  const [activeId, setActiveId] = useState<string>("live");
   const [urlBarValue, setUrlBarValue] = useState("");
   const [urlBarEditing, setUrlBarEditing] = useState(false);
   const urlBarRef = useRef<HTMLInputElement>(null);
 
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0];
+
+  // Auto-switch to Live tab when port is detected
+  useEffect(() => {
+    if (livePort) {
+      setActiveId("live");
+      setTabs(ts => ts.map(t => t.id === "live" ? { ...t, iframeKey: t.iframeKey + 1 } : t));
+    }
+  }, [livePort]);
 
   // Sync external refreshKey → bump active frontend tab
   const prevRefreshKey = useRef(refreshKey);
@@ -167,7 +226,8 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
   // Keep URL bar display in sync with active tab
   useEffect(() => {
     if (!urlBarEditing) {
-      if (activeTab?.kind === "local") setUrlBarValue(`preview/${projectId}`);
+      if (activeTab?.kind === "live")       setUrlBarValue(`preview/${projectId}/live`);
+      else if (activeTab?.kind === "local") setUrlBarValue(`preview/${projectId}`);
       else setUrlBarValue(activeTab?.url ?? "");
     }
   }, [activeTab, urlBarEditing, projectId]);
@@ -178,7 +238,9 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
 
   const openInNewTab = async () => {
     if (!activeTab) return;
-    if (activeTab.kind === "local") {
+    if (activeTab.kind === "live") {
+      window.open(`${BASE}/api/preview/${projectId}/live/`, "_blank", "noopener,noreferrer");
+    } else if (activeTab.kind === "local") {
       try {
         const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
         const v = refreshKey ?? activeTab.iframeKey;
@@ -225,6 +287,7 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
       <div className="flex items-end gap-0 border-b border-border bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
         {tabs.map(tab => {
           const active = tab.id === activeId;
+          const isLive = tab.kind === "live";
           return (
             <button
               key={tab.id}
@@ -238,11 +301,20 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
             >
               <TabIcon icon={tab.icon}
                 className={active ? (
+                  tab.icon === "zap" ? "text-green-400" :
                   tab.icon === "monitor" ? "text-sky-400" :
                   tab.icon === "github" ? "text-violet-400" : ""
                 ) : ""}
               />
               <span className="truncate">{tab.label}</span>
+              {isLive && (isRunning || livePort) && (
+                <Circle
+                  className={cn(
+                    "w-1.5 h-1.5 fill-current shrink-0",
+                    livePort ? "text-green-400" : "text-yellow-400 animate-pulse",
+                  )}
+                />
+              )}
               {!tab.pinned && (
                 <span
                   role="button"
@@ -259,7 +331,6 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
           );
         })}
 
-        {/* New custom tab */}
         <button
           onClick={addCustomTab}
           title="Open new tab"
@@ -290,6 +361,11 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
             </span>
           )}
         </div>
+        {livePort && activeTab?.kind === "live" && (
+          <span className="text-[10px] font-mono text-green-400 bg-green-400/10 border border-green-400/20 px-1.5 py-0.5 rounded shrink-0">
+            :{livePort}
+          </span>
+        )}
         <button onClick={refresh} title="Refresh" className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
@@ -302,13 +378,22 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey }: PreviewPanel
       <div className="flex-1 relative overflow-hidden bg-white">
         {tabs.map(tab => (
           <div key={tab.id} className={cn("absolute inset-0", tab.id !== activeId && "hidden")}>
+            {tab.kind === "live" && (
+              <LivePane
+                projectId={projectId}
+                iframeKey={tab.iframeKey}
+                isRunning={isRunning}
+                livePort={livePort}
+                onRefresh={refresh}
+              />
+            )}
             {tab.kind === "local" && (
               <LocalPane projectId={projectId} iframeKey={tab.iframeKey} refreshKey={refreshKey} onRefresh={refresh} />
             )}
-            {tab.kind !== "local" && tab.url && (
+            {tab.kind !== "local" && tab.kind !== "live" && tab.url && (
               <UrlPane url={tab.url} iframeKey={tab.iframeKey} onRefresh={refresh} />
             )}
-            {tab.kind !== "local" && !tab.url && (
+            {tab.kind !== "local" && tab.kind !== "live" && !tab.url && (
               <EmptyState onRetry={refresh} message="No URL configured for this tab." />
             )}
           </div>

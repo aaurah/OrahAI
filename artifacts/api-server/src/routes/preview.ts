@@ -49,25 +49,25 @@ router.get("/:projectId/live-status", requireAuth, async (req: AuthenticatedRequ
 
 // GET /api/preview/:projectId/live — proxy to running dev server
 // All sub-paths are forwarded: /api/preview/:projectId/live/assets/main.js → localhost:{port}/assets/main.js
-router.use("/:projectId/live", requireAuth, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const projectId = String(req.params.projectId);
-    await assertProjectAccess(projectId, req.user!.id);
+router.use("/:projectId/live", requireAuth, (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  const projectId = String(req.params.projectId);
 
-    const mp = getProcess(projectId);
-    if (!mp?.alive || !mp.port) {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.status(503).send(noDevServerHtml());
-    }
+  assertProjectAccess(projectId, req.user!.id)
+    .then(() => {
+      const mp = getProcess(projectId);
+      if (!mp?.alive || !mp.port) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(503).send(noDevServerHtml());
+        return;
+      }
 
-    const port = mp.port;
-    // req.path is the path after /:projectId/live, e.g. "/" or "/assets/main.js"
-    const targetPath = req.path || "/";
-    const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-    const fullPath = targetPath + query;
-
-    proxyToLocalPort(req as Request, res, port, fullPath, projectId);
-  } catch (err) { next(err); }
+      const port = mp.port;
+      const targetPath = req.path || "/";
+      const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const fullPath = targetPath + query;
+      proxyToLocalPort(req as Request, res, port, fullPath, projectId);
+    })
+    .catch(next);
 });
 
 // GET /api/preview/:projectId — static asset-inlined preview

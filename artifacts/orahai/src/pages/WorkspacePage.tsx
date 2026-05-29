@@ -2,8 +2,10 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useSearch, useLocation } from "wouter";
 import {
   Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon,
-  MoreHorizontal, Github, KeyRound, Rocket,
+  MoreHorizontal, Github, KeyRound, Rocket, Square,
 } from "lucide-react";
+import { useSocket } from "@/hooks/useSocket";
+import { Terminal } from "@/components/terminal/Terminal";
 import { WorkspaceSidebar } from "@/components/editor/WorkspaceSidebar";
 import { CodeEditor } from "@/components/editor/CodeEditor";
 import { FileTabs } from "@/components/editor/FileTabs";
@@ -70,7 +72,10 @@ export default function WorkspacePage() {
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 
   // ── Other state ──────────────────────────────────────────────────────────────
+  const socket = useSocket();
   const [isRunning, setIsRunning] = useState(false);
+  const [livePort, setLivePort] = useState<number | null>(null);
+  const [processRunning, setProcessRunning] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("ai");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [autoDevEnabled, setAutoDevEnabled] = useState(false);
@@ -178,6 +183,28 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (project) setPreviewOpen(true);
   }, [project?.id]);
+
+  // ── Socket: process lifecycle events ────────────────────────────────────────
+  useEffect(() => {
+    if (!socket || !id) return;
+    const onPort = (data: { projectId: string; port: number }) => {
+      if (data.projectId !== id) return;
+      setLivePort(data.port);
+      setProcessRunning(true);
+      setPreviewOpen(true);
+    };
+    const onStopped = (data: { projectId: string }) => {
+      if (data.projectId !== id) return;
+      setProcessRunning(false);
+      setLivePort(null);
+    };
+    socket.on("process:port", onPort);
+    socket.on("process:stopped", onStopped);
+    return () => {
+      socket.off("process:port", onPort);
+      socket.off("process:stopped", onStopped);
+    };
+  }, [socket, id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -299,14 +326,27 @@ export default function WorkspacePage() {
     setTerminalOpen(true);
     setMobileTab("console");
     setPreviewOpen(true);
+    setLivePort(null);
+    setProcessRunning(true);
     try {
       await api.post<ApiResponse<Run>>(`/api/runs/${project.id}`);
       await mutateRuns();
     } catch (err: unknown) {
       toast({ title: (err as Error).message ?? "Failed to start run", variant: "destructive" });
+      setProcessRunning(false);
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const handleStop = async () => {
+    if (!project) return;
+    try {
+      await api.delete(`/api/runs/${project.id}/stop`);
+    } catch { /* ignore */ }
+    setProcessRunning(false);
+    setLivePort(null);
+    await mutateRuns();
   };
 
   const handleInstallCommand = (cmd: string) => {
@@ -367,7 +407,9 @@ export default function WorkspacePage() {
         project={project}
         latestRun={latestRun}
         isRunning={isRunning}
+        processRunning={processRunning}
         onRun={handleRun}
+        onStop={handleStop}
         chatOpen={chatOpen}
         onChatToggle={() => openRightPanel(chatOpen ? null : "chat")}
         terminalOpen={terminalOpen}
@@ -469,8 +511,9 @@ export default function WorkspacePage() {
                   projectId={project.id}
                   language={project.language}
                   githubRepo={project.githubRepo}
-                  latestRun={latestRun}
                   refreshKey={fileRefreshKey}
+                  livePort={livePort}
+                  isRunning={processRunning}
                 />
               </div>
             )}
@@ -478,7 +521,7 @@ export default function WorkspacePage() {
 
           {terminalOpen && (
             <div className="h-52 flex-shrink-0 border-t border-border">
-              <ConsolePanel run={latestRun} />
+              <Terminal projectId={project.id} />
             </div>
           )}
         </div>
@@ -653,7 +696,7 @@ export default function WorkspacePage() {
 
           {mobileTab === "console" && (
             <div className="h-full flex flex-col overflow-hidden">
-              <ConsolePanel run={latestRun} onRun={handleRun} isRunning={isRunning} />
+              <Terminal projectId={project.id} />
             </div>
           )}
 
@@ -663,9 +706,9 @@ export default function WorkspacePage() {
                 projectId={project.id}
                 language={project.language}
                 githubRepo={project.githubRepo}
-                latestRun={latestRun}
                 refreshKey={fileRefreshKey}
-                onOpenConsole={() => setMobileTab("console")}
+                livePort={livePort}
+                isRunning={processRunning}
               />
             </div>
           )}

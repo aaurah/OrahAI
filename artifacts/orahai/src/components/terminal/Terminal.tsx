@@ -11,6 +11,7 @@ export function Terminal({ projectId }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<unknown>(null);
   const socket = useSocket();
+  const pendingRef = useRef(false);
 
   useEffect(() => {
     let destroyed = false;
@@ -29,7 +30,7 @@ export function Terminal({ projectId }: TerminalProps) {
         lineHeight: 1.5,
         cursorBlink: true,
         convertEol: true,
-        scrollback: 5000,
+        scrollback: 10000,
       });
 
       const fitAddon = new FitAddon();
@@ -40,7 +41,7 @@ export function Terminal({ projectId }: TerminalProps) {
       xtermRef.current = term;
 
       term.writeln("\r\x1b[1;32mOrahAI Shell\x1b[0m");
-      term.writeln("\x1b[2mType a shell command and press Enter.\x1b[0m\r\n");
+      term.writeln("\x1b[2mType a command and press Enter to run it.\x1b[0m\r\n");
       term.write("$ ");
 
       let inputBuf = "";
@@ -50,21 +51,23 @@ export function Terminal({ projectId }: TerminalProps) {
           const cmd = inputBuf.trim();
           inputBuf = "";
           term.write("\r\n");
-          if (cmd) {
+          if (cmd && !pendingRef.current) {
+            pendingRef.current = true;
             api.post<ApiResponse<Run>>(`/api/runs/${projectId}`, { command: cmd })
-              .then((res) => {
-                const run = res.data;
-                if (run.output) term.write(run.output.replace(/\n/g, "\r\n"));
-                if (run.exitCode && run.exitCode !== 0) term.write(`\r\n\x1b[31mExit: ${run.exitCode}\x1b[0m`);
-                term.write("\r\n$ ");
+              .then(() => {
+                // Output will arrive via socket terminal:output events.
+                // Prompt is written when process:stopped fires (or after a brief delay for quick cmds).
               })
-              .catch(() => { term.write("\x1b[31mCommand failed\x1b[0m\r\n$ "); });
-          } else {
+              .catch(() => {
+                term.write("\x1b[31mFailed to start command\x1b[0m\r\n$ ");
+                pendingRef.current = false;
+              });
+          } else if (!cmd) {
             term.write("$ ");
           }
         } else if (domEvent.keyCode === 8) {
           if (inputBuf.length > 0) { inputBuf = inputBuf.slice(0, -1); term.write("\b \b"); }
-        } else if (domEvent.key.length === 1) {
+        } else if (domEvent.key.length === 1 && !pendingRef.current) {
           inputBuf += domEvent.key;
           term.write(key);
         }
@@ -72,8 +75,18 @@ export function Terminal({ projectId }: TerminalProps) {
 
       if (socket) {
         socket.emit("workspace:join", { projectId });
+
         socket.on("terminal:output", (data: { projectId: string; data: string }) => {
-          if (data.projectId === projectId) term.write(data.data);
+          if (data.projectId === projectId) {
+            term.write(data.data);
+          }
+        });
+
+        socket.on("process:stopped", (data: { projectId: string }) => {
+          if (data.projectId === projectId) {
+            pendingRef.current = false;
+            term.write("\r\n$ ");
+          }
         });
       }
 
@@ -91,6 +104,7 @@ export function Terminal({ projectId }: TerminalProps) {
       if (socket) {
         socket.emit("workspace:leave", { projectId });
         socket.off("terminal:output");
+        socket.off("process:stopped");
       }
     };
   }, [projectId, socket]);

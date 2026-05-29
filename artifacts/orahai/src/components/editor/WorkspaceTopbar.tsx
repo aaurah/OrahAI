@@ -13,7 +13,9 @@ interface Props {
   project: Project;
   latestRun?: Run | null;
   isRunning: boolean;
+  processRunning?: boolean;
   onRun: () => void;
+  onStop?: () => void;
   chatOpen: boolean;
   onChatToggle: () => void;
   terminalOpen: boolean;
@@ -62,7 +64,7 @@ const LANG_LABELS: Record<string, string> = {
 };
 
 export function WorkspaceTopbar({
-  project, latestRun, isRunning, onRun,
+  project, latestRun, isRunning, processRunning = false, onRun, onStop,
   chatOpen, onChatToggle,
   terminalOpen, onTerminalToggle,
   githubOpen, onGithubToggle,
@@ -136,23 +138,33 @@ export function WorkspaceTopbar({
           <kbd className="hidden lg:inline text-[10px] px-1 rounded bg-muted border border-border">⌘K</kbd>
         </button>
 
-        {/* ── Run button ──────────────────────────────────────────────── */}
-        <button
-          onClick={onRun}
-          disabled={isRunning}
-          className={cn(
-            "flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0",
-            isRunning
-              ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-500 text-white shadow-sm",
-          )}
-        >
-          {isRunning ? (
-            <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span className="hidden sm:inline">Running</span></>
-          ) : (
-            <><Play className="w-3.5 h-3.5 fill-current" /><span className="hidden sm:inline">Run</span></>
-          )}
-        </button>
+        {/* ── Run / Stop buttons ──────────────────────────────────────── */}
+        {processRunning ? (
+          <button
+            onClick={onStop}
+            className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+            <span className="hidden sm:inline">Stop</span>
+          </button>
+        ) : (
+          <button
+            onClick={onRun}
+            disabled={isRunning}
+            className={cn(
+              "flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0",
+              isRunning
+                ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed"
+                : "bg-green-600 hover:bg-green-500 text-white shadow-sm",
+            )}
+          >
+            {isRunning ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span className="hidden sm:inline">Starting</span></>
+            ) : (
+              <><Play className="w-3.5 h-3.5 fill-current" /><span className="hidden sm:inline">Run</span></>
+            )}
+          </button>
+        )}
 
         {/* ── Auto-develop button ─────────────────────────────────────── */}
         <button
