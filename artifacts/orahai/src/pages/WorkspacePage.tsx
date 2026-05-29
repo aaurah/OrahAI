@@ -519,11 +519,9 @@ export default function WorkspacePage() {
             )}
           </div>
 
-          {terminalOpen && (
-            <div className="h-52 flex-shrink-0 border-t border-border">
-              <Terminal projectId={project.id} />
-            </div>
-          )}
+          <div className={terminalOpen ? "h-52 flex-shrink-0 border-t border-border" : "hidden"}>
+            <Terminal projectId={project.id} />
+          </div>
         </div>
 
         {/* RIGHT: chat / github / secrets / deploy / packages / settings */}
@@ -694,11 +692,9 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          {mobileTab === "console" && (
-            <div className="h-full flex flex-col overflow-hidden">
-              <Terminal projectId={project.id} />
-            </div>
-          )}
+          <div className={mobileTab === "console" ? "h-full flex flex-col overflow-hidden" : "hidden"}>
+            <Terminal projectId={project.id} />
+          </div>
 
           {mobileTab === "preview" && (
             <div className="h-full flex flex-col overflow-hidden">
