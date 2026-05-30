@@ -79,9 +79,22 @@ function LivePane({
   const BASE = API_BASE || "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const src = `${BASE}/api/preview/${projectId}/live/`;
+  const [src, setSrc] = useState<string | null>(null);
 
-  useEffect(() => { setLoading(true); setError(false); }, [iframeKey, projectId]);
+  // Fetch a preview token so the iframe can authenticate without custom headers
+  const load = useCallback(async () => {
+    if (!livePort) return;
+    setLoading(true); setError(false); setSrc(null);
+    try {
+      const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
+      setSrc(`${BASE}/api/preview/${projectId}/live/?token=${encodeURIComponent(token)}`);
+    } catch {
+      setError(true);
+      setLoading(false);
+    }
+  }, [projectId, BASE, livePort]);
+
+  useEffect(() => { load(); }, [load, iframeKey]);
 
   if (!isRunning && !livePort) {
     return (
@@ -115,16 +128,18 @@ function LivePane({
   return (
     <div className="absolute inset-0">
       {loading && !error && <Spinner />}
-      {error && <EmptyState onRetry={onRefresh} message="Could not reach the dev server. Try refreshing." />}
-      <iframe
-        key={`live-${iframeKey}-${livePort}`}
-        src={src}
-        className={cn("w-full h-full border-0", (loading || error) && "hidden")}
-        sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin allow-top-navigation"
-        title="Live Preview"
-        onLoad={() => setLoading(false)}
-        onError={() => { setLoading(false); setError(true); }}
-      />
+      {error && <EmptyState onRetry={() => { load(); onRefresh(); }} message="Could not reach the dev server. Try refreshing." />}
+      {src && (
+        <iframe
+          key={`live-${iframeKey}-${livePort}`}
+          src={src}
+          className={cn("w-full h-full border-0", (loading || error) && "hidden")}
+          sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin allow-top-navigation"
+          title="Live Preview"
+          onLoad={() => setLoading(false)}
+          onError={() => { setLoading(false); setError(true); }}
+        />
+      )}
     </div>
   );
 }
@@ -242,7 +257,10 @@ export function PreviewPanel({ projectId, githubRepo, refreshKey, livePort, isRu
   const openInNewTab = async () => {
     if (!activeTab) return;
     if (activeTab.kind === "live") {
-      window.open(`${BASE}/api/preview/${projectId}/live/`, "_blank", "noopener,noreferrer");
+      try {
+        const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);
+        window.open(`${BASE}/api/preview/${projectId}/live/?token=${encodeURIComponent(token)}`, "_blank", "noopener,noreferrer");
+      } catch { /* ignore */ }
     } else if (activeTab.kind === "local") {
       try {
         const { token } = await api.post<{ token: string }>(`/api/preview/${projectId}/token`);

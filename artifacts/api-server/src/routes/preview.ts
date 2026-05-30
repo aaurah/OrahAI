@@ -49,25 +49,75 @@ router.get("/:projectId/live-status", requireAuth, async (req: AuthenticatedRequ
 
 // GET /api/preview/:projectId/live — proxy to running dev server
 // All sub-paths are forwarded: /api/preview/:projectId/live/assets/main.js → localhost:{port}/assets/main.js
-router.use("/:projectId/live", requireAuth, (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+// Auth: accepts a short-lived preview JWT via ?token= (same format as static preview) so iframes can load without custom headers.
+// On sub-resource requests the token is not required — only the root HTML page needs it (the iframe carries the session via origin).
+router.use("/:projectId/live", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const projectId = String(req.params.projectId);
 
-  assertProjectAccess(projectId, req.user!.id)
-    .then(() => {
-      const mp = getProcess(projectId);
-      if (!mp?.alive || !mp.port) {
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.status(503).send(noDevServerHtml());
-        return;
-      }
+  // Resolve auth: prefer ?token= (preview JWT) then fall back to Authorization header for API clients
+  const rawToken = String(req.query.token ?? "");
+  let authedProjectId: string | null = null;
 
-      const port = mp.port;
-      const targetPath = req.path || "/";
-      const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-      const fullPath = targetPath + query;
-      proxyToLocalPort(req as Request, res, port, fullPath, projectId);
-    })
-    .catch(next);
+  if (rawToken) {
+    try {
+      const payload = jwt.verify(rawToken, config.auth.jwtSecret, { audience: "preview" }) as { sub: string };
+      authedProjectId = payload.sub;
+    } catch {
+      res.status(401).json({ error: "Invalid or expired preview token" });
+      return;
+    }
+  } else {
+    // Fall back to Bearer token auth (for direct API / non-iframe use)
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    try {
+      const payload = jwt.verify(header.slice(7), config.auth.jwtSecret) as { sub: string; aud?: string | string[] };
+      const aud = payload.aud;
+      const isPreview = aud && (Array.isArray(aud) ? aud.includes("preview") : aud === "preview");
+      if (isPreview) {
+        authedProjectId = payload.sub;
+      } else {
+        // Full user JWT — verify project access via DB
+        const userId = payload.sub;
+        const memberSubquery = db.select({ workspaceId: memberships.workspaceId })
+          .from(memberships).where(eq(memberships.userId, userId));
+        const [p] = await db.select({ id: projects.id }).from(projects).where(and(
+          eq(projects.id, projectId),
+          isNull(projects.deletedAt),
+          or(eq(projects.ownerId, userId), sql`${projects.workspaceId} IN (${memberSubquery})`),
+        )).limit(1);
+        if (!p) { res.status(404).json({ error: "Project not found" }); return; }
+        authedProjectId = p.id;
+      }
+    } catch {
+      res.status(401).json({ error: "Invalid token" });
+      return;
+    }
+  }
+
+  if (authedProjectId !== projectId) {
+    res.status(403).json({ error: "Token does not match project" });
+    return;
+  }
+
+  const mp = getProcess(projectId);
+  if (!mp?.alive || !mp.port) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(503).send(noDevServerHtml());
+    return;
+  }
+
+  const port = mp.port;
+  const targetPath = req.path || "/";
+  // Strip the ?token param before forwarding so the user's server doesn't see it
+  const qs = new URLSearchParams(req.url.includes("?") ? req.url.slice(req.url.indexOf("?") + 1) : "");
+  qs.delete("token");
+  const qStr = qs.toString();
+  const fullPath = targetPath + (qStr ? `?${qStr}` : "");
+  proxyToLocalPort(req, res, port, fullPath, projectId);
 });
 
 // GET /api/preview/:projectId — static asset-inlined preview
