@@ -1,0 +1,128 @@
+OrahAI	
+npm run dev
+error	1	3m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	11m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+error	—	12m ago ago
+OrahAI	
+python main.py
+error	2	28m ago ago
+OrahAI	
+python main.py
+error	2	29m ago ago
+OrahDEX	
+python main.py
+error	2	32m ago ago
+OrahDEX	
+python main.py
+error	2	32m ago ago
+OrahDEX	
+python main.py
+error	2	32m ago ago
+OrahDEX	
+python main.py
+running	—	32m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+pip install -r .agents/skills/mcp-builder/scripts/requirements.txt
+success	0	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahDEX	
+python main.py
+error	2	33m ago ago
+OrahAI	
+python main.py
+error	2	40m ago ago
+OrahAI	
+python main.py
+error	2	43m ago ago
+OrahAI	
+python main.py
+error	2	44m ago ago
+OrahAI	
+python main.py
+error	2	44m ago ago
+OrahAI	
+cd .migration-backup/apps/ai && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
+error	1	44m ago ago
+OrahAI	
+cd .migration-backup/apps/ai pip install -r requirements.txt uvicorn main:app --reload --port 8000
+error	127	44m ago ago
+OrahAI	
+uvicorn main:app --reload --port 8000
+error	127	44m ago ago
+OrahAI	
+python .migration-backup/apps/ai/main.py
+error	1	44m ago ago
+OrahAI	
+python main.py
+error	2	47m ago ago
+OrahAI	
+python main.py
+error	2	51m ago ago
+OrahAI	
+python main.py
+error	2	51m ago ago
+OrahAI	
+python main.py
+error	2	51m ago ago
+OrahAI	
+python main.py
+error	2	54m ago ago
