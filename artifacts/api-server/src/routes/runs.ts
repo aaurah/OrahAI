@@ -120,28 +120,40 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
 
     // Local persistent execution
     (async () => {
+      const { getIo } = await import("../lib/ioSingleton");
+      const emitTerminal = (data: string) =>
+        getIo()?.to(`project:${projectId}`).emit("terminal:output", { projectId, runId: run.id, data });
+      const emitStopped = () =>
+        getIo()?.to(`project:${projectId}`).emit("process:stopped", { projectId, runId: run.id, exitCode: 1 });
+
       try {
+        // Only sync actual file content, not directory entries
         const projectFiles = await db
           .select({ path: files.path, content: files.content })
           .from(files)
-          .where(and(eq(files.projectId, project.id), isNull(files.deletedAt)));
+          .where(and(eq(files.projectId, project.id), isNull(files.deletedAt), eq(files.isDir, false)));
+
+        if (projectFiles.length === 0) {
+          const msg =
+            "\r\n\x1b[33m[No files found in project]\x1b[0m\r\n" +
+            "Create at least one file (e.g. \x1b[36mmain.py\x1b[0m, \x1b[36mindex.js\x1b[0m, or \x1b[36mindex.html\x1b[0m) " +
+            "then click \x1b[1mRun\x1b[0m again.\r\n";
+          emitTerminal(msg);
+          emitStopped();
+          await db.update(runs).set({ status: "error", output: "No files in project", completedAt: new Date() })
+            .where(eq(runs.id, run.id));
+          return;
+        }
 
         const dir = await prepareWorkspace(project.id, projectFiles);
+        emitTerminal(`\r\n\x1b[90m[Synced ${projectFiles.length} file${projectFiles.length !== 1 ? "s" : ""} — running: \x1b[0m\x1b[36m${command}\x1b[90m]\x1b[0m\r\n`);
 
         // Stream install output before starting the main process
-        const { getIo } = await import("../lib/ioSingleton");
         const installOutput = await installDeps(dir);
-        if (installOutput) {
-          getIo()?.to(`project:${projectId}`).emit("terminal:output", {
-            projectId, runId: run.id, data: installOutput,
-          });
-        }
+        if (installOutput) emitTerminal(installOutput);
+
         const pythonInstallOutput = await installPythonDeps(dir);
-        if (pythonInstallOutput) {
-          getIo()?.to(`project:${projectId}`).emit("terminal:output", {
-            projectId, runId: run.id, data: pythonInstallOutput,
-          });
-        }
+        if (pythonInstallOutput) emitTerminal(pythonInstallOutput);
 
         // Spawn the long-running process
         const mp = await spawnProcess(project.id, run.id, command, dir);
