@@ -843,7 +843,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   };
 
   return (
-    <div className="flex flex-col h-full bg-background" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
+    <div className="flex flex-col flex-1 h-full min-h-0 bg-background" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 h-10 border-b border-border shrink-0">
         <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -905,7 +905,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       )}
 
       {/* Messages — hidden when not in chat mode */}
-      <div className={cn("overflow-y-auto p-3 space-y-3", aiMode === "chat" ? "flex-1" : "hidden")}>
+      <div className={cn("overflow-y-auto p-3 space-y-3 min-h-0", aiMode === "chat" ? "flex-1" : "hidden")}>
         {items.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground pb-8">
             <Bot className="w-8 h-8 opacity-30" />
@@ -1167,7 +1167,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       {/* ── EXPLAIN MODE ─────────────────────────────────────────────────────── */}
       {aiMode === "explain" && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
           <div>
             <p className="text-sm font-semibold flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-primary" />
@@ -1227,7 +1227,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       {/* ── GENERATE MODE ────────────────────────────────────────────────────── */}
       {aiMode === "generate" && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
           <div>
             <p className="text-sm font-semibold flex items-center gap-2">
               <Wand2 className="w-4 h-4 text-primary" />
@@ -1265,7 +1265,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
       {/* ── COMPLETE MODE ────────────────────────────────────────────────────── */}
       {aiMode === "complete" && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
           <div>
             <p className="text-sm font-semibold flex items-center gap-2">
               <PenLine className="w-4 h-4 text-primary" />
@@ -1440,7 +1440,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       })()}
 
       {/* Input — chat mode only */}
-      {aiMode === "chat" && (<div className="p-2.5 border-t border-border">
+      {aiMode === "chat" && (<div className="p-2.5 border-t border-border shrink-0">
         {/* Mode selector */}
         <div className="flex items-center gap-1 mb-2">
           {AGENT_MODES.map((m) => {
