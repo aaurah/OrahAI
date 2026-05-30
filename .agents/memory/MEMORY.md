@@ -2,3 +2,4 @@
 - [Toast remove delay](toast-delay.md) — shadcn use-toast.ts scaffolds with TOAST_REMOVE_DELAY=1000000 (never dismissed); set to 5000ms.
 - [ActivityBar hasGithub](activitybar-props.md) — hasGithub prop must be explicitly destructured AND used in the filter; easy to define in interface but forget in function signature.
 - [Vite env throws](vite-env-throws.md) — orahai vite.config must fall back to defaults, never throw, on missing PORT/BASE_PATH or the artifact-managed "OrahAI" preview crashes.
+- [Run entry detection](run-entry-detection.md) — run-command detection must match marker files at ROOT only and run only entry files that exist; never hardcode `python main.py`.

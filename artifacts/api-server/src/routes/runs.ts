@@ -1,4 +1,6 @@
 import { Router, type Response, type NextFunction } from "express";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { z } from "zod";
 import { db, runs, projects, memberships, files } from "@workspace/db";
 import { eq, and, or, isNull, desc, sql } from "drizzle-orm";
@@ -17,21 +19,53 @@ import {
 
 const router = Router();
 
-const ENTRY_POINT: Record<string, string> = {
-  nodejs:     "node index.js",
-  typescript: "npx --yes tsx src/index.ts",
-  python:     "python main.py",
-  html:       "echo 'Open index.html in a browser'",
-};
+// Conventional entry-point filenames, checked in priority order per language.
+const PY_ENTRIES = ["main.py", "app.py", "run.py", "manage.py", "server.py", "bot.py", "wsgi.py", "asgi.py", "__main__.py", "index.py"];
+const TS_ENTRIES = ["src/index.ts", "index.ts", "src/main.ts", "main.ts", "src/server.ts", "server.ts", "app.ts", "src/app.ts"];
+const NODE_ENTRIES = ["index.js", "src/index.js", "server.js", "app.js", "main.js"];
+
+function commandForEntry(entry: string): string {
+  if (entry.endsWith(".py")) return `python ${entry}`;
+  if (entry.endsWith(".ts")) return `npx --yes tsx ${entry}`;
+  return `node ${entry}`;
+}
+
+// Pick a run command from an entry file that ACTUALLY exists in the project,
+// preferring the project's declared language. Returns null if none is found.
+function findEntryCommand(pathSet: Set<string>, language: string): string | null {
+  const order =
+    language === "python" ? [PY_ENTRIES, TS_ENTRIES, NODE_ENTRIES]
+    : language === "typescript" ? [TS_ENTRIES, NODE_ENTRIES, PY_ENTRIES]
+    : [NODE_ENTRIES, TS_ENTRIES, PY_ENTRIES];
+  for (const list of order) for (const c of list) if (pathSet.has(c)) return commandForEntry(c);
+  return null;
+}
+
+// Extract the source file a run command will execute, so we can verify it
+// exists before spawning and surface a friendly error instead of a raw OS error.
+function extractEntryFile(command: string): string | null {
+  const m =
+    command.match(/\b(?:python3?|bun)\s+([^\s&|;><]+\.[A-Za-z0-9]+)/) ||
+    command.match(/\bnode\s+([^\s&|;><]+\.[A-Za-z0-9]+)/) ||
+    command.match(/\b(?:tsx|ts-node)\s+([^\s&|;><]+)/);
+  return m ? m[1] : null;
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try { await fs.access(p); return true; } catch { return false; }
+}
 
 async function detectProjectSetup(projectId: string, language: string) {
   const projectFiles = await db.select({ path: files.path, content: files.content })
-    .from(files).where(and(eq(files.projectId, projectId), isNull(files.deletedAt))).limit(50);
+    .from(files).where(and(eq(files.projectId, projectId), isNull(files.deletedAt), eq(files.isDir, false)));
 
-  const paths = projectFiles.map(f => f.path.toLowerCase());
-  const hasPnpmLock = paths.some(p => p.includes("pnpm-lock"));
-  const hasYarnLock = paths.some(p => p.includes("yarn.lock"));
-  const packageManager = hasPnpmLock ? "pnpm" : hasYarnLock ? "yarn" : "npm";
+  const pathSet = new Set(projectFiles.map(f => f.path));
+  const lowerSet = new Set(projectFiles.map(f => f.path.toLowerCase()));
+  // Marker files only count when they sit at the project ROOT — a requirements.txt
+  // or go.mod vendored deep inside a subdirectory must not hijack the run command.
+  const hasRoot = (name: string) => lowerSet.has(name.toLowerCase());
+
+  const packageManager = hasRoot("pnpm-lock.yaml") ? "pnpm" : hasRoot("yarn.lock") ? "yarn" : "npm";
 
   const pkgFile = projectFiles.find(f => f.path === "package.json");
   let scripts: Record<string, string> = {};
@@ -58,10 +92,14 @@ async function detectProjectSetup(projectId: string, language: string) {
     } catch { /* ignore */ }
   }
 
-  const hasReqTxt = paths.some(p => p.includes("requirements.txt"));
-  if (hasReqTxt) { framework = "Python"; devCmd = "python main.py"; }
-  if (paths.some(p => p.endsWith("cargo.toml"))) { framework = "Rust / Cargo"; devCmd = "cargo run"; }
-  if (paths.some(p => p.endsWith("go.mod"))) { framework = "Go"; devCmd = "go run ."; }
+  if (!devCmd) {
+    if (hasRoot("requirements.txt") || hasRoot("pyproject.toml") || hasRoot("pipfile")) framework = "Python";
+    else if (hasRoot("cargo.toml")) { framework = "Rust / Cargo"; devCmd = "cargo run"; }
+    else if (hasRoot("go.mod")) { framework = "Go"; devCmd = "go run ."; }
+  }
+
+  // Last resort: a real entry-point file that exists in the project tree.
+  if (!devCmd) devCmd = findEntryCommand(pathSet, language);
 
   const installCmd = packageManager === "pnpm" ? "pnpm install" : packageManager === "yarn" ? "yarn" : "npm install";
 
@@ -89,10 +127,10 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
 
-    let command = parsed.data.command;
+    let command = parsed.data.command?.trim() ?? "";
     if (!command) {
       const setup = await detectProjectSetup(project.id, project.language);
-      command = setup.devCmd ?? ENTRY_POINT[project.language] ?? "node index.js";
+      command = setup.devCmd ?? "";
     }
 
     // Sanitize common AI-generated malformed patterns
@@ -145,8 +183,49 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
           return;
         }
 
+        // No entry point could be detected for this project.
+        if (!command) {
+          const msg =
+            "\r\n\x1b[33m[No run command detected]\x1b[0m\r\n" +
+            "Couldn't find a runnable entry point (e.g. \x1b[36mmain.py\x1b[0m, \x1b[36mindex.js\x1b[0m, or \x1b[36msrc/index.ts\x1b[0m) " +
+            "at the project root.\r\nAdd one, or type a command in the terminal and press \x1b[1mRun\x1b[0m.\r\n";
+          emitTerminal(msg);
+          emitStopped();
+          await db.update(runs).set({ status: "error", output: "No run command detected", completedAt: new Date() })
+            .where(eq(runs.id, run.id));
+          return;
+        }
+
         const dir = await prepareWorkspace(project.id, projectFiles);
-        emitTerminal(`\r\n\x1b[90m[Synced ${projectFiles.length} file${projectFiles.length !== 1 ? "s" : ""} — running: \x1b[0m\x1b[36m${command}\x1b[90m]\x1b[0m\r\n`);
+        emitTerminal(`\r\n\x1b[90m[Synced ${projectFiles.length} file${projectFiles.length !== 1 ? "s" : ""}]\x1b[0m\r\n`);
+
+        // Verify the entry file the command will execute actually exists, so we
+        // surface a clear message instead of a raw "can't open file" OS error.
+        const entryFile = extractEntryFile(command);
+        if (entryFile) {
+          const resolvedDir = path.resolve(dir);
+          const entryFull = path.resolve(dir, entryFile);
+          const within = entryFull === resolvedDir || entryFull.startsWith(resolvedDir + path.sep);
+          if (!within || !(await fileExists(entryFull))) {
+            const runnable = projectFiles
+              .map(f => f.path)
+              .filter(p => !p.includes("/") && /\.(py|js|mjs|cjs|ts)$/.test(p))
+              .slice(0, 8);
+            const hint = runnable.length
+              ? `Runnable files at the project root: \x1b[36m${runnable.join("\x1b[0m, \x1b[36m")}\x1b[0m.\r\n` +
+                "Rename your entry file or type the correct command in the terminal.\r\n"
+              : "No runnable entry file was found at the project root.\r\n";
+            emitTerminal(
+              `\r\n\x1b[33m[Entry point not found: ${entryFile}]\x1b[0m\r\n` + hint,
+            );
+            emitStopped();
+            await db.update(runs).set({ status: "error", output: `Entry point not found: ${entryFile}`, completedAt: new Date() })
+              .where(eq(runs.id, run.id));
+            return;
+          }
+        }
+
+        emitTerminal(`\x1b[90m[Running: \x1b[0m\x1b[36m${command}\x1b[90m]\x1b[0m\r\n`);
 
         // Stream install output before starting the main process
         const installOutput = await installDeps(dir);
