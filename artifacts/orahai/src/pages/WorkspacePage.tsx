@@ -188,6 +188,7 @@ export default function WorkspacePage() {
     const onStopped = (data: { projectId: string }) => {
       if (data.projectId !== id) return;
       setProcessRunning(false);
+      setIsRunning(false);
       setLivePort(null);
     };
     socket.on("process:port", onPort);
@@ -313,7 +314,7 @@ export default function WorkspacePage() {
   }, [activeFile]);
 
   const handleRun = async () => {
-    if (!project || isRunning) return;
+    if (!project || isRunning || processRunning) return;
     setIsRunning(true);
     setTerminalOpen(true);
     setMobileTab("console");
@@ -326,9 +327,10 @@ export default function WorkspacePage() {
     } catch (err: unknown) {
       toast({ title: (err as Error).message ?? "Failed to start run", variant: "destructive" });
       setProcessRunning(false);
-    } finally {
       setIsRunning(false);
     }
+    // Do NOT set isRunning=false here — keep the button in "running" state until
+    // the process:stopped socket event fires (handled below). This prevents rapid re-clicks.
   };
 
   const handleStop = async () => {
