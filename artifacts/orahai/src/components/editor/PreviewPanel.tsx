@@ -119,7 +119,7 @@ function LivePane({
         <p className="text-sm text-muted-foreground">Process running…</p>
         <p className="text-xs text-muted-foreground/60 max-w-xs text-center">
           If this is a web server, the live preview will appear once it binds a port.<br />
-          For scripts, check the <strong className="text-muted-foreground">Console</strong> tab for output.
+          Scripts without a web server just run in the background — there's nothing to preview.
         </p>
       </div>
     );

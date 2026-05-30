@@ -191,11 +191,22 @@ export default function WorkspacePage() {
       setIsRunning(false);
       setLivePort(null);
     };
+    // Register listeners BEFORE joining so we never miss a fast one-shot event.
     socket.on("process:port", onPort);
     socket.on("process:stopped", onStopped);
+
+    // WorkspacePage owns project-room membership for the whole workspace (the
+    // background console and live preview both rely on these events). Join now,
+    // and rejoin on reconnect since room membership is lost on disconnect.
+    const join = () => socket.emit("workspace:join", { projectId: id });
+    join();
+    socket.on("connect", join);
+
     return () => {
       socket.off("process:port", onPort);
       socket.off("process:stopped", onStopped);
+      socket.off("connect", join);
+      socket.emit("workspace:leave", { projectId: id });
     };
   }, [socket, id]);
 

@@ -1,6 +1,7 @@
 - [CodeEditor external-update guard](codeeditor-update.md) — must check isDirty before calling editor.setValue() on external file changes or AI writes silently clobber unsaved user work.
 - [Toast remove delay](toast-delay.md) — shadcn use-toast.ts scaffolds with TOAST_REMOVE_DELAY=1000000 (never dismissed); set to 5000ms.
 - [ActivityBar hasGithub](activitybar-props.md) — hasGithub prop must be explicitly destructured AND used in the filter; easy to define in interface but forget in function signature.
+- [Socket room ownership](socket-room-ownership.md) — WorkspacePage (not Terminal) must own workspace:join/leave; live preview's process:port is delivered via the project room.
 - [ChatPanel mobile scroll](chatpanel-mobile-scroll.md) — ChatPanel root must be flex-1+min-h-0 (not h-full) since it sits below SetupBanner; nested flex scroll needs min-h-0 + shrink-0 footer.
 - [Run-command detection for nested apps](run-detection-nested.md) — Run must detect apps in subdirs (monorepo/import) via cwd threading; pnpm-workspace members can't install standalone.
 - [Vite env throws](vite-env-throws.md) — orahai vite.config must fall back to defaults, never throw, on missing PORT/BASE_PATH or the artifact-managed "OrahAI" preview crashes.

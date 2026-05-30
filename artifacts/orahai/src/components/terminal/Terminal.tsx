@@ -121,11 +121,10 @@ function MobileTerminal({ projectId }: TerminalProps) {
     if (el) { el.scrollTop = el.scrollHeight; atBottomRef.current = true; }
   }, []);
 
-  // Socket wiring
+  // Socket wiring. Room membership (workspace:join/leave) is owned by
+  // WorkspacePage so live preview works regardless of this hidden console.
   useEffect(() => {
     if (!socket) return;
-    socket.emit("workspace:join", { projectId });
-
     const onOutput = (data: { projectId: string; data: string }) => {
       if (data.projectId !== projectId) return;
       pushChunk(data.data);
@@ -140,7 +139,6 @@ function MobileTerminal({ projectId }: TerminalProps) {
     socket.on("terminal:output", onOutput);
     socket.on("process:stopped", onStopped);
     return () => {
-      socket.emit("workspace:leave", { projectId });
       socket.off("terminal:output", onOutput);
       socket.off("process:stopped", onStopped);
       if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
@@ -345,8 +343,8 @@ function DesktopTerminal({ projectId }: TerminalProps) {
       if (containerRef.current) ro.observe(containerRef.current);
 
       if (socket) {
-        socket.emit("workspace:join", { projectId });
-
+        // Room membership (workspace:join/leave) is owned by WorkspacePage so
+        // live preview works regardless of this hidden background console.
         const onOutput = (data: { projectId: string; data: string }) => {
           if (data.projectId === projectId) term.write(data.data);
         };
@@ -376,7 +374,6 @@ function DesktopTerminal({ projectId }: TerminalProps) {
       destroyed = true;
       xtermRef.current?.dispose();
       xtermRef.current = null;
-      if (socket) socket.emit("workspace:leave", { projectId });
     };
   }, [projectId, socket]);
 
