@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import {
-  Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon,
+  Bot, Play, Pause, Loader2, MessageSquare,
   ArrowLeft, Globe, ChevronDown, Sprout, Command, X, Upload,
 } from "lucide-react";
 import { ImportProjectDialog } from "@/components/editor/ImportProjectDialog";
@@ -17,8 +17,6 @@ interface Props {
   onStop?: () => void;
   chatOpen: boolean;
   onChatToggle: () => void;
-  terminalOpen: boolean;
-  onTerminalToggle: () => void;
   previewOpen: boolean;
   onPreviewToggle: () => void;
   autoDevEnabled: boolean;
@@ -47,7 +45,6 @@ const LANG_LABELS: Record<string, string> = {
 export function WorkspaceTopbar({
   project, latestRun, isRunning, processRunning = false, onRun, onStop,
   chatOpen, onChatToggle,
-  terminalOpen, onTerminalToggle,
   previewOpen, onPreviewToggle,
   autoDevEnabled, onAutoDevToggle, growthCount = 0,
   onCommandPalette,
@@ -111,12 +108,12 @@ export function WorkspaceTopbar({
           <kbd className="hidden lg:inline text-[10px] px-1 rounded bg-muted border border-border">⌘K</kbd>
         </button>
 
-        {/* Run / Stop */}
+        {/* Run / Pause — single play/pause toggle, Replit-style */}
         {processRunning ? (
-          <button onClick={onStop}
+          <button onClick={onStop} title="Pause the running app"
             className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-sm font-semibold transition-all shrink-0 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20">
-            <Square className="w-3.5 h-3.5 fill-current" />
-            <span>Stop</span>
+            <Pause className="w-3.5 h-3.5 fill-current" />
+            <span>Pause</span>
           </button>
         ) : (
           <button onClick={onRun} disabled={isRunning}
@@ -153,9 +150,6 @@ export function WorkspaceTopbar({
           <TooltipBtn label="Preview" active={previewOpen} onClick={onPreviewToggle}>
             <Globe className="w-4 h-4" />
           </TooltipBtn>
-          <TooltipBtn label="Console" active={terminalOpen} onClick={onTerminalToggle}>
-            <TerminalIcon className="w-4 h-4" />
-          </TooltipBtn>
           <div className="w-px h-4 bg-border mx-0.5" />
           <TooltipBtn label="AI Assistant" active={chatOpen} onClick={onChatToggle}>
             <MessageSquare className="w-4 h-4" />
@@ -176,7 +170,6 @@ export function WorkspaceTopbar({
             <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-lg border border-border bg-background shadow-lg py-1">
               {[
                 { label: "Preview",  icon: <Globe className="w-4 h-4" />,         active: previewOpen,  onClick: () => { onPreviewToggle();  setMobileMenuOpen(false); } },
-                { label: "Console",  icon: <TerminalIcon className="w-4 h-4" />,  active: terminalOpen, onClick: () => { onTerminalToggle(); setMobileMenuOpen(false); } },
                 { label: "AI Chat",  icon: <MessageSquare className="w-4 h-4" />, active: chatOpen,     onClick: () => { onChatToggle();     setMobileMenuOpen(false); } },
               ].map(item => (
                 <button key={item.label} onClick={item.onClick}

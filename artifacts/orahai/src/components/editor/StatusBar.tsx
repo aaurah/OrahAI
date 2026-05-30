@@ -1,4 +1,4 @@
-import { Play, Square, Loader2, Globe } from "lucide-react";
+import { Play, Pause, Loader2, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -46,11 +46,11 @@ export function StatusBar({
       {processRunning ? (
         <button
           onClick={onStop}
-          title="Stop the running process"
+          title="Pause the running app"
           className="flex items-center gap-1.5 h-5 pl-1.5 pr-2 rounded font-semibold text-red-400 hover:bg-red-500/15 transition-colors"
         >
-          <Square className="w-3 h-3 fill-current" />
-          <span>Stop</span>
+          <Pause className="w-3 h-3 fill-current" />
+          <span>Pause</span>
         </button>
       ) : (
         <button

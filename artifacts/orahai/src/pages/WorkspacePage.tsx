@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useSearch, useLocation } from "wouter";
 import {
-  Files, MessageSquare, Code2, Globe, Terminal as TerminalIcon,
-  MoreHorizontal, Github, KeyRound, Rocket, Square,
+  Files, MessageSquare, Code2, Globe,
+  MoreHorizontal, Github, KeyRound, Rocket, Pause,
 } from "lucide-react";
 import { ActivityBar, type LeftPanel } from "@/components/editor/ActivityBar";
 import { ToolsPanel } from "@/components/editor/ToolsPanel";
@@ -35,7 +35,7 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ProjectFile, ApiResponse, Run } from "@/types";
 
-type MobileTab = "files" | "editor" | "ai" | "console" | "preview";
+type MobileTab = "files" | "editor" | "ai" | "preview";
 type RightPanel = "chat" | "github" | "secrets" | "deploy" | "debug" | "packages" | "settings" | "mcp" | "database" | null;
 
 export default function WorkspacePage() {
@@ -60,7 +60,6 @@ export default function WorkspacePage() {
 
   // ── Panel open/close state ───────────────────────────────────────────────────
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
   const [githubOpen, setGithubOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -342,14 +341,15 @@ export default function WorkspacePage() {
       await api.delete(`/api/runs/${project.id}/stop`);
     } catch { /* ignore */ }
     setProcessRunning(false);
+    setIsRunning(false);
     setLivePort(null);
     await mutateRuns();
   };
 
-  const handleInstallCommand = (cmd: string) => {
-    setTerminalOpen(true);
-    setMobileTab("console");
-    toast({ title: "Run this command in the terminal:", description: cmd });
+  const handleInstallCommand = async (cmd: string) => {
+    if (!project) return;
+    toast({ title: "Running in background…", description: cmd });
+    try { await api.post(`/api/runs/${project.id}`, { command: cmd }); } catch { /* ignore */ }
   };
 
   if (isLoading) {
@@ -373,7 +373,6 @@ export default function WorkspacePage() {
 
   const mobileTabs = [
     { id: "ai"      as MobileTab, label: "AI",      icon: <MessageSquare className="w-[18px] h-[18px]" /> },
-    { id: "console" as MobileTab, label: "Console", icon: <TerminalIcon className="w-[18px] h-[18px]" /> },
     { id: "preview" as MobileTab, label: "Preview", icon: <Globe className="w-[18px] h-[18px]" /> },
     { id: "editor"  as MobileTab, label: "Editor",  icon: <Code2 className="w-[18px] h-[18px]" /> },
     { id: "files"   as MobileTab, label: "Files",   icon: <Files className="w-[18px] h-[18px]" /> },
@@ -383,7 +382,6 @@ export default function WorkspacePage() {
   const paletteCommands = [
     { id: "run",       label: "Run project",             icon: <span>▶</span>,  action: handleRun,                                  kbd: "Ctrl+Enter" },
     { id: "chat",      label: "Toggle AI chat",          icon: <MessageSquare className="w-3.5 h-3.5" />, action: () => openRightPanel(chatOpen ? null : "chat") },
-    { id: "terminal",  label: "Toggle terminal",         icon: <TerminalIcon className="w-3.5 h-3.5" />, action: () => setTerminalOpen(v => !v) },
     { id: "preview",   label: "Toggle preview",          icon: <Globe className="w-3.5 h-3.5" />,         action: () => setPreviewOpen(v => !v) },
     { id: "search",    label: "Search in files",         icon: <span>🔍</span>, action: () => setSearchOpen(v => !v),               kbd: "Ctrl+Shift+F" },
     { id: "packages",  label: "Packages panel",          icon: <span>📦</span>, action: () => openRightPanel(packagesOpen ? null : "packages") },
@@ -409,8 +407,6 @@ export default function WorkspacePage() {
         onStop={handleStop}
         chatOpen={chatOpen}
         onChatToggle={() => setChatOpen(v => !v)}
-        terminalOpen={terminalOpen}
-        onTerminalToggle={() => setTerminalOpen(v => !v)}
         previewOpen={previewOpen}
         onPreviewToggle={() => setPreviewOpen(v => !v)}
         autoDevEnabled={autoDevEnabled}
@@ -427,6 +423,11 @@ export default function WorkspacePage() {
         onFileSelect={handleFileSelect}
         commands={paletteCommands}
       />
+
+      {/* Console runs in the background (single mounted, hidden instance) — like Replit */}
+      <div className="hidden">
+        <Terminal projectId={project.id} />
+      </div>
 
       {/* ── Desktop layout ──────────────────────────────────────────────────── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
@@ -530,9 +531,6 @@ export default function WorkspacePage() {
             )}
           </div>
 
-          <div className={terminalOpen ? "h-52 flex-shrink-0 border-t border-border" : "hidden"}>
-            <Terminal projectId={project.id} />
-          </div>
         </div>
 
         {/* RIGHT: AI panel */}
@@ -552,10 +550,9 @@ export default function WorkspacePage() {
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
-              onTerminalOpen={() => { setTerminalOpen(true); setMobileTab("console"); }}
+              onTerminalOpen={() => { setPreviewOpen(true); }}
               onRunInTerminal={async (cmd) => {
-                setTerminalOpen(true);
-                setMobileTab("console");
+                setPreviewOpen(true);
                 try { await api.post(`/api/runs/${project.id}`, { command: cmd }); } catch { /* ignore */ }
               }}
             />
@@ -669,10 +666,6 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          <div className={mobileTab === "console" ? "h-full flex flex-col overflow-hidden" : "hidden"}>
-            <Terminal projectId={project.id} />
-          </div>
-
           {mobileTab === "preview" && (
             <div className="h-full flex flex-col overflow-hidden">
               <PreviewPanel
@@ -700,10 +693,9 @@ export default function WorkspacePage() {
               onStreamingChange={setAiStreaming}
               autoDevEnabled={autoDevEnabled}
               growthCount={growthCount}
-              onTerminalOpen={() => { setTerminalOpen(true); setMobileTab("console"); }}
+              onTerminalOpen={() => { setPreviewOpen(true); setMobileTab("preview"); }}
               onRunInTerminal={async (cmd) => {
-                setTerminalOpen(true);
-                setMobileTab("console");
+                setMobileTab("preview");
                 try { await api.post(`/api/runs/${project.id}`, { command: cmd }); } catch { /* ignore */ }
               }}
             />
@@ -715,7 +707,7 @@ export default function WorkspacePage() {
           <div ref={moreRef} className="absolute bottom-16 right-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
             {[
               processRunning
-                ? { label: "Stop",     icon: <Square className="w-4 h-4 text-destructive" />,  action: () => { handleStop(); setMoreMenuOpen(false); } }
+                ? { label: "Pause",    icon: <Pause className="w-4 h-4 text-destructive" />,   action: () => { handleStop(); setMoreMenuOpen(false); } }
                 : { label: "▶  Run",   icon: <span className="text-sm">▶</span>,              action: () => { handleRun(); setMoreMenuOpen(false); } },
               { label: "Auto-develop", icon: <span className="text-sm">🌱</span>, action: () => { setAutoDevEnabled(v => !v); setGrowthCount(0); setMoreMenuOpen(false); } },
               { label: "GitHub",   icon: <Github className="w-4 h-4" />,      action: () => { setMobileTab("editor"); setGithubOpen(true); setMoreMenuOpen(false); } },
@@ -784,55 +776,6 @@ function EmptyEditor() {
     <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
       <p className="text-sm">Select a file to start editing</p>
       <p className="text-xs opacity-60">or ask AI to create one for you</p>
-    </div>
-  );
-}
-
-function ConsolePanel({ run, onRun, isRunning }: { run: Run | null; onRun?: () => void; isRunning?: boolean }) {
-  const statusColor =
-    run?.status === "success" ? "text-green-400"
-    : run?.status === "error"   ? "text-red-400"
-    : run?.status === "running" ? "text-amber-400"
-    : "text-muted-foreground";
-
-  return (
-    <div className="flex flex-col h-full bg-[#0d0d0d]">
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-white/5 shrink-0">
-        <div className="flex gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
-          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
-          <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
-        </div>
-        <span className="text-xs text-muted-foreground flex-1">Console</span>
-        {run && (
-          <span className={`text-xs ${statusColor}`}>
-            {run.status}{run.exitCode != null ? ` · exit ${run.exitCode}` : ""}
-          </span>
-        )}
-      </div>
-      <div className="flex-1 overflow-auto p-3 font-mono text-sm text-slate-300">
-        {run?.status === "running" && (
-          <span className="text-amber-400 animate-pulse">● Running…</span>
-        )}
-        {run?.output ? (
-          <pre className="whitespace-pre-wrap leading-5">{run.output}</pre>
-        ) : (
-          <div className="flex flex-col items-start gap-3 pt-2">
-            <span className="text-muted-foreground/40 text-xs">
-              {run ? "No output" : "Press Run ▶ to execute your code"}
-            </span>
-            {onRun && !run && (
-              <button
-                onClick={onRun}
-                disabled={isRunning}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-50"
-              >
-                {isRunning ? "Running…" : "▶  Run project"}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
