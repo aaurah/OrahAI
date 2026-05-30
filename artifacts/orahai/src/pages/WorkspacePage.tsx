@@ -17,6 +17,7 @@ import { PackagesPanel } from "@/components/editor/PackagesPanel";
 import { EditorSettingsPanel } from "@/components/editor/EditorSettingsPanel";
 import { ChatPanel, type ChatPanelHandle } from "@/components/chat/ChatPanel";
 import { WorkspaceTopbar } from "@/components/editor/WorkspaceTopbar";
+import { StatusBar } from "@/components/editor/StatusBar";
 import { GitHubPanel } from "@/components/github/GitHubPanel";
 import { PreviewPanel } from "@/components/editor/PreviewPanel";
 import { SecretsPanel } from "@/components/editor/SecretsPanel";
@@ -559,6 +560,19 @@ export default function WorkspacePage() {
           </div>
         )}
       </div>
+
+      {/* ── Desktop status bar (Replit-style play/stop, bottom-left) ─────────── */}
+      <StatusBar
+        className="hidden md:flex"
+        isRunning={isRunning}
+        processRunning={processRunning}
+        onRun={handleRun}
+        onStop={handleStop}
+        onOpenPreview={() => setPreviewOpen(true)}
+        livePort={livePort}
+        runStatus={latestRun?.status ?? null}
+        language={project.language}
+      />
 
       {/* ── Mobile layout ────────────────────────────────────────────────────── */}
       <div className="flex md:hidden flex-1 overflow-hidden flex-col">
