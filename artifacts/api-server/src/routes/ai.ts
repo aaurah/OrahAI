@@ -128,7 +128,9 @@ async function getLocalOllamaModel(): Promise<string | null> {
 // Paid APIs are optional upgrades — used only when their key is present.
 async function resolveAutoModel(message: string): Promise<{ provider: string; modelName: string }> {
   const msg = message.toLowerCase();
+  const hasOpenAIProxy = !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
   const hasAnyPaidKey =
+    hasOpenAIProxy ||
     process.env.DEEPSEEK_API_KEY ||
     process.env.GROQ_API_KEY ||
     process.env.GOOGLE_API_KEY ||
@@ -152,22 +154,24 @@ async function resolveAutoModel(message: string): Promise<{ provider: string; mo
     return { provider: "perplexity", modelName: "sonar-pro" };
   }
 
-  // Code / debug / implement / write → DeepSeek V3 (best coding model)
+  // Code / debug / implement / write → DeepSeek V3 (best coding model), else OpenAI
   const isCode =
     /\b(code|function|class|bug|error|fix|implement|write|create|build|refactor|debug|compile|run|test|script|api|endpoint|component|module)\b/.test(msg);
-  if (isCode && process.env.DEEPSEEK_API_KEY) {
-    return { provider: "deepseek", modelName: "deepseek-chat" };
+  if (isCode) {
+    if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
+    if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
   }
 
-  // Reasoning / math / logic / explain → DeepSeek R1 or Groq Qwen
+  // Reasoning / math / logic / explain → DeepSeek R1 or Groq Qwen or OpenAI
   const isReason =
     /\b(reason|explain why|prove|math|calculate|formula|logic|step.?by.?step|analyze|analysis|compare|evaluate|think|how does|why does)\b/.test(msg);
   if (isReason) {
     if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-reasoner" };
     if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "qwen/qwen3-32b" };
+    if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
   }
 
-  // Image / vision / screenshot / design → Gemini Flash (vision)
+  // Image / vision / screenshot / design → Gemini Flash (vision) or Claude
   const isVision =
     /\b(image|photo|screenshot|picture|diagram|chart|graph|figure|visual|look at|what do you see)\b/.test(msg);
   if (isVision) {
@@ -183,17 +187,18 @@ async function resolveAutoModel(message: string): Promise<{ provider: string; mo
     if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-opus-4-5" };
   }
 
-  // Default priority: DeepSeek (code-first IDE) → Groq → Gemini → Anthropic → xAI → local Ollama
+  // Default priority: DeepSeek → OpenAI proxy → Groq → Gemini → Anthropic → xAI → local Ollama
   if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
+  if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
   if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
   if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
   if (process.env.XAI_API_KEY) return { provider: "xai", modelName: "grok-3-mini" };
 
-  // Local Ollama as last free fallback; if nothing works, return Groq which self-errors with a helpful message
+  // Local Ollama as last free fallback
   const localFallback = await getLocalOllamaModel();
   if (localFallback) return { provider: "ollama", modelName: localFallback };
-  return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
+  return { provider: "openai", modelName: "gpt-4.1-mini" };
 }
 
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
