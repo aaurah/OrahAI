@@ -13,6 +13,19 @@ export const config = {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   },
 
+  cors: {
+    // null = allow all origins (development fallback); string[] = allowlist (production)
+    origins: (() => {
+      if (process.env.ALLOWED_ORIGINS) {
+        return process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim());
+      }
+      if ((process.env.NODE_ENV ?? "development") === "production") {
+        return ["https://orahai.org", "https://orahai.replit.app"];
+      }
+      return null; // dev: allow all
+    })() as string[] | null,
+  },
+
   sandboxUrl:          process.env.SANDBOX_URL ?? "",
   aiServiceUrl:        process.env.AI_SERVICE_URL ?? "",
   aiServiceInternalKey: process.env.AI_SERVICE_INTERNAL_KEY ?? "",

@@ -1,13 +1,41 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { errorHandler } from "./middlewares/errorHandler";
+import { config } from "./lib/config";
 
 const app: Express = express();
 
 app.set("trust proxy", 1);
+
+// ── Security headers ──────────────────────────────────────────────────────────
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  if (config.nodeEnv === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  }
+  next();
+});
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // server-to-server / curl
+      const allowed = config.cors.origins;
+      if (!allowed) return callback(null, true); // dev: allow all
+      if (allowed.includes(origin)) return callback(null, true);
+      callback(Object.assign(new Error("CORS policy violation"), { statusCode: 403 }));
+    },
+    credentials: true,
+  }),
+);
 
 app.use(
   pinoHttp({
@@ -28,7 +56,6 @@ app.use(
     },
   }),
 );
-app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 

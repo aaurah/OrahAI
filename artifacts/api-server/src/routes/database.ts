@@ -69,7 +69,8 @@ router.get("/:projectId/database/url", requireAuth, async (req: AuthenticatedReq
   } catch (e) {
     const err = e as Error & { statusCode?: number };
     if (err.statusCode) return next(e);
-    next(createError(`Failed to load URL: ${err.message}`, 400));
+    logger.warn({ err: (e as Error).message }, "database: failed to load URL");
+    next(createError("Failed to load database URL", 400));
   }
 });
 
@@ -78,7 +79,12 @@ router.put("/:projectId/database/url", requireAuth, async (req: AuthenticatedReq
   try {
     const projectId = String(req.params["projectId"]);
     await assertProjectAccess(projectId, req.user!.id);
-    const { url } = z.object({ url: z.string().url() }).parse(req.body);
+    const { url } = z.object({
+      url: z.string().url().refine(
+        u => /^postgres(ql)?:\/\//i.test(u),
+        { message: "Only PostgreSQL connection strings (postgres:// or postgresql://) are accepted" },
+      ),
+    }).parse(req.body);
     const [existing] = await db.select({ id: projectSecrets.id })
       .from(projectSecrets)
       .where(and(eq(projectSecrets.projectId, projectId), eq(projectSecrets.key, "DATABASE_URL")));
@@ -94,7 +100,8 @@ router.put("/:projectId/database/url", requireAuth, async (req: AuthenticatedReq
   } catch (e) {
     const err = e as Error & { statusCode?: number };
     if (err.statusCode) return next(e);
-    next(createError(`Failed to save URL: ${err.message}`, 400));
+    logger.warn({ err: (e as Error).message }, "database: failed to save URL");
+    next(createError("Failed to save database URL", 400));
   }
 });
 
@@ -103,7 +110,12 @@ router.post("/:projectId/database/connect", requireAuth, async (req: Authenticat
   try {
     const projectId = String(req.params["projectId"]);
     await assertProjectAccess(projectId, req.user!.id);
-    const { url } = z.object({ url: z.string().url().optional() }).parse(req.body);
+    const { url } = z.object({
+      url: z.string().url().refine(
+        u => /^postgres(ql)?:\/\//i.test(u),
+        { message: "Only PostgreSQL connection strings are accepted" },
+      ).optional(),
+    }).parse(req.body);
     const connStr = await getConnectionString(projectId, url);
     await withPool(connStr, async (pool) => {
       await runQuery(pool, "SELECT 1");

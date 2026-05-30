@@ -311,9 +311,32 @@ function extractSearchOps(content: string): string[] {
 }
 
 // ── Extract <<<CMD:command>>> arbitrary shell command requests ─────────────────
+// NOTE: blocklist cannot be exhaustive; these commands run in a project workspace
+// under /tmp/orahai-runs. All executions are logged for audit.
 const BLOCKED_CMD_PATTERNS = [
-  /rm\s+-rf\s+\//, /^rm\s+-rf\s+~/, /mkfs/, /dd\s+if=\/dev\/zero/, /:(){ :|:& };:/,
-  /shutdown/, /reboot/, /init\s+0/, /chmod\s+-R\s+777\s+\//, /chown\s+-R.*\//,
+  // Destructive recursive removal targeting absolute paths, home, or parent dirs
+  /rm\s+.*-[a-z]*r[a-z]*f[a-z]*\s+[/~]/, /rm\s+.*-[a-z]*f[a-z]*r[a-z]*\s+[/~]/,
+  /rm\s+(-[rf]{1,2}\s+)+\.\./,
+  // Disk-level destruction
+  /mkfs/, /dd\s+if=\/dev\/(zero|random|urandom)\s+of=\/dev\//, /shred\s+\/dev\//,
+  // System control
+  /\b(shutdown|reboot|halt|poweroff)\b/, /\binit\s+[0-6]\b/,
+  /systemctl\s+(stop|disable|mask)\b/,
+  // Privilege escalation
+  /\bsudo\b/, /\bsu\s*(root|-\s*$)/,
+  // Fork bomb
+  /:\(\)\s*\{/,
+  // Reverse shell patterns
+  /\/dev\/tcp\//, /\/dev\/udp\//,
+  /\bnc\b.*-e\s*(bash|sh|cmd)/i,
+  // Download-and-execute patterns
+  /\b(curl|wget)\b.*\|\s*(bash|sh|zsh|fish|python\d?|perl|ruby|node)\b/i,
+  // Writing to sensitive system paths
+  /[|>]\s*\/(etc|root|boot|usr\/bin|usr\/sbin|bin|sbin)\//, /\btee\s+\/(etc|root)\//,
+  // chmod/chown system dirs
+  /chmod\s+-R\s+[0-9]*7[0-9]*\s+\//, /chown\s+-R[^\s]*\s+\//,
+  // Null byte
+  /\x00/,
 ];
 
 function extractCmdOps(content: string): string[] {
@@ -854,6 +877,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
           // Install deps once so commands like npm/pip work
           await Promise.all([installDeps(wsDir), installPythonDeps(wsDir)]).catch(() => undefined);
           for (const cmd of cmdOps) {
+            logger.info({ projectId: project.id, userId: req.user!.id, cmd }, "ai:cmd_exec");
             send({ type: "cmd_start", cmd });
             const result = await runCmdInProject(cmd, wsDir);
             cmdExResults.push(result);
