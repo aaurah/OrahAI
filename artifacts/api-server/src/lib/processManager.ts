@@ -101,9 +101,15 @@ export async function prepareWorkspace(
   for (const f of projectFiles) {
     const fullPath = path.resolve(dir, f.path);
     if (!fullPath.startsWith(resolvedDir + path.sep) && fullPath !== resolvedDir) continue;
-    await fs.mkdir(path.dirname(fullPath), { recursive: true }).catch((e: NodeJS.ErrnoException) => {
-      if (e.code !== "EEXIST") throw e;
-    });
+    try {
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      // EEXIST is fine (dir already exists). ENOTDIR means a path component
+      // exists as a regular file — skip this file entirely to avoid crashing.
+      if (err.code !== "EEXIST" && err.code !== "ENOTDIR") throw err;
+      if (err.code === "ENOTDIR") continue;
+    }
     await fs.writeFile(fullPath, f.content ?? "", "utf8").catch(() => undefined);
   }
   return dir;
