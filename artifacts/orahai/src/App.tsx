@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Toaster } from "@/components/ui/Toaster";
 import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/LoginPage";
@@ -50,6 +51,7 @@ function App() {
     <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
       <Router />
       <Toaster />
+      <SpeedInsights />
     </WouterRouter>
   );
 }
