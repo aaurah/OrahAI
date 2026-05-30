@@ -109,14 +109,16 @@ export async function prepareWorkspace(
   return dir;
 }
 
-export async function installDeps(dir: string): Promise<string> {
+export interface InstallResult { output: string; ok: boolean; }
+
+export async function installDeps(dir: string): Promise<InstallResult> {
   const pkgJson = path.join(dir, "package.json");
   const yarnLock = path.join(dir, "yarn.lock");
   const pnpmLock = path.join(dir, "pnpm-lock.yaml");
   const nodeModules = path.join(dir, "node_modules");
 
-  if (!(await fileExists(pkgJson))) return "";
-  if (await fileExists(nodeModules)) return "";
+  if (!(await fileExists(pkgJson))) return { output: "", ok: true };
+  if (await fileExists(nodeModules)) return { output: "", ok: true };
 
   const pm = (await fileExists(pnpmLock)) ? "pnpm" : (await fileExists(yarnLock)) ? "yarn" : "npm";
   const installCmd =
@@ -125,7 +127,6 @@ export async function installDeps(dir: string): Promise<string> {
                    "npm install --prefer-offline --no-fund --no-audit --legacy-peer-deps";
 
   return new Promise((resolve) => {
-    const io = getIo();
     const chunks: string[] = [];
     const header = `\r\n\x1b[33m[Installing ${pm} packages…]\x1b[0m\r\n`;
     chunks.push(header);
@@ -144,22 +145,22 @@ export async function installDeps(dir: string): Promise<string> {
     proc.stderr?.on("data", onData);
 
     proc.on("close", (code) => {
-      const msg = code === 0
+      const ok = code === 0;
+      chunks.push(ok
         ? `\x1b[32m[Dependencies installed]\x1b[0m\r\n`
-        : `\x1b[31m[Install exited with code ${code}]\x1b[0m\r\n`;
-      chunks.push(msg);
-      resolve(chunks.join(""));
+        : `\x1b[31m[Install exited with code ${code}]\x1b[0m\r\n`);
+      resolve({ output: chunks.join(""), ok });
     });
 
     proc.on("error", (err) => {
-      resolve(`\x1b[31m[Install error: ${err.message}]\x1b[0m\r\n`);
+      resolve({ output: `\x1b[31m[Install error: ${err.message}]\x1b[0m\r\n`, ok: false });
     });
   });
 }
 
-export async function installPythonDeps(dir: string): Promise<string> {
+export async function installPythonDeps(dir: string): Promise<InstallResult> {
   const reqTxt = path.join(dir, "requirements.txt");
-  if (!(await fileExists(reqTxt))) return "";
+  if (!(await fileExists(reqTxt))) return { output: "", ok: true };
 
   return new Promise((resolve) => {
     const chunks: string[] = [];
@@ -180,15 +181,15 @@ export async function installPythonDeps(dir: string): Promise<string> {
     proc.stderr?.on("data", onData);
 
     proc.on("close", (code) => {
-      const msg = code === 0
+      const ok = code === 0;
+      chunks.push(ok
         ? `\x1b[32m[Python packages installed]\x1b[0m\r\n`
-        : `\x1b[31m[pip install exited with code ${code}]\x1b[0m\r\n`;
-      chunks.push(msg);
-      resolve(chunks.join(""));
+        : `\x1b[31m[pip install exited with code ${code}]\x1b[0m\r\n`);
+      resolve({ output: chunks.join(""), ok });
     });
 
     proc.on("error", (err) => {
-      resolve(`\x1b[31m[pip install error: ${err.message}]\x1b[0m\r\n`);
+      resolve({ output: `\x1b[31m[pip install error: ${err.message}]\x1b[0m\r\n`, ok: false });
     });
   });
 }

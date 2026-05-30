@@ -355,12 +355,29 @@ router.post("/:projectId", requireAuth, async (req: AuthenticatedRequest, res: R
 
         emitTerminal(`\x1b[90m[Running: \x1b[0m\x1b[36m${command}\x1b[90m]\x1b[0m\r\n`);
 
-        // Stream install output before starting the main process
-        const installOutput = await installDeps(execDir);
-        if (installOutput) emitTerminal(installOutput);
+        // Stop any previously running process for this project up front, so a
+        // failed install below doesn't leave a stale process alive (spawnProcess
+        // also does this, but the failure path returns before reaching it).
+        stopProcess(project.id);
 
-        const pythonInstallOutput = await installPythonDeps(execDir);
-        if (pythonInstallOutput) emitTerminal(pythonInstallOutput);
+        // Install dependencies before starting the main process. If install
+        // fails, stop here with a clear message instead of spawning a doomed
+        // process that fails later with a cryptic "module not found" error.
+        const nodeInstall = await installDeps(execDir);
+        if (nodeInstall.output) emitTerminal(nodeInstall.output);
+        const pythonInstall = await installPythonDeps(execDir);
+        if (pythonInstall.output) emitTerminal(pythonInstall.output);
+
+        if (!nodeInstall.ok || !pythonInstall.ok) {
+          emitTerminal(
+            "\r\n\x1b[31m[Dependency installation failed — see the errors above.]\x1b[0m\r\n" +
+            "Fix the dependency/lockfile issue, or type a working command in the terminal and press \x1b[1mRun\x1b[0m.\r\n",
+          );
+          emitStopped();
+          await db.update(runs).set({ status: "error", output: "Dependency installation failed", completedAt: new Date() })
+            .where(eq(runs.id, run.id));
+          return;
+        }
 
         // Spawn the long-running process
         const mp = await spawnProcess(project.id, run.id, command, execDir);
