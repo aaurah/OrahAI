@@ -317,9 +317,11 @@ export default function WorkspacePage() {
   const handleRun = async () => {
     if (!project || isRunning || processRunning) return;
     setIsRunning(true);
-    setTerminalOpen(true);
-    setMobileTab("console");
+    // Run in the background like Replit — show the preview, keep the console
+    // running invisibly. The Terminal stays mounted, so output is still captured;
+    // the user can open the console any time to inspect it.
     setPreviewOpen(true);
+    setMobileTab("preview");
     setLivePort(null);
     setProcessRunning(true);
     try {
