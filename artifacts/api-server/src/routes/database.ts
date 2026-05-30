@@ -34,7 +34,7 @@ async function withPool<T>(connStr: string, fn: (pool: Pool) => Promise<T>): Pro
     idleTimeoutMillis: 5000,
     connectionTimeoutMillis: 8000,
     ssl: connStr.includes("sslmode=require") || connStr.includes("neon.tech") || connStr.includes("supabase")
-      ? { rejectUnauthorized: false }
+      ? { rejectUnauthorized: true }
       : undefined,
   });
   try {

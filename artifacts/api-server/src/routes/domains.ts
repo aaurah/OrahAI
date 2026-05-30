@@ -23,6 +23,7 @@ function normalizeDomain(raw: string): string {
 }
 
 function isValidDomain(domain: string): boolean {
+  if (domain.length > 253) return false;
   return /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(domain);
 }
 
