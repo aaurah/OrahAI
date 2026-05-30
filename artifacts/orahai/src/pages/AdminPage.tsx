@@ -17,7 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
-import { OLLAMA_MODEL_LIBRARY } from "@/lib/models";
+const OLLAMA_MODEL_LIBRARY: Array<{ id: string; name: string; description: string; size: string; badge?: string; vision?: boolean; tags?: string[] }> = [];
 
 type Tab = "overview" | "users" | "projects" | "runs" | "ai";
 

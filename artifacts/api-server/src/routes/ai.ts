@@ -15,19 +15,6 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 
-// OpenAI: Replit AI integration proxy is the default (works without a personal key).
-// If OPENAI_API_KEY is also set it is preferred over the proxy key.
-function makeOpenAIClient(): OpenAI | null {
-  const proxyBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  const proxyKey  = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const ownKey    = process.env.OPENAI_API_KEY;
-  if (!ownKey && !proxyKey) return null;
-  return new OpenAI({
-    ...(ownKey ? {} : { baseURL: proxyBase }),
-    apiKey: ownKey ?? proxyKey!,
-  });
-}
-
 function getAnthropicClient(): Anthropic | null {
   const proxyBase = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
   const proxyKey  = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
@@ -36,169 +23,6 @@ function getAnthropicClient(): Anthropic | null {
   if (!apiKey && !proxyBase) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new Anthropic({ ...(proxyBase && !ownKey ? { baseURL: proxyBase } : {}), apiKey: apiKey ?? "dummy" } as any);
-}
-
-function makeOllamaClient(): OpenAI {
-  const base = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, "");
-  return new OpenAI({ baseURL: `${base}/v1`, apiKey: "ollama" });
-}
-
-function makeOllamaRemoteClient(): OpenAI | null {
-  const base = (process.env.OLLAMA_REMOTE_URL ?? "").replace(/\/$/, "");
-  if (!base) return null;
-  return new OpenAI({
-    baseURL: `${base}/v1`,
-    apiKey: "ollama",
-    timeout: 120_000,
-    // Bypass ngrok / localtunnel / Cloudflare Tunnel browser-warning interstitial pages
-    defaultHeaders: {
-      "ngrok-skip-browser-warning": "true",
-      "bypass-tunnel-reminder": "true",
-      "user-agent": "OrahAI/1.0 (ollama-client)",
-    },
-  });
-}
-
-function makeGroqClient(): OpenAI | null {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ baseURL: "https://api.groq.com/openai/v1", apiKey });
-}
-
-function makeGeminiClient(): OpenAI | null {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    apiKey,
-  });
-}
-
-function makeXaiClient(): OpenAI | null {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ baseURL: "https://api.x.ai/v1", apiKey });
-}
-
-function makePerplexityClient(): OpenAI | null {
-  const apiKey = process.env.PERPLEXITY_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ baseURL: "https://api.perplexity.ai", apiKey });
-}
-
-function makeDeepSeekClient(): OpenAI | null {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ baseURL: "https://api.deepseek.com/v1", apiKey });
-}
-
-// ── Local Ollama model cache ───────────────────────────────────────────────────
-// Caches the first available local model for 5 min to avoid blocking requests
-let _cachedOllamaModel: string | null = null;
-let _ollamaModelCheckedAt = 0;
-
-async function getLocalOllamaModel(): Promise<string | null> {
-  const now = Date.now();
-  if (_cachedOllamaModel !== null || (now - _ollamaModelCheckedAt < 5 * 60 * 1000 && _ollamaModelCheckedAt > 0)) {
-    return _cachedOllamaModel;
-  }
-  try {
-    const base = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434").replace(/\/$/, "");
-    const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) { _ollamaModelCheckedAt = now; return null; }
-    const data = await res.json() as { models?: Array<{ name: string }> };
-    const models = (data.models ?? []).map((m) => m.name);
-    // Prefer code-focused models, then general ones
-    const preferred = ["qwen2.5-coder", "deepseek-coder", "codellama", "llama3", "llama", "mistral", "gemma", "phi"];
-    for (const pref of preferred) {
-      const found = models.find((m) => m.startsWith(pref));
-      if (found) { _cachedOllamaModel = found; _ollamaModelCheckedAt = now; return found; }
-    }
-    _cachedOllamaModel = models[0] ?? null;
-    _ollamaModelCheckedAt = now;
-    return _cachedOllamaModel;
-  } catch {
-    _ollamaModelCheckedAt = Date.now();
-    return null;
-  }
-}
-
-// ── Smart Auto-routing ────────────────────────────────────────────────────────
-// Ollama-first: when no paid keys are set the IDE runs 100% free on local models.
-// Paid APIs are optional upgrades — used only when their key is present.
-async function resolveAutoModel(message: string): Promise<{ provider: string; modelName: string }> {
-  const msg = message.toLowerCase();
-  const hasOpenAIProxy = !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
-  const hasAnyPaidKey =
-    hasOpenAIProxy ||
-    process.env.DEEPSEEK_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.ANTHROPIC_API_KEY ||
-    process.env.XAI_API_KEY ||
-    process.env.PERPLEXITY_API_KEY;
-
-  // ── Free-only mode: no paid keys → always use local Ollama ────────────────
-  if (!hasAnyPaidKey) {
-    const local = await getLocalOllamaModel();
-    if (local) return { provider: "ollama", modelName: local };
-    // No paid keys and no local Ollama — tell the user to configure something
-    return { provider: "ollama", modelName: "llama3.2" };
-  }
-
-  // ── Hybrid mode: paid keys present — smart-route by task, fall back to local
-  // Search / research / "latest" / "current events" → Perplexity Sonar
-  const isSearch =
-    /\b(search|find|look up|what is the latest|current(ly)?|news|today|recent|live|real.?time|browse|web)\b/.test(msg);
-  if (isSearch && process.env.PERPLEXITY_API_KEY) {
-    return { provider: "perplexity", modelName: "sonar-pro" };
-  }
-
-  // Code / debug / implement / write → DeepSeek V3 (best coding model), else OpenAI
-  const isCode =
-    /\b(code|function|class|bug|error|fix|implement|write|create|build|refactor|debug|compile|run|test|script|api|endpoint|component|module)\b/.test(msg);
-  if (isCode) {
-    if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
-    if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
-  }
-
-  // Reasoning / math / logic / explain → DeepSeek R1 or Groq Qwen or OpenAI
-  const isReason =
-    /\b(reason|explain why|prove|math|calculate|formula|logic|step.?by.?step|analyze|analysis|compare|evaluate|think|how does|why does)\b/.test(msg);
-  if (isReason) {
-    if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-reasoner" };
-    if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "qwen/qwen3-32b" };
-    if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
-  }
-
-  // Image / vision / screenshot / design → Gemini Flash (vision) or Claude
-  const isVision =
-    /\b(image|photo|screenshot|picture|diagram|chart|graph|figure|visual|look at|what do you see)\b/.test(msg);
-  if (isVision) {
-    if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
-    if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
-  }
-
-  // Long document / large context → Gemini Pro or Claude
-  const isLongContext =
-    /\b(document|summarize|entire|whole|all of|full|long|thousands|pages|report)\b/.test(msg);
-  if (isLongContext) {
-    if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-pro-preview-06-05" };
-    if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-opus-4-5" };
-  }
-
-  // Default priority: DeepSeek → OpenAI proxy → Groq → Gemini → Anthropic → xAI → local Ollama
-  if (process.env.DEEPSEEK_API_KEY) return { provider: "deepseek", modelName: "deepseek-chat" };
-  if (hasOpenAIProxy) return { provider: "openai", modelName: "gpt-4.1" };
-  if (process.env.GROQ_API_KEY) return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
-  if (process.env.GOOGLE_API_KEY) return { provider: "gemini", modelName: "gemini-2.5-flash-preview-05-20" };
-  if (process.env.ANTHROPIC_API_KEY) return { provider: "anthropic", modelName: "claude-sonnet-4-5" };
-  if (process.env.XAI_API_KEY) return { provider: "xai", modelName: "grok-3-mini" };
-
-  // Local Ollama as last free fallback
-  const localFallback = await getLocalOllamaModel();
-  if (localFallback) return { provider: "ollama", modelName: localFallback };
-  return { provider: "openai", modelName: "gpt-4.1-mini" };
 }
 
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
@@ -745,7 +569,7 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         imageMimeType: z.string().optional(),
         images: z.array(z.object({ data: z.string(), mimeType: z.string() })).max(10).optional(),
         mode: z.enum(["lite", "economy", "power"]).default("economy"),
-        model: z.string().max(200).optional().default("groq:llama-3.3-70b-versatile"),
+        model: z.string().max(200).optional().default("anthropic:claude-sonnet-4-5"),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return next(createError("Validation error", 400, parsed.error.errors));
@@ -753,22 +577,9 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       const project = await assertProjectAccess(String(req.params.projectId), req.user!.id);
       const { message, fileContext, filePath, imageData, imageMimeType, images, mode, model: modelField } = parsed.data;
       const colonIdx = (modelField ?? "").indexOf(":");
-      const rawProvider = colonIdx >= 0 ? (modelField ?? "").slice(0, colonIdx) : "openai";
-      const rawModelName = colonIdx >= 0 ? (modelField ?? "").slice(colonIdx + 1) : (modelField ?? "gpt-4.1");
-
-      // Resolve "auto" → best model for this message
-      let provider: string;
-      let modelName: string;
-      let autoResolved = false;
-      if (rawProvider === "auto") {
-        const resolved = await resolveAutoModel(message);
-        provider = resolved.provider;
-        modelName = resolved.modelName;
-        autoResolved = true;
-      } else {
-        provider = rawProvider;
-        modelName = rawModelName;
-      }
+      const provider = colonIdx >= 0 ? (modelField ?? "").slice(0, colonIdx) : "anthropic";
+      const modelName = colonIdx >= 0 ? (modelField ?? "").slice(colonIdx + 1) : "claude-sonnet-4-5";
+      const autoResolved = false;
 
       // Mode → capability settings
       const MODE_CONFIG = {
@@ -781,15 +592,6 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
       let historyLimit: number = MODE_CONFIG[mode].historyLimit;
       let fileCharLimit: number = MODE_CONFIG[mode].fileCharLimit;
       let totalFileChars: number = MODE_CONFIG[mode].totalFileChars;
-
-      // Groq free tier — cap output tokens per model capability; context limits are generous
-      if (provider === "groq") {
-        // Compound models support up to 8192 output tokens; Llama/Qwen up to 8192 too
-        maxTokens      = Math.min(maxTokens, 8000);
-        fileCharLimit  = Math.min(fileCharLimit, 4000);
-        totalFileChars = Math.min(totalFileChars, 20000);
-        historyLimit   = Math.min(historyLimit, 8);
-      }
 
       const allImages: { data: string; mimeType: string }[] = images?.length
         ? images
@@ -900,45 +702,6 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         { role: "user", content: allImages.length ? userMessageContent : userContent },
       ];
 
-      // ── Auto-fallback model chain ─────────────────────────────────────────
-      // Build an ordered list of models to try. The user's requested model is
-      // first; if it hits 429/413 we silently advance to the next entry.
-      // Local Ollama is the final free fallback; paid cloud models require their own API key.
-      const localOllamaFallback = _cachedOllamaModel ? [`ollama:${_cachedOllamaModel}`] : [];
-      const GLOBAL_FALLBACK_CHAIN = [
-        ...localOllamaFallback,
-        "groq:llama-3.3-70b-versatile",
-        "groq:llama-3.1-8b-instant",
-        "groq:gemma2-9b-it",
-        "groq:meta-llama/llama-4-scout-17b-16e-instruct",
-        "groq:qwen/qwen3-32b",
-        "openai:gpt-4.1-mini",
-        "openai:gpt-4.1",
-      ];
-      const isProviderConfigured = (p: string) => {
-        if (p === "openai") return !!makeOpenAIClient();
-        if (p === "groq") return !!makeGroqClient();
-        if (p === "anthropic") return !!getAnthropicClient();
-        if (p === "ollama-remote") return !!makeOllamaRemoteClient();
-        if (p === "gemini") return !!makeGeminiClient();
-        if (p === "xai") return !!makeXaiClient();
-        if (p === "perplexity") return !!makePerplexityClient();
-        if (p === "deepseek") return !!makeDeepSeekClient();
-        return true; // ollama (local) always available
-      };
-      const _seenFallbacks = new Set<string>();
-      const activeFallbacks: string[] = [];
-      for (const m of [`${provider}:${modelName}`, ...GLOBAL_FALLBACK_CHAIN]) {
-        if (!_seenFallbacks.has(m)) {
-          _seenFallbacks.add(m);
-          const p = m.slice(0, m.indexOf(":"));
-          if (isProviderConfigured(p)) activeFallbacks.push(m);
-        }
-      }
-
-      let activeProvider = provider;
-      let activeModelName = modelName;
-
       // ── Agentic loop ──────────────────────────────────────────────────────
       for (let step = 1; step <= maxSteps; step++) {
         send({ type: "agent_step", step, maxSteps });
@@ -951,223 +714,40 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         let stepContent = "";
         let stepFailed = false;
 
-        // ── Auto-fallback retry loop ───────────────────────────────────────
-        const attemptedModels = new Set<string>();
-        fallbackLoop: while (true) {
-          const curModelKey = `${activeProvider}:${activeModelName}`;
-          attemptedModels.add(curModelKey);
-          // Groq free tier has tight per-request limits — enforce them dynamically
-          const curMaxTokens = activeProvider === "groq" ? Math.min(maxTokens, 3000) : maxTokens;
-          // Providers that use max_tokens (not max_completion_tokens)
-          const isOllama = activeProvider === "ollama" || activeProvider === "ollama-remote"
-            || activeProvider === "gemini" || activeProvider === "xai"
-            || activeProvider === "perplexity" || activeProvider === "deepseek"
-            || activeProvider === "groq";
-
-          // Per-provider user-message char limit: prevents long pastes from blowing
-          // the model's context window. Stored message is always the full original.
-          const MSG_CHAR_LIMIT: Record<string, number> = {
-            groq:            20_000,
-            openai:         400_000,
-            anthropic:      400_000,
-            gemini:         800_000,
-            xai:            200_000,
-            perplexity:      50_000,
-            deepseek:       200_000,
-            ollama:         100_000,
-            "ollama-remote": 100_000,
-          };
-          const msgLimit = MSG_CHAR_LIMIT[activeProvider] ?? 100_000;
-          // Build a messages copy with the last user message truncated to msgLimit
-          const curMessages: OpenAI.ChatCompletionMessageParam[] = agentMessages.map((m, i) => {
-            if (i === agentMessages.length - 1 && m.role === "user" && typeof m.content === "string" && m.content.length > msgLimit) {
-              const truncated = m.content.slice(0, msgLimit);
-              return { ...m, content: truncated + `\n\n[… message truncated to ${msgLimit.toLocaleString()} chars for this model]` };
-            }
-            return m;
-          });
-
-          try {
-            if (activeProvider === "anthropic") {
-              const anthropicClient = getAnthropicClient();
-              if (!anthropicClient) {
-                const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
-                stepContent = errMsg; allContent += errMsg;
-                send({ type: "delta", content: errMsg }); stepFailed = true; break;
-              }
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const stream = await (anthropicClient.messages.create as any)({
-                model: activeModelName,
-                max_tokens: curMaxTokens,
-                system: systemPrompt,
-                messages: toAnthropicMessages(curMessages),
-                stream: true,
-              });
-              for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
-                const delta = event.delta as Record<string, unknown> | undefined;
-                if (event.type === "content_block_delta" && delta?.type === "text_delta") {
-                  const t = String(delta.text ?? "");
-                  stepContent += t; allContent += t;
-                  send({ type: "delta", content: t });
-                }
-              }
-            } else {
-              let llmClient: OpenAI;
-              if (activeProvider === "ollama-remote") {
-                const remoteClient = makeOllamaRemoteClient();
-                if (!remoteClient) {
-                  const errMsg = "Remote Ollama not configured. Set OLLAMA_REMOTE_URL in your environment secrets.";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = remoteClient;
-              } else if (activeProvider === "ollama") {
-                llmClient = makeOllamaClient();
-              } else if (activeProvider === "groq") {
-                const groqClient = makeGroqClient();
-                if (!groqClient) {
-                  const errMsg = "Groq not configured. Add your GROQ_API_KEY in Replit Secrets (free at console.groq.com).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = groqClient;
-              } else if (activeProvider === "gemini") {
-                const geminiClient = makeGeminiClient();
-                if (!geminiClient) {
-                  const errMsg = "Gemini not configured. Add GOOGLE_API_KEY in Replit Secrets (get a free key at aistudio.google.com/apikey).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = geminiClient;
-              } else if (activeProvider === "xai") {
-                const xaiClient = makeXaiClient();
-                if (!xaiClient) {
-                  const errMsg = "xAI Grok not configured. Add XAI_API_KEY in Replit Secrets (console.x.ai).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = xaiClient;
-              } else if (activeProvider === "perplexity") {
-                const perplexityClient = makePerplexityClient();
-                if (!perplexityClient) {
-                  const errMsg = "Perplexity Sonar not configured. Add PERPLEXITY_API_KEY in Replit Secrets (perplexity.ai/api).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = perplexityClient;
-              } else if (activeProvider === "deepseek") {
-                const deepSeekClient = makeDeepSeekClient();
-                if (!deepSeekClient) {
-                  const errMsg = "DeepSeek not configured. Add DEEPSEEK_API_KEY in Replit Secrets (platform.deepseek.com).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = deepSeekClient;
-              } else {
-                const openaiClient = makeOpenAIClient();
-                if (!openaiClient) {
-                  const errMsg = "OpenAI not configured. Add OPENAI_API_KEY in Replit Secrets (platform.openai.com/api-keys).";
-                  stepContent = errMsg; allContent += errMsg;
-                  send({ type: "delta", content: errMsg }); stepFailed = true; break;
-                }
-                llmClient = openaiClient;
-              }
-
-              if (activeProvider === "ollama-remote") {
-                // ngrok free tier buffers SSE — non-streaming call, word-by-word playback
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const resp = await (llmClient.chat.completions.create as any)({
-                  model: activeModelName,
-                  messages: curMessages,
-                  stream: false,
-                  max_tokens: curMaxTokens,
-                });
-                const text: string = resp.choices?.[0]?.message?.content ?? "";
-                if (text) {
-                  const words = text.split(/(?<=\s)/);
-                  for (const word of words) {
-                    stepContent += word; allContent += word;
-                    send({ type: "delta", content: word });
-                    await new Promise(r => setTimeout(r, 12));
-                  }
-                }
-              } else {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const stream = await (llmClient.chat.completions.create as any)({
-                  model: activeModelName,
-                  messages: curMessages,
-                  stream: true,
-                  ...(isOllama ? { max_tokens: curMaxTokens } : { max_completion_tokens: curMaxTokens }),
-                });
-                for await (const chunk of stream) {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const delta = (chunk as any).choices?.[0]?.delta?.content;
-                  if (delta) {
-                    stepContent += delta; allContent += delta;
-                    send({ type: "delta", content: delta });
-                  }
-                }
-              }
-            }
-            break; // ← success, exit retry loop
-
-          } catch (e) {
-            // Groq SDK streaming errors use status_code; OpenAI SDK uses status
-            const errStatus =
-              (e as { status?: number })?.status ??
-              (e as { status_code?: number })?.status_code;
-            const errMessage = (e as Error)?.message ?? "";
-            const isRateLimit =
-              errStatus === 429 ||
-              errStatus === 413 ||
-              errMessage.toLowerCase().includes("rate limit") ||
-              errMessage.toLowerCase().includes("rate_limit");
-
-            if (isRateLimit) {
-              // If it's a daily (TPD) limit, all remaining models on the same provider
-              // share the same quota — skip them all at once.
-              const isDailyLimit =
-                errMessage.includes("tokens per day") ||
-                errMessage.includes("TPD") ||
-                errMessage.includes("per day");
-              const exhaustedProvider = activeProvider;
-
-              // Try next untried model in the fallback chain
-              const nextModel = activeFallbacks.find(m => {
-                if (attemptedModels.has(m)) return false;
-                if (isDailyLimit) {
-                  const p = m.slice(0, m.indexOf(":"));
-                  if (p === exhaustedProvider) return false; // skip whole provider
-                }
-                return true;
-              });
-              if (nextModel) {
-                const prevKey = curModelKey;
-                const ci = nextModel.indexOf(":");
-                activeProvider = nextModel.slice(0, ci);
-                activeModelName = nextModel.slice(ci + 1);
-                const reason = errStatus === 413 ? "too_large" : isDailyLimit ? "daily_limit" : "rate_limit";
-                logger.warn({ from: prevKey, to: nextModel, reason }, "AI auto-fallback");
-                send({ type: "model_switch", from: prevKey, to: nextModel, reason });
-                continue fallbackLoop;
-              }
-            }
-
-            // No fallback left, or non-rate-limit error
-            logger.warn({ err: e }, "AI error");
-            const isTimeout = (e as Error)?.message?.includes("timed out") || (e as Error)?.message?.includes("timeout") || (e as NodeJS.ErrnoException)?.code === "ETIMEDOUT";
-            const errMsg = activeProvider === "ollama-remote"
-              ? isTimeout
-                ? "⏱ Remote Ollama timed out. Your Colab session may be idle. In Colab: run `pkill -f ollama` then restart the Ollama serve cell."
-                : "Remote Ollama error. Check your OLLAMA_REMOTE_URL and ensure the model is pulled on that machine."
-              : activeProvider === "ollama"
-                ? "Ollama error. Make sure the Ollama service is running and the model is installed."
-                : isRateLimit
-                  ? "Rate limit reached on all available models. Please wait a minute and try again."
-                  : "AI service temporarily unavailable. Please try again.";
+        // ── Anthropic Claude call ───────────────────────────────────────────
+        try {
+          const anthropicClient = getAnthropicClient();
+          if (!anthropicClient) {
+            const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
             stepContent = errMsg; allContent += errMsg;
-            send({ type: "delta", content: errMsg }); stepFailed = true; break fallbackLoop;
+            send({ type: "delta", content: errMsg }); stepFailed = true;
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stream = await (anthropicClient.messages.create as any)({
+              model: modelName,
+              max_tokens: maxTokens,
+              system: systemPrompt,
+              messages: toAnthropicMessages(agentMessages),
+              stream: true,
+            });
+            for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+              const delta = event.delta as Record<string, unknown> | undefined;
+              if (event.type === "content_block_delta" && delta?.type === "text_delta") {
+                const t = String(delta.text ?? "");
+                stepContent += t; allContent += t;
+                send({ type: "delta", content: t });
+              }
+            }
           }
+        } catch (e) {
+          logger.warn({ err: e }, "AI error");
+          const errStatus = (e as { status?: number })?.status;
+          const isRateLimit = errStatus === 429 || errStatus === 413;
+          const errMsg = isRateLimit
+            ? "Rate limit reached. Please wait a moment and try again."
+            : "AI service temporarily unavailable. Please try again.";
+          stepContent = errMsg; allContent += errMsg;
+          send({ type: "delta", content: errMsg }); stepFailed = true;
         }
 
         if (stepFailed) break;

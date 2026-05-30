@@ -5,30 +5,17 @@ import {
   ChevronDown, ChevronUp, ImagePlus, X, CheckCircle2, XCircle,
   FileCode2, FileX, AlertCircle,
   ThumbsUp, ThumbsDown, Volume2, VolumeX, Share2,
-  Zap, Scale, Flame, Pencil, PlugZap, Cpu, DollarSign, Link2,
+  Zap, Scale, Flame, Pencil, PlugZap, Link2,
   BookOpen, Wand2, PenLine,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
-import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
-} from "@/components/ui/alert-dialog";
 import { API_BASE, api } from "@/lib/api";
 import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
-import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName, makeOllamaModelDef, makeOllamaRemoteModelDef, type ModelDef } from "@/lib/models";
-
-// Models that may incur API costs — require a one-time-per-session confirmation
-const isPaidModel = (model: string) =>
-  model.startsWith("openai:") ||
-  model.startsWith("anthropic:") ||
-  model.startsWith("gemini:") ||
-  model.startsWith("xai:") ||
-  model.startsWith("perplexity:") ||
-  model.startsWith("deepseek:");
+import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName } from "@/lib/models";
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -142,10 +129,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return localStorage.getItem("orahai_ai_model") ?? DEFAULT_MODEL;
   });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [liveOllamaModels, setLiveOllamaModels] = useState<ModelDef[]>([]);
-  const [liveRemoteModels, setLiveRemoteModels] = useState<ModelDef[]>([]);
-  const ollamaAutoInitDone = useRef(false);
-  const [ollamaLoading, setOllamaLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -155,13 +138,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const parallelAbortMap = useRef<Map<string, AbortController>>(new Map());
   const [parallelCount, setParallelCount] = useState(0);
   const [queueCount, setQueueCount] = useState(0);
-  const [paidConfirmOpen, setPaidConfirmOpen] = useState(false);
-  const pendingPaidSubmit = useRef<{ text: string; imgs: AttachedImage[] } | null>(null);
-  const confirmedPaidModels = useRef<Set<string>>(new Set());
-  const [enabledPaidProviders, setEnabledPaidProviders] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("orahai_enabled_paid_providers") ?? "[]") as string[]); }
-    catch { return new Set(); }
-  });
   const [bgJobActive, setBgJobActive] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -174,115 +150,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   type AiMode = "chat" | "explain" | "generate" | "complete";
   const [aiMode, setAiMode] = useState<AiMode>("chat");
   const [explainCustomInput, setExplainCustomInput] = useState("");
-
-  // ── GPU VRAM Monitor ───────────────────────────────────────────────────────
-  interface GpuModel {
-    name: string;
-    size_vram: number;
-    size: number;
-    expires_at: string;
-  }
-  const [gpuModels, setGpuModels] = useState<GpuModel[]>([]);
-  const [gpuChipOpen, setGpuChipOpen] = useState(false);
-  const [warmingUp, setWarmingUp] = useState(false);
-  const gpuPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const isOllamaModel = aiModel.startsWith("ollama:") || aiModel.startsWith("ollama-remote:");
-  const ollamaEndpointForGpu = aiModel.startsWith("ollama-remote:") ? "remote" : "server";
-  const currentModelName = aiModel.split(":").slice(1).join(":");
-
-  const fetchGpuPs = useCallback(async () => {
-    if (!isOllamaModel) { setGpuModels([]); return; }
-    try {
-      const data = await api.get<{ models: GpuModel[] }>(`/api/ai/ps?endpoint=${ollamaEndpointForGpu}`);
-      setGpuModels(data.models ?? []);
-    } catch { setGpuModels([]); }
-  }, [isOllamaModel, ollamaEndpointForGpu]);
-
-  useEffect(() => {
-    if (!isOllamaModel) { setGpuModels([]); return; }
-    void fetchGpuPs();
-    gpuPollRef.current = setInterval(() => { void fetchGpuPs(); }, 20_000);
-    return () => { if (gpuPollRef.current) clearInterval(gpuPollRef.current); };
-  }, [isOllamaModel, fetchGpuPs]);
-
-  async function handleKeepWarm() {
-    setWarmingUp(true);
-    try {
-      await api.post("/api/ai/warmup", { model: currentModelName, endpoint: ollamaEndpointForGpu, keepAlive: "30m" });
-      await fetchGpuPs();
-      toast({ title: "Model kept warm for 30 minutes" });
-    } catch {
-      toast({ title: "Keep warm failed", variant: "destructive" });
-    } finally { setWarmingUp(false); }
-  }
-
-  function formatVram(bytes: number): string {
-    if (!bytes) return "";
-    const gb = bytes / 1024 ** 3;
-    return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / 1024 ** 2).toFixed(0)}MB`;
-  }
-
-  function formatExpiry(expiresAt: string): string {
-    const ms = new Date(expiresAt).getTime() - Date.now();
-    if (ms <= 0) return "expired";
-    const m = Math.floor(ms / 60_000);
-    const s = Math.floor((ms % 60_000) / 1_000);
-    return m > 0 ? `${m}m` : `${s}s`;
-  }
-
-  const hotModel = gpuModels.find(m => m.name === currentModelName || m.name.startsWith(currentModelName.split(":")[0]));
-  const isWarm = !!hotModel;
-
-  // On first mount: if the user hasn't set a model yet, auto-select the best
-  // available local Ollama model so the IDE works free out of the box.
-  useEffect(() => {
-    if (ollamaAutoInitDone.current) return;
-    ollamaAutoInitDone.current = true;
-    if (localStorage.getItem("orahai_ai_model")) return; // user already chose a model
-    api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server")
-      .then(res => {
-        if (!res.ollamaAvailable || !res.models?.length) return;
-        const preferred = ["qwen2.5-coder", "deepseek-coder", "codellama", "llama3", "llama", "mistral", "gemma", "phi"];
-        const names = res.models.map(m => m.name);
-        let pick = names[0];
-        for (const pref of preferred) {
-          const found = names.find(n => n.startsWith(pref));
-          if (found) { pick = found; break; }
-        }
-        if (pick) {
-          const modelId = `ollama:${pick}`;
-          setAiModel(modelId);
-          localStorage.setItem("orahai_ai_model", modelId);
-        }
-      })
-      .catch(() => undefined);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Fetch live Ollama models (both endpoints) when the model picker opens
-  useEffect(() => {
-    if (!modelPickerOpen) return;
-    setOllamaLoading(true);
-    Promise.all([
-      api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=server"),
-      api.get<{ models: Array<{ name: string }>; ollamaAvailable: boolean }>("/api/ai/models?endpoint=remote"),
-    ])
-      .then(([serverRes, remoteRes]) => {
-        setLiveOllamaModels(
-          serverRes.ollamaAvailable
-            ? (serverRes.models ?? []).map(m => makeOllamaModelDef(m.name))
-            : []
-        );
-        setLiveRemoteModels(
-          remoteRes.ollamaAvailable
-            ? (remoteRes.models ?? []).map(m => makeOllamaRemoteModelDef(m.name))
-            : []
-        );
-      })
-      .catch(() => { setLiveOllamaModels([]); setLiveRemoteModels([]); })
-      .finally(() => setOllamaLoading(false));
-  }, [modelPickerOpen]);
 
   // Fetch latest chat messages from the server
   const fetchMessages = useCallback(() => {
@@ -416,14 +283,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     const text = input.trim();
     if (!text && !attachedImages.length) return;
 
-    // Gate on paid model — skip if provider is toggled on globally
-    const paidProviderEnabled = enabledPaidProviders.has(aiModel.split(":")[0]);
-    if (isPaidModel(aiModel) && !paidProviderEnabled && !confirmedPaidModels.current.has(aiModel)) {
-      pendingPaidSubmit.current = { text, imgs: attachedImages };
-      setPaidConfirmOpen(true);
-      return;
-    }
-
     setInput("");
     const imgs = attachedImages;
     setAttachedImages([]);
@@ -446,61 +305,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     await handleSubmitCore(text, imgs, null);
   };
 
-  const confirmPaidSend = async () => {
-    const pending = pendingPaidSubmit.current;
-    if (!pending) return;
-    pendingPaidSubmit.current = null;
-    confirmedPaidModels.current.add(aiModel);
-    setPaidConfirmOpen(false);
-
-    setInput("");
-    setAttachedImages([]);
-
-    const { text, imgs } = pending;
-    if (isStreaming) {
-      const displayId = `queued-${crypto.randomUUID()}`;
-      setItems((prev) => [...prev, {
-        id: displayId, projectId, userId: null,
-        role: "user" as const, content: text || "(images)",
-        createdAt: new Date().toISOString(),
-        images: imgs.length ? imgs : undefined,
-        queued: true,
-      }]);
-      queueRef.current.push({ text, imgs, displayId });
-      setQueueCount(queueRef.current.length);
-      return;
-    }
-    await handleSubmitCore(text, imgs, null);
-  };
-
   const handleModeChange = (mode: AgentMode) => {
     setAgentMode(mode);
     localStorage.setItem("orahai_agent_mode", mode);
   };
 
   // Abort all active streams (primary + any parallel force-sends)
-  const togglePaidProvider = useCallback((provider: string) => {
-    setEnabledPaidProviders(prev => {
-      const next = new Set(prev);
-      if (next.has(provider)) {
-        next.delete(provider);
-        // If currently on this provider, fall back to default
-        if (aiModel.startsWith(provider + ":")) {
-          setAiModel(DEFAULT_MODEL);
-          localStorage.setItem("orahai_ai_model", DEFAULT_MODEL);
-        }
-      } else {
-        next.add(provider);
-        // Pre-confirm every model from this provider so no dialog fires
-        MODEL_GROUPS.find(g => g.provider === provider)?.models.forEach(m => {
-          confirmedPaidModels.current.add(m.id);
-        });
-      }
-      localStorage.setItem("orahai_enabled_paid_providers", JSON.stringify([...next]));
-      return next;
-    });
-  }, [aiModel]);
-
   const abortAll = () => {
     abortRef.current?.abort();
     for (const ctrl of parallelAbortMap.current.values()) ctrl.abort();
@@ -616,20 +426,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               from?: string; to?: string; reason?: string;
             };
 
-            if (evt.type === "model_resolved" && evt.to == null && (evt as unknown as Record<string,string>).model) {
-              const resolved = (evt as unknown as Record<string,string>).model;
-              setAutoResolvedModel(resolved);
-
-            } else if (evt.type === "model_switch" && evt.to) {
-              const label = evt.to.includes(":") ? evt.to.split(":")[1] : evt.to;
-              const reasonLabel = evt.reason === "too_large" ? "request too large" : evt.reason === "daily_limit" ? "daily limit reached" : "rate limit";
-              toast({ title: `⚡ Switched to ${label}`, description: `Auto-fallback (${reasonLabel})` });
-              setAiModel(evt.to);
-              localStorage.setItem("orahai_ai_model", evt.to);
-              // Auto-confirm paid models that the server switched to — user saw the toast
-              if (isPaidModel(evt.to)) confirmedPaidModels.current.add(evt.to);
-
-            } else if (evt.type === "agent_step" && evt.step) {
+            if (evt.type === "agent_step" && evt.step) {
               setAgentStep(evt.step);
               appendExplore({ kind: "step", step: evt.step, maxSteps: evt.maxSteps });
 
@@ -1466,105 +1263,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               </button>
             );
           })}
-          {/* GPU VRAM chip — only visible for Ollama models */}
-          {isOllamaModel && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setGpuChipOpen(v => !v)}
-                title={isWarm ? `Model loaded in VRAM · expires in ${formatExpiry(hotModel!.expires_at)}` : "Model not in VRAM — first response will be slower"}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all",
-                  isWarm
-                    ? "border-green-500/30 text-green-400 bg-green-500/10 hover:bg-green-500/20"
-                    : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground",
-                )}
-              >
-                <Cpu className="w-2.5 h-2.5" />
-                {isWarm ? (
-                  <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    <span>{formatVram(hotModel!.size_vram)}</span>
-                    <span className="text-green-500/70">·</span>
-                    <span>{formatExpiry(hotModel!.expires_at)}</span>
-                  </>
-                ) : (
-                  <span>Cold</span>
-                )}
-              </button>
-
-              {gpuChipOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setGpuChipOpen(false)} />
-                  <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/30">
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-                        <Cpu className="w-3 h-3" /> VRAM Monitor
-                      </span>
-                      <button onClick={() => setGpuChipOpen(false)} className="text-muted-foreground hover:text-foreground">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-
-                    {/* Running models list */}
-                    <div className="p-2 space-y-1.5 max-h-48 overflow-y-auto">
-                      {gpuModels.length === 0 ? (
-                        <div className="py-3 text-center text-xs text-muted-foreground">
-                          No models loaded in VRAM
-                          <p className="text-[10px] mt-1 text-muted-foreground/60">First request will load the model (~10–30s)</p>
-                        </div>
-                      ) : (
-                        gpuModels.map(m => {
-                          const isCurrent = m.name === currentModelName || m.name.startsWith(currentModelName.split(":")[0]);
-                          return (
-                            <div key={m.name} className={cn(
-                              "rounded-lg px-2.5 py-2 border text-xs",
-                              isCurrent ? "border-green-500/30 bg-green-500/5" : "border-border/40 bg-muted/20",
-                            )}>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-mono font-medium truncate text-[11px]">{m.name}</span>
-                                {isCurrent && <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/20 font-bold shrink-0">Active</span>}
-                              </div>
-                              <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
-                                <span title="VRAM used">{formatVram(m.size_vram)} VRAM</span>
-                                <span title="Expires from VRAM">· evicts in {formatExpiry(m.expires_at)}</span>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    {/* Keep Warm button */}
-                    <div className="border-t border-border/40 p-2">
-                      <button
-                        onClick={() => { void handleKeepWarm(); setGpuChipOpen(false); }}
-                        disabled={warmingUp || !isWarm}
-                        className={cn(
-                          "w-full flex items-center justify-center gap-1.5 text-[11px] font-medium rounded-lg px-3 py-1.5 transition-colors",
-                          isWarm
-                            ? "bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20"
-                            : "bg-muted text-muted-foreground cursor-not-allowed border border-border/40",
-                        )}
-                      >
-                        {warmingUp
-                          ? <><Loader2 className="w-3 h-3 animate-spin" /> Extending…</>
-                          : <><Flame className="w-3 h-3" /> Keep Warm 30min</>
-                        }
-                      </button>
-                      <p className="text-[9px] text-muted-foreground/60 text-center mt-1">
-                        Prevents cold-start delays by keeping model in GPU memory
-                      </p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
           {/* Model picker */}
-          <div className={cn("relative", !isOllamaModel && "ml-auto")}>
+          <div className="relative ml-auto">
             <button
               type="button"
               onClick={() => setModelPickerOpen(v => !v)}
@@ -1578,14 +1278,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               )}
             >
               <Bot className="w-3 h-3" />
-              <span className="max-w-[80px] truncate">
-                {aiModel === "auto:auto" && autoResolvedModel
-                  ? `Auto → ${getModelShortName(autoResolvedModel)}`
-                  : getModelShortName(aiModel)}
-              </span>
-              {isPaidModel(aiModel) && (
-                <DollarSign className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-              )}
+              <span className="max-w-[80px] truncate">{getModelShortName(aiModel)}</span>
               <ChevronDown className={cn("w-2.5 h-2.5 transition-transform", modelPickerOpen && "rotate-180")} />
             </button>
 
@@ -1594,67 +1287,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 <div className="fixed inset-0 z-40" onClick={() => setModelPickerOpen(false)} />
                 <div className="absolute bottom-full right-0 mb-1.5 w-72 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
                   <div className="max-h-80 overflow-y-auto">
-                    {/* OrahAI Free (Local) — Ollama Server models */}
-                    {(liveOllamaModels.length > 0 || (ollamaLoading && liveOllamaModels.length === 0)) && (
-                      <div>
-                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-green-950/40 backdrop-blur border-b border-green-900/30">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
-                            <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">OrahAI — Free, Local</span>
-                          </div>
-                          {ollamaLoading
-                            ? <span className="text-[8px] text-muted-foreground">Loading…</span>
-                            : <span className="text-[8px] text-green-500/70">no API key needed</span>
-                          }
-                        </div>
-                        {liveOllamaModels.map(model => (
-                          <button key={model.id}
-                            onClick={() => { setAiModel(model.id); localStorage.setItem("orahai_ai_model", model.id); setModelPickerOpen(false); }}
-                            className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === model.id && "text-primary bg-primary/5")}>
-                            <span className="flex-1 font-mono font-medium truncate">{model.name}</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-medium shrink-0">Free</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Ollama Remote models */}
-                    {(liveRemoteModels.length > 0) && (
-                      <div>
-                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
-                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Ollama — Remote</span>
-                        </div>
-                        {liveRemoteModels.map(model => (
-                          <button key={model.id}
-                            onClick={() => { setAiModel(model.id); localStorage.setItem("orahai_ai_model", model.id); setModelPickerOpen(false); }}
-                            className={cn("w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors text-left", aiModel === model.id && "text-primary bg-primary/5")}>
-                            <span className="flex-1 font-mono font-medium truncate">{model.name}</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium shrink-0">Remote</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Static model groups (auto + cloud providers + groq + ollama catalog) */}
-                    {MODEL_GROUPS.filter(g => {
-                      if (g.provider === "ollama") return false; // handled as live models above
-                      const PAID_PROVIDERS = ["openai","anthropic","gemini","xai","perplexity","deepseek"];
-                      if (PAID_PROVIDERS.includes(g.provider) && !enabledPaidProviders.has(g.provider)) return false;
-                      return true;
-                    }).map(group => {
-                      const isPaidProvider = ["openai","anthropic","gemini","xai","perplexity","deepseek"].includes(group.provider);
-                      return (
+                    {MODEL_GROUPS.map(group => (
                       <div key={group.label}>
-                        <div className="sticky top-0 flex items-center justify-between px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
-                            {isPaidProvider && (
-                              <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">Pro</span>
-                            )}
-                          </div>
-                          {group.note && !isPaidProvider && (
-                            <span className="text-[8px] text-muted-foreground/70 font-medium truncate max-w-[120px]">{group.note}</span>
-                          )}
+                        <div className="sticky top-0 px-3 py-1.5 bg-muted/60 backdrop-blur border-b border-border/40">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{group.label}</span>
                         </div>
                         {group.models.map(model => (
                           <button
@@ -1681,50 +1317,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                           </button>
                         ))}
                       </div>
-                      );
-                    })}
-                  </div>
-                  {/* Footer: paid provider toggles + manage link */}
-                  <div className="border-t border-border/40 px-3 pt-2 pb-1.5 space-y-0.5">
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">Enable Providers (your API keys)</p>
-                    {([
-                      { provider: "openai",     label: "OpenAI",     sub: "OPENAI_API_KEY" },
-                      { provider: "anthropic",  label: "Anthropic",  sub: "ANTHROPIC_API_KEY" },
-                      { provider: "gemini",     label: "Gemini",     sub: "GOOGLE_API_KEY" },
-                      { provider: "xai",        label: "xAI Grok",   sub: "XAI_API_KEY" },
-                      { provider: "perplexity", label: "Perplexity", sub: "PERPLEXITY_API_KEY" },
-                      { provider: "deepseek",   label: "DeepSeek",   sub: "DEEPSEEK_API_KEY" },
-                    ] as const).map(({ provider, label, sub }) => {
-                      const on = enabledPaidProviders.has(provider);
-                      return (
-                        <button key={provider} type="button"
-                          onClick={() => togglePaidProvider(provider)}
-                          className="w-full flex items-center gap-2.5 px-1 py-0.5 rounded-lg hover:bg-muted/60 transition-colors"
-                        >
-                          <div className={cn(
-                            "w-7 h-3.5 rounded-full transition-colors relative shrink-0",
-                            on ? "bg-primary" : "bg-muted-foreground/25",
-                          )}>
-                            <div className={cn(
-                              "absolute top-[1px] w-[11px] h-[11px] bg-white rounded-full shadow transition-transform",
-                              on ? "translate-x-[14px]" : "translate-x-[1px]",
-                            )} />
-                          </div>
-                          <span className={cn("flex-1 text-left text-[11px] font-medium", on ? "text-foreground" : "text-muted-foreground")}>
-                            {label}
-                          </span>
-                          <code className="text-[8px] text-muted-foreground/50 shrink-0 font-mono">{sub}</code>
-                        </button>
-                      );
-                    })}
-                    <a
-                      href="/ai-models"
-                      onClick={() => setModelPickerOpen(false)}
-                      className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-primary transition-colors px-1 pt-1"
-                    >
-                      <Bot className="w-3 h-3" />
-                      Manage models & pull new ones →
-                    </a>
+                    ))}
                   </div>
                 </div>
               </>
@@ -1799,34 +1392,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
         onChange={(e) => { if (e.target.files?.length) handleImageFiles(e.target.files); e.target.value = ""; }} />
 
-      {/* Paid model confirmation — Radix portals to body so nesting here is fine */}
-      <AlertDialog open={paidConfirmOpen} onOpenChange={(open) => {
-        if (!open) pendingPaidSubmit.current = null;
-        setPaidConfirmOpen(open);
-      }}>
-        <AlertDialogContent className="max-w-sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-amber-400" />
-              Paid model
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <strong>{getModelShortName(aiModel)}</strong> may incur API costs.
-              Send this message using it?
-              <br />
-              <span className="text-[11px] text-muted-foreground/70">
-                You won&apos;t be asked again this session for this model.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPaidSend}>
-              Send anyway
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 });
