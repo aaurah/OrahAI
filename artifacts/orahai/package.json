@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@vercel/speed-insights": "^2.0.0",
     "fflate": "^0.8.3",
     "monaco-editor": "^0.55.1",
     "socket.io-client": "^4.8.3",
