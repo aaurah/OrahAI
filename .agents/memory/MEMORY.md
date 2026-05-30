@@ -5,3 +5,4 @@
 - [Run-command detection for nested apps](run-detection-nested.md) — Run must detect apps in subdirs (monorepo/import) via cwd threading; pnpm-workspace members can't install standalone.
 - [Vite env throws](vite-env-throws.md) — orahai vite.config must fall back to defaults, never throw, on missing PORT/BASE_PATH or the artifact-managed "OrahAI" preview crashes.
 - [Run entry detection](run-entry-detection.md) — run-command detection must match marker files at ROOT only and run only entry files that exist; never hardcode `python main.py`.
+- [Git push / GitHub sync from main agent](git-push-env.md) — token only in bash shell (not JS sandbox); run git via a `bash script.sh` wrapper; after push remove stale origin/main.lock + re-fetch; prefer merge over auto-rebase.
