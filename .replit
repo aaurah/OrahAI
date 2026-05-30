@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+modules = ["nodejs-20", "web", "python-3.12"]
 
 [deployment]
 router = "application"
@@ -32,7 +32,7 @@ args = "OLLAMA_MODELS=/home/runner/.ollama/models OLLAMA_HOST=127.0.0.1:11434 ol
 outputType = "console"
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
