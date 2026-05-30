@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useSyncExternalStore } from "react";
 import {
   Send, Bot, User, Loader2, Sparkles, StopCircle, Trash2,
   Copy, Check, Play, Terminal as TerminalIcon,
@@ -16,6 +16,7 @@ import { toast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, Run, ApiResponse } from "@/types";
 import { MODEL_GROUPS, DEFAULT_MODEL, getModelShortName } from "@/lib/models";
+import { chatStore } from "@/lib/chatStore";
 
 // Maps a code-block language hint to a sensible default filename when no file is open
 const LANG_TO_PATH: Record<string, string> = {
@@ -110,9 +111,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   { projectId, activeFilePath, activeFileContent, onApplyCode, onApplyToPath, onFileChange, onStreamingChange, onRunInTerminal, onTerminalOpen, autoDevEnabled, growthCount = 0 },
   ref,
 ) {
-  const [items, setItems] = useState<ListItem[]>([]);
+  // ── Global chat store — state survives navigation so streaming runs in background ──
+  const _chatState = useSyncExternalStore(
+    useCallback((fn) => chatStore.subscribe(projectId, fn), [projectId]),
+    useCallback(() => chatStore.getSnapshot(projectId), [projectId]),
+  );
+  const items = _chatState.items as ListItem[];
+  const isStreaming = _chatState.isStreaming;
+
+  const setItems = useCallback(
+    (updater: ListItem[] | ((prev: ListItem[]) => ListItem[])) => {
+      chatStore.setItems(projectId, updater as unknown[] | ((prev: unknown[]) => unknown[]));
+    },
+    [projectId],
+  );
+  const setIsStreaming = useCallback(
+    (streaming: boolean) => chatStore.setStreaming(projectId, streaming),
+    [projectId],
+  );
+
   const [input, setInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
   const [agentStep, setAgentStep] = useState(0);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [urlPreviews, setUrlPreviews] = useState<{ id: string; url: string }[]>([]);
@@ -156,9 +174,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     api.get<{ data: ChatMessage[] }>(`/api/ai/chat/${projectId}`)
       .then((res) => setItems(res.data ?? []))
       .catch(() => undefined);
-  }, [projectId]);
+  }, [projectId, setItems]);
 
-  useEffect(() => { fetchMessages(); }, [fetchMessages]);
+  useEffect(() => {
+    // Skip initial fetch if background streaming has already populated this project
+    if (chatStore.hasItems(projectId) || chatStore.getSnapshot(projectId).isStreaming) return;
+    fetchMessages();
+  }, [fetchMessages, projectId]);
 
   // On mount: check whether there is an in-flight background job for this project
   useEffect(() => {
@@ -312,8 +334,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   // Abort all active streams (primary + any parallel force-sends)
   const abortAll = () => {
-    abortRef.current?.abort();
-    for (const ctrl of parallelAbortMap.current.values()) ctrl.abort();
+    // Abort primary stream — check local ref first, then store (for background-started streams)
+    const ctrl = abortRef.current ?? chatStore.getAbortController(projectId);
+    ctrl?.abort();
+    for (const c of parallelAbortMap.current.values()) c.abort();
   };
 
   // Force-send a specific queued message right now, in parallel with the current stream
@@ -374,6 +398,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setAgentStep(1);
       abortedRef.current = false;
       abortRef.current = new AbortController();
+      chatStore.setAbortController(projectId, abortRef.current);
       setAutoResolvedModel(null); // reset auto-resolved model on each new request
     }
 
@@ -545,6 +570,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       } else {
         setAgentStep(0);
         abortRef.current = null;
+        chatStore.setAbortController(projectId, null);
 
         if (abortedRef.current) {
           // Abort: also kill any parallel streams and clear queue

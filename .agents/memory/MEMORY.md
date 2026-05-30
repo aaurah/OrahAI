@@ -8,3 +8,4 @@
 - [Run entry detection](run-entry-detection.md) — run-command detection must match marker files at ROOT only and run only entry files that exist; never hardcode `python main.py`.
 - [Git push / GitHub sync from main agent](git-push-env.md) — token only in bash shell (not JS sandbox); run git via a `bash script.sh` wrapper; after push remove stale origin/main.lock + re-fetch; prefer merge over auto-rebase.
 - [Workspace dual-layout mounting](workspace-dual-layout.md) — WorkspacePage renders desktop+mobile trees at once (CSS-hidden); mount singletons (Terminal/sockets) ONCE at page root, not per branch.
+- [Background AI streaming via module store](chat-background-streaming.md) — use chatStore (src/lib/chatStore.ts) + useSyncExternalStore to persist items/isStreaming outside React; fetch stream outlives component unmount.

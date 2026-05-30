@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Bot, Code2, LayoutDashboard, Rocket, ChevronDown, LogOut, User, Shield,
@@ -18,6 +18,7 @@ import { useTheme, type Theme } from "@/contexts/ThemeContext";
 import { api } from "@/lib/api";
 import { formatDistanceToNow } from "@/lib/utils";
 import type { ApiResponse } from "@/types";
+import { chatStore } from "@/lib/chatStore";
 
 interface NotificationItem {
   id: string;
@@ -216,6 +217,22 @@ function NotificationBell({ userId }: { userId: string }) {
   );
 }
 
+function AiBackgroundBadge() {
+  const snap = useSyncExternalStore(
+    useCallback((fn) => chatStore.subscribeGlobal(fn), []),
+    useCallback(() => chatStore.getGlobalSnapshot(), []),
+  );
+  if (!snap.anyStreaming) return null;
+  const href = snap.firstProjectId ? `/workspace/${snap.firstProjectId}` : null;
+  const inner = (
+    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border border-primary/30 bg-primary/10 text-primary animate-pulse cursor-pointer select-none">
+      <Loader2 className="w-3 h-3 animate-spin" />
+      Claude is thinking…
+    </span>
+  );
+  return href ? <Link href={href}>{inner}</Link> : inner;
+}
+
 export function Navbar() {
   const [pathname] = useLocation();
   const { user } = useAuth();
@@ -265,6 +282,8 @@ export function Navbar() {
             </Link>
           )}
         </div>
+
+        <AiBackgroundBadge />
 
         <div className="flex items-center gap-1">
           <ThemeToggle />
