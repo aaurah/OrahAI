@@ -1,3 +1,4 @@
 - [CodeEditor external-update guard](codeeditor-update.md) — must check isDirty before calling editor.setValue() on external file changes or AI writes silently clobber unsaved user work.
 - [Toast remove delay](toast-delay.md) — shadcn use-toast.ts scaffolds with TOAST_REMOVE_DELAY=1000000 (never dismissed); set to 5000ms.
 - [ActivityBar hasGithub](activitybar-props.md) — hasGithub prop must be explicitly destructured AND used in the filter; easy to define in interface but forget in function signature.
+- [Vite env throws](vite-env-throws.md) — orahai vite.config must fall back to defaults, never throw, on missing PORT/BASE_PATH or the artifact-managed "OrahAI" preview crashes.
