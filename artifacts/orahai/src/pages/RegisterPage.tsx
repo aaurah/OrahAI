@@ -24,8 +24,16 @@ export default function RegisterPage() {
       localStorage.setItem("orahai_token", res.data.token);
       navigate("/dashboard"); // new users have no projects yet — go create one
     } catch (err: unknown) {
-      const apiErr = err as { response?: { data?: { message?: string } }; message?: string };
-      setError(apiErr.response?.data?.message ?? apiErr.message ?? "Registration failed");
+      const apiErr = err as { response?: { data?: { message?: string; details?: { message: string; path: string[] }[] } }; message?: string };
+      const data = apiErr.response?.data;
+      // Surface specific field error details when available (e.g. "username must be at least 3 characters")
+      if (data?.details && Array.isArray(data.details) && data.details.length > 0) {
+        const first = data.details[0];
+        const field = first.path?.[0];
+        setError(field ? `${field.charAt(0).toUpperCase() + field.slice(1)}: ${first.message}` : first.message);
+      } else {
+        setError(data?.message ?? apiErr.message ?? "Registration failed");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +70,7 @@ export default function RegisterPage() {
                 <Label htmlFor="username">Username</Label>
                 <Input id="username" placeholder="janedoe" value={form.username}
                   onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  required pattern="[a-zA-Z0-9_-]+" autoComplete="username" />
+                  required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_-]+" autoComplete="username" />
               </div>
             </div>
 
