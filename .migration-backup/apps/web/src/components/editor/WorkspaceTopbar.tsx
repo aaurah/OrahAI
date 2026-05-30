@@ -1,88 +1,72 @@
-"use client";
+import React from "react";
 import Link from "next/link";
-import { Bot, Play, Square, Loader2, MessageSquare, Terminal as TerminalIcon, LayoutPanelLeft, ArrowLeft, Circle } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
-import type { Project, Run } from "@orahai/types";
 
-interface Props {
-  project: Project;
-  latestRun?: Run | null;
-  isRunning: boolean;
-  onRun: () => void;
-  chatOpen: boolean;
-  onChatToggle: () => void;
-  terminalOpen: boolean;
-  onTerminalToggle: () => void;
+interface WorkspaceTopbarProps {
+  user?: { id: string; email: string; name?: string };
+  workspaceName?: string;
 }
 
-const LANG_ICONS: Record<string, string> = {
-  nodejs: "🟩", python: "🐍", typescript: "🔷", html: "🌐",
-};
+const MAIN_ADMIN_EMAILS = [
+  "aaurah@protonmail.com",
+  "orahai@proton.me",
+];
 
-export function WorkspaceTopbar({ project, latestRun, isRunning, onRun, chatOpen, onChatToggle, terminalOpen, onTerminalToggle }: Props) {
-  const statusColor = latestRun?.status === "success" ? "text-green-500"
-    : latestRun?.status === "error" ? "text-destructive"
-    : latestRun?.status === "running" ? "text-amber-400 animate-pulse"
-    : "text-muted-foreground";
+export const WorkspaceTopbar: React.FC<WorkspaceTopbarProps> = ({
+  user,
+  workspaceName,
+}) => {
+  const isMainAdmin = user && MAIN_ADMIN_EMAILS.includes(user.email);
 
   return (
-    <div className="h-12 border-b border-border flex items-center gap-2 px-3 bg-background shrink-0">
-      {/* Back + logo */}
-      <Link href="/dashboard" className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors mr-1">
-        <ArrowLeft className="w-4 h-4" />
-        <Bot className="w-5 h-5 text-primary" />
-      </Link>
-
-      {/* Project name */}
-      <span className="text-sm font-semibold truncate max-w-[200px]">
-        {LANG_ICONS[project.language] ?? "📁"} {project.name}
-      </span>
-
-      <span className="text-muted-foreground/40 text-xs hidden sm:block capitalize">
-        · {project.language}
-      </span>
-
-      <div className="flex-1" />
-
-      {/* Run status */}
-      {latestRun && (
-        <div className={cn("flex items-center gap-1 text-xs", statusColor)}>
-          <Circle className="w-2 h-2 fill-current" />
-          <span className="capitalize">{latestRun.status}</span>
-        </div>
-      )}
-
-      {/* Run / Stop button */}
-      <Button
-        size="sm"
-        variant={isRunning ? "outline" : "default"}
-        onClick={onRun}
-        disabled={isRunning}
-        className="gap-1.5 h-8"
-      >
-        {isRunning ? (
-          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running</>
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "0.75rem 1.5rem",
+      borderBottom: "1px solid #eee",
+      background: "#fafaff",
+      fontWeight: 500,
+      fontSize: "1rem",
+      minHeight: "52px"
+    }}>
+      <div>
+        {workspaceName ? (
+          <span>{workspaceName}</span>
         ) : (
-          <><Play className="w-3.5 h-3.5" /> Run</>
+          <span>Workspace</span>
         )}
-      </Button>
-
-      {/* Panel toggles */}
-      <button
-        onClick={onTerminalToggle}
-        className={cn("p-1.5 rounded hover:bg-muted transition-colors", terminalOpen && "bg-muted text-foreground")}
-        title="Toggle terminal"
-      >
-        <TerminalIcon className="w-4 h-4" />
-      </button>
-      <button
-        onClick={onChatToggle}
-        className={cn("p-1.5 rounded hover:bg-muted transition-colors", chatOpen && "bg-muted text-foreground")}
-        title="Toggle AI chat"
-      >
-        <MessageSquare className="w-4 h-4" />
-      </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        {isMainAdmin && (
+          <Link
+            href="/dashboard/admin"
+            style={{
+              marginRight: "1rem",
+              padding: "7px 18px",
+              borderRadius: "8px",
+              background: "#2d5cff",
+              color: "#fff",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textDecoration: "none"
+            }}
+          >
+            Admin Panel
+          </Link>
+        )}
+        {user && (
+          <span style={{
+            background: "#efefef",
+            borderRadius: "1.5em",
+            padding: "0.5em 1em",
+            fontSize: "0.91em"
+          }}>
+            {user.email}
+          </span>
+        )}
+      </div>
     </div>
   );
-}
+};
+
+export default WorkspaceTopbar;
