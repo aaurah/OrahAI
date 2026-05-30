@@ -31,7 +31,7 @@ Promise.all([runEmailNormalizationMigration(), runDomainsMigration(), runMcpMigr
     const httpServer = createServer(app);
 
     const io = new Server(httpServer, {
-      cors: { origin: "*", methods: ["GET", "POST"] },
+      cors: { origin: config.cors.origins ?? "*", methods: ["GET", "POST"] },
       transports: ["websocket", "polling"],
     });
 
