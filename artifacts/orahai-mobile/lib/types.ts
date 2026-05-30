@@ -5,6 +5,40 @@ export interface AuthUser {
   username: string;
   avatarUrl: string | null;
   bio: string | null;
+  isAdmin?: boolean;
+  isFreeAccess?: boolean;
+}
+
+export interface AdminStats {
+  users: { total: number; new30Days: number };
+  projects: { total: number; new30Days: number };
+  files: { total: number };
+  runs: { total: number; success: number; error: number };
+  chats: { total: number };
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  username: string;
+  avatarUrl: string | null;
+  createdAt: string;
+  projectCount: number;
+  isAdmin: boolean;
+  isFreeAccess: boolean;
+}
+
+export interface AdminRun {
+  id: string;
+  projectId: string;
+  projectName: string;
+  command: string;
+  status: string;
+  exitCode: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
 }
 
 export interface AuthResponse {
