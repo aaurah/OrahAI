@@ -11,9 +11,10 @@ const app: Express = express();
 app.set("trust proxy", 1);
 
 // ── Security headers ──────────────────────────────────────────────────────────
+// Note: X-Frame-Options is NOT set here because /api/preview/* serves HTML that
+// must be embeddable in an iframe (same-origin). preview.ts sets SAMEORIGIN itself.
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
