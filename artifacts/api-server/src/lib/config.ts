@@ -30,6 +30,10 @@ export const config = {
   aiServiceUrl:        process.env.AI_SERVICE_URL ?? "",
   aiServiceInternalKey: process.env.AI_SERVICE_INTERNAL_KEY ?? "",
 
+  // GitHub Copilot models (https://api.githubcopilot.com)
+  // Set GITHUB_COPILOT_TOKEN to a GitHub PAT with Copilot access
+  githubCopilotToken:  process.env.GITHUB_COPILOT_TOKEN ?? "",
+
   github: {
     clientId:     process.env.GITHUB_CLIENT_ID ?? "",
     clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
