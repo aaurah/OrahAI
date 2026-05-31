@@ -1,4 +1,4 @@
-export type ModelProvider = "anthropic";
+export type ModelProvider = "anthropic" | "github";
 
 export interface ModelDef {
   id: string;
@@ -20,10 +20,21 @@ export const MODEL_GROUPS: ModelGroup[] = [
     label: "Claude",
     provider: "anthropic",
     models: [
-      { id: "anthropic:claude-opus-4-5",           name: "Claude Opus 4.5",   provider: "anthropic", badge: "Powerful", vision: true, description: "Best Claude — long context, complex tasks" },
-      { id: "anthropic:claude-sonnet-4-5",         name: "Claude Sonnet 4.5", provider: "anthropic", badge: "Best",     vision: true, description: "Top quality/speed balance" },
-      { id: "anthropic:claude-sonnet-4-6",         name: "Claude Sonnet 4.6", provider: "anthropic", badge: "New",      vision: true, description: "Latest Claude Sonnet" },
-      { id: "anthropic:claude-haiku-4-5-20251001", name: "Claude Haiku 4.5",  provider: "anthropic", badge: "Fast",                  description: "Fast, affordable Claude" },
+      { id: "anthropic:claude-opus-4-5",           name: "Claude Opus 4.5",   provider: "anthropic", badge: "Powerful", vision: true,  description: "Best Claude — long context, complex tasks" },
+      { id: "anthropic:claude-sonnet-4-5",         name: "Claude Sonnet 4.5", provider: "anthropic", badge: "Best",     vision: true,  description: "Top quality/speed balance" },
+      { id: "anthropic:claude-sonnet-4-6",         name: "Claude Sonnet 4.6", provider: "anthropic", badge: "New",      vision: true,  description: "Latest Claude Sonnet" },
+      { id: "anthropic:claude-haiku-4-5-20251001", name: "Claude Haiku 4.5",  provider: "anthropic", badge: "Fast",     vision: false, description: "Fast, affordable Claude" },
+    ],
+  },
+  {
+    label: "GitHub Copilot",
+    provider: "github",
+    models: [
+      { id: "github:gpt-4o",      name: "GPT-4o",      provider: "github", badge: "Best",      vision: true,  description: "OpenAI's most capable model" },
+      { id: "github:gpt-4o-mini", name: "GPT-4o Mini", provider: "github", badge: "Fast",      vision: true,  description: "Fast and cost-efficient GPT-4o" },
+      { id: "github:o3-mini",     name: "o3-mini",     provider: "github", badge: "Reasoning", vision: false, description: "Advanced reasoning at speed" },
+      { id: "github:o1",          name: "o1",          provider: "github", badge: "Powerful",  vision: false, description: "Deep reasoning for complex tasks" },
+      { id: "github:o1-mini",     name: "o1-mini",     provider: "github", badge: "Fast",      vision: false, description: "Fast reasoning model" },
     ],
   },
 ];

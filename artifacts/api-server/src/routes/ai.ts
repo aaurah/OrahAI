@@ -25,6 +25,16 @@ function getAnthropicClient(): Anthropic | null {
   return new Anthropic({ ...(proxyBase && !ownKey ? { baseURL: proxyBase } : {}), apiKey: apiKey ?? "dummy" } as any);
 }
 
+function getGithubCopilotClient(): OpenAI | null {
+  const token = process.env.GITHUB_COPILOT_TOKEN;
+  if (!token) return null;
+  return new OpenAI({
+    baseURL: "https://api.githubcopilot.com",
+    apiKey: token,
+    defaultHeaders: { "Copilot-Integration-Id": "vscode-chat" },
+  });
+}
+
 function toAnthropicMessages(msgs: OpenAI.ChatCompletionMessageParam[]): unknown[] {
   return msgs
     .filter(m => m.role !== "system")
@@ -737,33 +747,55 @@ router.post("/chat/:projectId", requireAuth, aiRateLimiter,
         let stepContent = "";
         let stepFailed = false;
 
-        // ── Anthropic Claude call ───────────────────────────────────────────
+        // ── AI provider call ────────────────────────────────────────────────
         try {
-          const anthropicClient = getAnthropicClient();
-          if (!anthropicClient) {
-            const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
-            stepContent = errMsg; allContent += errMsg;
-            send({ type: "delta", content: errMsg }); stepFailed = true;
+          if (provider === "github") {
+            // ── GitHub Copilot ────────────────────────────────────────────────
+            const githubClient = getGithubCopilotClient();
+            if (!githubClient) {
+              const errMsg = "GitHub Copilot not configured. Add GITHUB_COPILOT_TOKEN to your environment.";
+              stepContent = errMsg; allContent += errMsg;
+              send({ type: "delta", content: errMsg }); stepFailed = true;
+            } else {
+              const stream = await githubClient.chat.completions.create({
+                model: modelName,
+                max_tokens: maxTokens,
+                messages: agentMessages,
+                stream: true,
+              });
+              for await (const chunk of stream) {
+                const t = chunk.choices[0]?.delta?.content ?? "";
+                if (t) { stepContent += t; allContent += t; send({ type: "delta", content: t }); }
+              }
+            }
           } else {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const stream = await (anthropicClient.messages.create as any)({
-              model: modelName,
-              max_tokens: maxTokens,
-              system: systemPrompt,
-              messages: toAnthropicMessages(agentMessages),
-              stream: true,
-            });
-            for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
-              const delta = event.delta as Record<string, unknown> | undefined;
-              if (event.type === "content_block_delta" && delta?.type === "text_delta") {
-                const t = String(delta.text ?? "");
-                stepContent += t; allContent += t;
-                send({ type: "delta", content: t });
+            // ── Anthropic Claude (default) ────────────────────────────────────
+            const anthropicClient = getAnthropicClient();
+            if (!anthropicClient) {
+              const errMsg = "Anthropic not configured. Add ANTHROPIC_API_KEY to your project secrets.";
+              stepContent = errMsg; allContent += errMsg;
+              send({ type: "delta", content: errMsg }); stepFailed = true;
+            } else {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const stream = await (anthropicClient.messages.create as any)({
+                model: modelName,
+                max_tokens: maxTokens,
+                system: systemPrompt,
+                messages: toAnthropicMessages(agentMessages),
+                stream: true,
+              });
+              for await (const event of stream as AsyncIterable<Record<string, unknown>>) {
+                const delta = event.delta as Record<string, unknown> | undefined;
+                if (event.type === "content_block_delta" && delta?.type === "text_delta") {
+                  const t = String(delta.text ?? "");
+                  stepContent += t; allContent += t;
+                  send({ type: "delta", content: t });
+                }
               }
             }
           }
         } catch (e) {
-          logger.warn({ err: e }, "AI error");
+          logger.warn({ err: e, provider, model: modelName }, "AI error");
           const errStatus = (e as { status?: number })?.status;
           const isRateLimit = errStatus === 429 || errStatus === 413;
           const errMsg = isRateLimit
